@@ -1,0 +1,28 @@
+{
+  "name": "@content-gen/video-engine",
+  "version": "0.1.0",
+  "private": true,
+  "exports": {
+    "./templates": "./src/template-registry.ts"
+  },
+  "scripts": {
+    "studio": "remotion studio src/index.ts",
+    "compositions": "remotion compositions src/index.ts",
+    "bundle": "npm run build",
+    "build": "remotion bundle src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@content-gen/domain": "0.1.0",
+    "@remotion/media-utils": "4.0.440",
+    "@remotion/cli": "4.0.440",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "remotion": "4.0.440"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "typescript": "5.9.3"
+  }
+}

@@ -1,0 +1,190 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  /* Dark premium theme - deep black base with muted leaf green accent */
+  --background: oklch(0.08 0 0);
+  --foreground: oklch(0.95 0 0);
+  --card: oklch(0.12 0 0);
+  --card-foreground: oklch(0.95 0 0);
+  --popover: oklch(0.12 0 0);
+  --popover-foreground: oklch(0.95 0 0);
+  /* Muted leaf green as primary */
+  --primary: oklch(0.54 0.12 145);
+  --primary-foreground: oklch(0.98 0 0);
+  --secondary: oklch(0.16 0 0);
+  --secondary-foreground: oklch(0.95 0 0);
+  --muted: oklch(0.18 0 0);
+  --muted-foreground: oklch(0.6 0 0);
+  /* Subtle green accent */
+  --accent: oklch(0.45 0.1 145);
+  --accent-foreground: oklch(0.98 0 0);
+  --destructive: oklch(0.5 0.2 25);
+  --destructive-foreground: oklch(0.98 0 0);
+  --border: oklch(0.22 0 0);
+  --input: oklch(0.16 0 0);
+  --ring: oklch(0.55 0.12 145);
+  --chart-1: oklch(0.55 0.12 145);
+  --chart-2: oklch(0.6 0.1 180);
+  --chart-3: oklch(0.5 0.08 220);
+  --chart-4: oklch(0.65 0.1 90);
+  --chart-5: oklch(0.55 0.15 40);
+  --radius: 0.75rem;
+  --sidebar: oklch(0.1 0 0);
+  --sidebar-foreground: oklch(0.95 0 0);
+  --sidebar-primary: oklch(0.54 0.12 145);
+  --sidebar-primary-foreground: oklch(0.98 0 0);
+  --sidebar-accent: oklch(0.16 0 0);
+  --sidebar-accent-foreground: oklch(0.95 0 0);
+  --sidebar-border: oklch(0.22 0 0);
+  --sidebar-ring: oklch(0.55 0.12 145);
+  /* Divider used by the carousel renderer below */
+  --line: color-mix(in oklch, var(--border) 88%, transparent);
+}
+
+.dark {
+  --background: oklch(0.08 0 0);
+  --foreground: oklch(0.95 0 0);
+  --card: oklch(0.12 0 0);
+  --card-foreground: oklch(0.95 0 0);
+  --popover: oklch(0.12 0 0);
+  --popover-foreground: oklch(0.95 0 0);
+  --primary: oklch(0.54 0.12 145);
+  --primary-foreground: oklch(0.98 0 0);
+  --secondary: oklch(0.16 0 0);
+  --secondary-foreground: oklch(0.95 0 0);
+  --muted: oklch(0.18 0 0);
+  --muted-foreground: oklch(0.6 0 0);
+  --accent: oklch(0.45 0.1 145);
+  --accent-foreground: oklch(0.98 0 0);
+  --destructive: oklch(0.5 0.2 25);
+  --destructive-foreground: oklch(0.98 0 0);
+  --border: oklch(0.22 0 0);
+  --input: oklch(0.16 0 0);
+  --ring: oklch(0.55 0.12 145);
+  --chart-1: oklch(0.55 0.12 145);
+  --chart-2: oklch(0.6 0.1 180);
+  --chart-3: oklch(0.5 0.08 220);
+  --chart-4: oklch(0.65 0.1 90);
+  --chart-5: oklch(0.55 0.15 40);
+  --sidebar: oklch(0.1 0 0);
+  --sidebar-foreground: oklch(0.95 0 0);
+  --sidebar-primary: oklch(0.54 0.12 145);
+  --sidebar-primary-foreground: oklch(0.98 0 0);
+  --sidebar-accent: oklch(0.16 0 0);
+  --sidebar-accent-foreground: oklch(0.95 0 0);
+  --sidebar-border: oklch(0.22 0 0);
+  --sidebar-ring: oklch(0.55 0.12 145);
+}
+
+@theme inline {
+  --font-sans: var(--font-geist), 'Geist', sans-serif;
+  --font-mono: var(--font-geist-mono), 'Geist Mono', monospace;
+  --font-serif: var(--font-playfair), Georgia, serif;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+/* TikTok-style animations */
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.animate-spin-slow {
+  animation: spin-slow 4s linear infinite;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  :is(a[href], button, input, textarea, select, [role="combobox"], [contenteditable="true"]):focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    border: 3px solid transparent;
+    border-radius: 999px;
+    background-clip: padding-box;
+    background: oklch(0.36 0.02 145 / 0.75);
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: oklch(0.44 0.03 145 / 0.9);
+  }
+
+  /* Firefox */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: oklch(0.36 0.02 145 / 0.75) transparent;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Carousel renderer — required by CarouselFrame / carousel-preview.
+   Fonts mapped to the real web fonts loaded in layout.tsx.
+   ───────────────────────────────────────────────────────────── */
+.carousel-slide.font-geist { font-family: var(--font-geist), 'Geist', sans-serif; }
+.carousel-slide.font-playfair { font-family: var(--font-playfair), Georgia, serif; }
+.carousel-slide.font-space { font-family: var(--font-space), sans-serif; }
+.carousel-slide.font-sora { font-family: var(--font-sora), sans-serif; }
+
+.platform-frame { width: min(100%, 24rem); overflow: hidden; border: 1px solid color-mix(in srgb, var(--foreground) 16%, transparent); border-radius: 1rem; background: #0c0d0c; box-shadow: 0 2.4rem 5rem #0008; }.platform-frame.tiktok { width: min(100%, 20rem); border-radius: .6rem; }.platform-header { display: flex; align-items: center; justify-content: space-between; gap: .6rem; padding: .75rem .85rem; color: var(--foreground); font-size: .72rem; }.platform-frame.tiktok .platform-header { justify-content: center; background: #050505; color: #aaa; }.platform-frame.tiktok .platform-header b { color: #fff; }.avatar { display: grid; place-items: center; width: 1.6rem; height: 1.6rem; border-radius: 50%; background: var(--primary); color: #061008; }.platform-canvas { position: relative; aspect-ratio: 4 / 5; }.platform-frame.tiktok .platform-canvas { aspect-ratio: 3 / 5; }.counter { position: absolute; top: .7rem; right: .7rem; border-radius: 99px; background: #000a; color: #fff; font-size: .65rem; padding: .25rem .4rem; }.tiktok-actions { position: absolute; right: .6rem; bottom: 3rem; color: white; font-size: 1.4rem; line-height: 2; text-align: center; }.platform-controls { display: flex; align-items: center; justify-content: space-between; padding: .7rem .8rem; }.platform-controls > button { border: 0; background: transparent; color: var(--foreground); cursor: pointer; font-size: 1.1rem; }.platform-controls > div { display: flex; gap: .3rem; }.dot { width: .3rem; height: .3rem; border: 0; border-radius: 50%; background: #747774; cursor: pointer; padding: 0; }.dot.active { width: 1rem; border-radius: 99px; background: var(--carousel-accent, var(--primary)); }
+.carousel-slide { position: relative; display: flex; height: 100%; overflow: hidden; flex-direction: column; justify-content: center; padding: 10%; background-color: #111; color: #f5f5f0; isolation: isolate; }.carousel-slide::before { position: absolute; z-index: -1; inset: 0; background: radial-gradient(circle at 20% 15%, color-mix(in srgb, var(--carousel-accent) 28%, transparent), transparent 42%), linear-gradient(145deg, #181a18, #080908); content: ""; }.carousel-slide.background-lines::before { background: repeating-linear-gradient(-35deg, color-mix(in srgb, var(--carousel-accent) 14%, transparent) 0 1px, transparent 1px 12px), linear-gradient(145deg, #181a18, #080908); }.carousel-slide.background-dots::before { background: radial-gradient(color-mix(in srgb, var(--carousel-accent) 28%, transparent) 1px, transparent 1px), linear-gradient(145deg, #181a18, #080908); background-size: 13px 13px, auto; }.carousel-slide.background-grid::before { background: linear-gradient(color-mix(in srgb, var(--carousel-accent) 14%, transparent) 1px, transparent 1px), linear-gradient(90deg, color-mix(in srgb, var(--carousel-accent) 14%, transparent) 1px, transparent 1px), #101210; background-size: 23px 23px; }.carousel-slide.background-noise::before { background: repeating-linear-gradient(0deg, #fff1 0 1px, transparent 1px 3px), linear-gradient(145deg, #181a18, #080908); }.carousel-slide.background-radial::before { background: radial-gradient(circle at 25% 20%, color-mix(in srgb, var(--carousel-accent) 40%, transparent), transparent 35%), radial-gradient(circle at 85% 85%, color-mix(in srgb, var(--carousel-accent) 18%, transparent), transparent 35%), #0d0f0d; }.carousel-slide.font-serif { font-family: "Iowan Old Style", Georgia, serif; }.carousel-slide.font-sans { font-family: "Aptos", "Helvetica Neue", sans-serif; }.carousel-slide.font-mono { font-family: "Cascadia Mono", monospace; }.carousel-slide h3 { max-width: 12ch; margin: .5rem 0 1rem; font-size: clamp(1.6rem, 6vw, 2.9rem); font-weight: 400; letter-spacing: -.06em; line-height: .9; }.carousel-slide p { max-width: 27ch; margin: 0; color: #dbded8; font-family: "Aptos", sans-serif; font-size: .78rem; line-height: 1.45; }.slide-index, .slide-footer { color: var(--carousel-accent); font-family: "Cascadia Mono", monospace; font-size: .55rem; font-weight: 700; letter-spacing: .13em; }.slide-footer { position: absolute; right: 10%; bottom: 7%; color: #fff8; }.slide-mark { color: var(--carousel-accent); font-size: 3rem; }.carousel-slide ul, .carousel-slide ol { display: grid; gap: .75rem; margin: 1rem 0 0; padding: 0; list-style: none; }.carousel-slide ul li, .carousel-slide ol li { display: flex; gap: .6rem; border: 0; padding: 0; background: transparent; color: #f5f5f0; font-family: "Aptos", sans-serif; font-size: .8rem; }.carousel-slide li b { color: var(--carousel-accent); }.slide-number { color: var(--carousel-accent); font-family: "Cascadia Mono", monospace; font-size: clamp(4rem, 18vw, 8rem); letter-spacing: -.12em; line-height: .85; }.quote-glyph { color: var(--carousel-accent); font-size: 5rem; line-height: .4; }.carousel-slide blockquote { margin: 1.4rem 0 1rem; font-size: clamp(1.35rem, 5vw, 2.15rem); letter-spacing: -.05em; line-height: 1; }.slide-split { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; align-items: stretch; }.slide-media { min-height: 13rem; background: linear-gradient(135deg, var(--carousel-accent), #0d100e 62%); clip-path: polygon(15% 0, 100% 0, 85% 100%, 0 100%); }.slide-media i { display: block; width: 35%; height: 35%; margin: 25%; border: 1px solid #fff8; border-radius: 50%; }.layout-imageOverlay { background: linear-gradient(135deg, #031f12, #101813 52%, #0b0c0b); }.slide-overlay { margin-top: auto; }.layout-imageOverlay::after { position: absolute; z-index: -1; right: -20%; bottom: -25%; width: 90%; height: 70%; border: 1px solid var(--carousel-accent); border-radius: 50%; content: ""; }.layout-timeline ol { border-left: 1px solid var(--carousel-accent); padding-left: 1rem; }.layout-timeline ol b { min-width: 1.5rem; }.stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; margin-top: 1rem; }.stat-grid div { display: grid; min-height: 4rem; align-content: space-between; border: 1px solid #fff3; padding: .5rem; }.stat-grid b { color: var(--carousel-accent); font-family: "Cascadia Mono", monospace; }.stat-grid span { font-family: "Aptos", sans-serif; font-size: .65rem; }.slide-cta { text-align: center; }.slide-cta > span { color: var(--carousel-accent); font-size: 3rem; }.slide-cta h3 { margin-inline: auto; }.slide-cta p { margin-inline: auto; }.slide-cta button { margin-top: 1.4rem; border: 1px solid var(--carousel-accent); background: var(--carousel-accent); color: #071008; font: inherit; font-size: .7rem; padding: .6rem .8rem; }
+
+.carousel-slide [contenteditable="true"] { cursor: text; outline: 1px dashed transparent; outline-offset: .2rem; }
+.carousel-slide [contenteditable="true"]:hover, .carousel-slide [contenteditable="true"]:focus { outline-color: var(--carousel-accent); }
+
+/* Slide images (F03-011) */
+.slide-media img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.slide-bg-image { position: absolute; z-index: -2; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.carousel-slide.layout-imageOverlay.has-image::before { background: linear-gradient(to top, oklch(0 0 0 / 0.9), oklch(0 0 0 / 0.35) 55%, oklch(0 0 0 / 0.15)); }
+.carousel-slide.layout-imageOverlay.has-image::after { content: none; }

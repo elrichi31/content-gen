@@ -1,0 +1,8 @@
+{
+  "name": "@content-gen/render-worker",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "test:job": "node src/worker.mjs --job fixtures/foundation-job.json"
+  }
+}

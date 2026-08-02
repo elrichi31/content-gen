@@ -1,0 +1,27 @@
+# Dependencies and build artifacts
+**/node_modules/
+**/.next/
+**/build/
+**/out/
+*.tsbuildinfo
+
+# Local secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Local application data and generated media
+storage/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
+# Tool and operating-system noise
+.claude/
+*.log
+.DS_Store
+Thumbs.db
+
+packages\video-engine\build

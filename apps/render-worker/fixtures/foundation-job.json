@@ -1,0 +1,9 @@
+{
+  "id": "job-foundation-video-001",
+  "status": "queued",
+  "kind": "video",
+  "compositionId": "FoundationVideo",
+  "inputProps": {
+    "title": "Content Gen"
+  }
+}
