@@ -9,6 +9,7 @@ import { dirname, resolve } from "node:path";
  */
 
 const WORKER_PATH = "apps/render-worker/src/worker.mjs";
+const STALE_RENDER_JOB_MS = 45_000;
 
 /** El worker resuelve rutas relativas a la raíz del repo; el servidor de Next corre desde `apps/studio`. */
 export function findRepoRoot(start = process.cwd()) {
@@ -25,12 +26,17 @@ export function findRepoRoot(start = process.cwd()) {
 export const renderWorkerAutostartEnabled = (value = process.env.RENDER_WORKER_AUTOSTART) =>
   value !== "0" && value?.toLowerCase() !== "false";
 
-export function startRenderWorker() {
+export function isRenderJobStale(job: { status: string; createdAt: string; updatedAt?: string }, currentTime = Date.now()) {
+  const lastActivity = Date.parse(job.updatedAt ?? job.createdAt);
+  return job.status === "processing" && Number.isFinite(lastActivity) && currentTime - lastActivity > STALE_RENDER_JOB_MS;
+}
+
+export function startRenderWorker(jobId?: string) {
   if (!renderWorkerAutostartEnabled()) return { started: false, reason: "desactivado" as const };
   const root = findRepoRoot();
   if (!root) return { started: false, reason: "sin-worker" as const };
   try {
-    const child = spawn(process.execPath, [WORKER_PATH, "--once"], {
+    const child = spawn(process.execPath, [WORKER_PATH, "--once", ...(jobId ? ["--id", jobId] : [])], {
       cwd: root,
       env: process.env,
       detached: true,

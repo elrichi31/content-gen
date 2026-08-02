@@ -17,7 +17,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
     const result = await withDatabase((database) => database.prepare("UPDATE render_jobs SET data_json = ? WHERE id = ? AND json_extract(data_json, '$.status') IN ('failed', 'cancelled')").run(JSON.stringify(parsed.data), id) as { changes: number });
     // Reintentar también arranca el worker: la cola nunca se queda esperando a un comando manual.
-    if (result.changes) { startRenderWorker(); return NextResponse.json(parsed.data); }
+    if (result.changes) { startRenderWorker(parsed.data.id); return NextResponse.json(parsed.data); }
     const latest = await withDatabase((database) => database.prepare("SELECT data_json FROM render_jobs WHERE id = ?").get(id) as { data_json: string } | undefined);
     return latest ? NextResponse.json(JSON.parse(latest.data_json)) : NextResponse.json({ error: "Job no encontrado." }, { status: 404 });
   }

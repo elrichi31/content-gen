@@ -83,6 +83,7 @@ export const renderJobSchema = z.object({
   outputAssetId: id.nullable().default(null),
   inputProps: z.record(z.unknown()),
   createdAt: timestamp,
+  updatedAt: timestamp.optional(),
   completedAt: timestamp.nullable().default(null),
   error: z.string().max(1000).nullable().default(null),
 });

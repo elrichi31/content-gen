@@ -7,11 +7,24 @@ import { DatabaseSync } from "node:sqlite";
 
 const jobArgumentIndex = process.argv.indexOf("--job");
 const jobPath = jobArgumentIndex === -1 ? undefined : process.argv[jobArgumentIndex + 1];
+const idArgumentIndex = process.argv.indexOf("--id");
+const requestedJobId = idArgumentIndex === -1 ? undefined : process.argv[idArgumentIndex + 1];
 const now = () => new Date().toISOString();
 const update = (database, job, patch) => {
-  const next = { ...job, ...patch };
+  const next = { ...job, ...patch, updatedAt: now() };
   return database.prepare("UPDATE render_jobs SET data_json = ? WHERE id = ? AND json_extract(data_json, '$.status') != 'cancelled'").run(JSON.stringify(next), job.id).changes ? next : null;
 };
+
+function reportProgress(database, jobId, progress) {
+  try {
+    const row = database.prepare("SELECT data_json FROM render_jobs WHERE id = ?").get(jobId);
+    if (!row) return;
+    const job = JSON.parse(row.data_json);
+    if (job.status === "processing") update(database, job, progress === undefined ? {} : { progress });
+  } catch {
+    // La recuperación automática reintenta el job si SQLite falla o el worker cae.
+  }
+}
 
 // Reclamar es atómico: si otro worker ya tomó el job, esta actualización no cambia filas.
 const claim = (database, job, patch) => {
@@ -98,25 +111,24 @@ async function validateFixture() {
   console.log(JSON.stringify({ id: job.id, kind: job.kind, compositionId: job.compositionId, status: "completed", events: ["queued", "processing", "completed"].map((status) => ({ status, at: now() })) }, null, 2));
 }
 
-async function processNext() {
+async function processNext(jobId) {
   const url = process.env.DATABASE_URL;
   if (!url?.startsWith("file:") || url.includes("..")) throw new Error("DATABASE_URL debe ser una ruta local segura con prefijo file:.");
   const databasePath = resolve(url.slice("file:".length)); const mediaRoot = resolve(dirname(databasePath), "media"); const database = new DatabaseSync(databasePath);
   try {
-    const row = database.prepare("SELECT data_json FROM render_jobs WHERE json_extract(data_json, '$.status') = 'queued' ORDER BY created_at LIMIT 1").get();
+    const row = database.prepare(`SELECT data_json FROM render_jobs WHERE json_extract(data_json, '$.status') = 'queued'${jobId ? " AND id = ?" : ""} ORDER BY created_at LIMIT 1`).get(...(jobId ? [jobId] : []));
     if (!row) return console.log(JSON.stringify({ status: "idle" }));
     const job = JSON.parse(row.data_json);
     const claimed = claim(database, job, { status: "processing", progress: 10 });
     if (!claimed) return console.log(JSON.stringify({ id: job.id, status: "taken" }));
     const outputPath = resolve(dirname(databasePath), "renders", `${job.id}.mp4`);
     const propsPath = resolve(dirname(databasePath), "renders", `${job.id}.json`);
+    const heartbeat = setInterval(() => reportProgress(database, job.id), 15_000);
+    heartbeat.unref();
     try {
       if (!["StandardVideo", "TimelineVideo"].includes(job.compositionId)) throw new Error("La composición de video no está registrada.");
       mkdirSync(dirname(outputPath), { recursive: true }); writeFileSync(propsPath, JSON.stringify(job.inputProps));
-      const render = await runRemotion(job, outputPath, propsPath, (progress) => {
-        const latest = JSON.parse(database.prepare("SELECT data_json FROM render_jobs WHERE id = ?").get(job.id).data_json);
-        if (latest.status === "processing") update(database, latest, { progress });
-      });
+      const render = await runRemotion(job, outputPath, propsPath, (progress) => reportProgress(database, job.id, progress));
       if (render.status !== 0) throw new Error(renderErrorMessage(render.output));
       const latest = JSON.parse(database.prepare("SELECT data_json FROM render_jobs WHERE id = ?").get(job.id).data_json);
       if (latest.status === "cancelled") return console.log(JSON.stringify({ id: latest.id, status: "cancelled" }));
@@ -129,6 +141,7 @@ async function processNext() {
       const failed = update(database, latest, { status: "failed", completedAt: now(), error: error instanceof Error ? error.message.slice(0, 1000) : "Error de render desconocido." });
       console.log(JSON.stringify({ id: job.id, status: failed?.status ?? "cancelled", error: failed?.error }));
     } finally {
+      clearInterval(heartbeat);
       if (existsSync(outputPath)) rmSync(outputPath, { force: true }); if (existsSync(propsPath)) rmSync(propsPath, { force: true });
     }
   } finally {
@@ -138,5 +151,5 @@ async function processNext() {
 
 // Solo actúa como ejecutable: importarlo desde una prueba no lanza ningún render.
 if (process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, "/"))) {
-  if (jobPath) await validateFixture(); else if (process.argv.includes("--once")) await processNext(); else throw new Error("Usa --job <ruta-al-job.json> o --once.");
+  if (jobPath) await validateFixture(); else if (process.argv.includes("--once")) await processNext(requestedJobId); else throw new Error("Usa --job <ruta-al-job.json> o --once.");
 }

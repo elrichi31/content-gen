@@ -2,12 +2,14 @@ import assert from "node:assert/strict";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { findRepoRoot, renderWorkerAutostartEnabled, startRenderWorker } from "./render-worker.ts";
+import { findRepoRoot, isRenderJobStale, renderWorkerAutostartEnabled, startRenderWorker } from "./render-worker.ts";
 
 assert.equal(renderWorkerAutostartEnabled(undefined), true, "el arranque automático viene activado por defecto");
 assert.equal(renderWorkerAutostartEnabled("0"), false, "se puede desactivar con 0");
 assert.equal(renderWorkerAutostartEnabled("false"), false);
 assert.equal(renderWorkerAutostartEnabled("1"), true);
+assert.equal(isRenderJobStale({ status: "processing", createdAt: "2026-01-01T00:00:00.000Z" }, Date.parse("2026-01-01T00:01:00.000Z")), true, "recupera el job si su worker dejó de dar señales");
+assert.equal(isRenderJobStale({ status: "processing", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:30.000Z" }, Date.parse("2026-01-01T00:01:00.000Z")), false, "el latido de un worker vivo evita reintentos duplicados");
 
 const root = await mkdtemp(join(tmpdir(), "content-gen-worker-"));
 try {
