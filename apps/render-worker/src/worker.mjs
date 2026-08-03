@@ -4,6 +4,7 @@ import { createReadStream, existsSync, mkdirSync, rmSync, statSync, writeFileSyn
 import { copyFile, readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { clearInterval, setInterval } from "node:timers";
 
 const jobArgumentIndex = process.argv.indexOf("--job");
 const jobPath = jobArgumentIndex === -1 ? undefined : process.argv[jobArgumentIndex + 1];

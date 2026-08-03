@@ -16,4 +16,8 @@ export default tseslint.config(
       },
     },
   },
+  {
+    files: ["apps/render-worker/src/worker.test.mjs"],
+    rules: { "no-control-regex": "off" },
+  },
 );
