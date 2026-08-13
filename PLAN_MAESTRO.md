@@ -11,10 +11,10 @@
 | Proyecto origen de carruseles y anuncios | `C:\Users\Nicolas\Desktop\Proyects\carousel-ai` |
 | Proyecto origen de videos | `C:\Users\Nicolas\Desktop\Proyects\video-autom` |
 | Fecha de creación | 2026-07-22 |
-| Última actualización | 2026-07-30 |
-| Estado general | GATE-09 aprobado; calidad y seguridad en progreso |
+| Última actualización | 2026-08-12 |
+| Estado general | GATE-09 aprobado; seguridad cerrada y paridad visual en progreso |
 | Siguiente gate | GATE-10 — Release candidate |
-| Próxima tarea ejecutable | F09-015 — resolver hallazgos críticos y altos |
+| Próxima tarea ejecutable | F09-016 — cerrar paridad visual del workspace de anuncios |
 
 ## 2. Objetivo del producto
 
@@ -183,7 +183,7 @@ Todo documento editable tendrá `schemaVersion`. Los archivos pesados se almacen
 | FASE-06 Pipeline audiovisual y render | Completada | 19 | 19 | GATE-07 aprobado |
 | FASE-07 Campañas multiformato | Completada | 10 | 10 | GATE-08 aprobado |
 | FASE-08 Migración de contenido legacy | Completada | 11 | 11 | GATE-09 aprobado |
-| FASE-09 Calidad, seguridad y rendimiento | En progreso | 14 | 16 | GATE-10 |
+| FASE-09 Calidad, seguridad y rendimiento | En progreso | 15 | 16 | GATE-10 |
 | FASE-10 Operación y cierre | Pendiente | 0 | 10 | GATE-11 |
 
 ## 12. Roadmap ejecutable
@@ -483,10 +483,10 @@ Objetivo: endurecer el sistema completo antes de considerarlo sustituto de los p
 | F09-010 | Ejecutar pruebas E2E de flujos principales | F07-010 | `COMPLETADA` | Carrusel, anuncio, video y campaña completan su camino feliz | `test:e2e` crea una DB y carpeta media temporales, levanta el build de Studio y recorre por HTTP marca → campaña → carrusel/anuncio/video → actualización con revisión → exportaciones PNG → RenderJob → worker Remotion → MP4 descargable → biblioteca → ZIP de campaña. El render real produjo 162,756 bytes; la DB aislada terminó con 1 marca, 1 campaña, 3 contenidos, 1 job, 1 asset y 1 export. El entorno temporal se cierra y elimina siempre. Para que el aislamiento fuera real se corrigió la raíz de media del Studio: ahora deriva de `DATABASE_URL`, igual que el worker, en upload, descarga y ZIP. La instalación principal conservó integridad con 183 assets y 48 contenidos; boundaries, campaña, lint, typecheck y build pasan. |
 | F09-011 | Verificar accesibilidad básica | F09-010 | `COMPLETADA` | Navegación por teclado, labels, foco y contraste no tienen fallos críticos | Los 58 archivos TSX pasan `test:a11y`: inputs, textareas, selects, botones, enlaces e imágenes tienen nombre programático. Se añadieron labels a selectores, campos de edición y acciones sociales; `lang="es"` ya estaba declarado. CSS nativo garantiza foco visible en todos los controles y enlaces. El color primario se ajustó mínimamente a L=0.54 para alcanzar 4.54:1; texto normal y secundario alcanzan entre 5.14:1 y 17.96:1. En el build real, `/carousel`, `/ads`, `/video` y `/library` expusieron `main` y controles nombrados. `test:a11y`, lint, typecheck y build pasan. |
 | F09-012 | Medir rendimiento de biblioteca y editores | F09-010 | `COMPLETADA` | Métricas baseline quedan registradas y no hay bloqueo grave | `test:performance` levanta el build y mide diez muestras por superficie con la carga real de 48 contenidos y 183 assets. En dos corridas, `/api/content-items` quedó entre 9.33 y 12.10 ms p95 y 86,465 bytes; `/library`, `/carousel`, `/ads` y `/video` quedaron entre 2.94 y 6.07 ms p95. Ocho lecturas concurrentes terminaron entre 31.17 y 41.70 ms. La prueba falla si una superficie supera 500 ms p95 o la ráfaga supera 1 s. Navegación real confirmó las cuatro pantallas completas, con `main`, y la biblioteca pintó sus 19 piezas activas. No hay bloqueo grave ni dependencia nueva. |
-| F09-016 | Alinear la UI con el producto `carousel-ai` | GATE-08 | `EN_PROGRESO` | Cada pantalla reproduce el shell y el workspace del proyecto origen | **Decisión del usuario (2026-07-26): la UI debe ser idéntica a `carousel-ai`, no una reinterpretación.** Los tokens de `globals.css` ya coincidían; la diferencia era estructural. **Corrección del usuario (2026-07-26): se conserva la sidebar de Content Gen**, no el header fijo del origen, porque da el carácter de aplicación web; el `header.tsx` portado se retiró y `page-shell.tsx` volvió a `AppSidebar`. El workspace de tres paneles vive dentro de la sidebar (`md:pl-64`, alto completo restando la barra móvil de 3.5rem). **Hecho:** `workspace-panel.tsx` reproduce el panel `rounded-[28px]` con sombra y blur, y `/carousel` adopta el workspace de tres columnas a pantalla completa (`max-w-[1800px]`, `320px|1fr|300px`) con la barra de herramientas del original: pestañas Instagram/TikTok, alternador de modo edición, indicador "Guardado" y deshacer/rehacer con atajos Ctrl+Z / Ctrl+Y. Verificado en navegador con la sidebar restaurada: sidebar `fixed` de 256 px y grid `300px 368px 300px` a 1280 px (`340px 720px 320px` a 1680 px), sin scroll horizontal, y en móvil solo el escenario con la barra superior; el modo edición activa `contenteditable` solo al encenderlo; TikTok cambia el marco; Ctrl+Z revierte una edición; las siete rutas responden 200 y no hay errores de consola. **Segunda capa (2026-07-26):** se copiaron desde el origen y se adaptaron al contrato de aquí los diez componentes de layout (`components/slides/*.tsx` con sus variantes), `slide-renderer.tsx`, `editable-text.tsx`, `lib/themes.ts` (paletas, fuentes y `buildBgStyle` con los seis patrones) y los marcos reales `preview/instagram-frame.tsx`, `preview/tiktok-frame.tsx`, `preview/caption-editor.tsx` y `preview/loading-overlay.tsx`. El único puente nuevo es `lib/slide-types.ts`, que reexporta el tipo de slide del dominio versionado en lugar del `lib/types` del origen; el esquema ya tenía `layoutVariant`, `titleSize` y `bgStyleOverride`, así que la adaptación fue de imports. `carousel-preview.tsx` pasó a delegar en esos marcos. Verificado en navegador: los diez layouts renderizan dentro del marco de Instagram en `aspect-[4/5]` con puntos, barra de acciones y editor de caption; TikTok usa `aspect-[3/5]` con música, seguir y rail lateral; el fondo del slide aplica el gradiente calculado por `buildBgStyle`; el modo edición monta `EditableText` (`contenteditable`) solo al activarlo. lint, typecheck y build pasan, sin errores de consola. **Pendiente:** el `InputPanel` completo (panel de marca, historial de sesión, estilos visuales, sliders); el `EditorDrawer` para pantallas menores a `xl`; el selector de variantes por layout (`editor/layout-picker`, `theme-picker`, `image-editor`); y el workspace de anuncios (`preview-stage`, `ad-form-panel`, `ad-style-panel`). Las clases CSS del renderer anterior siguen en `globals.css` sin uso. |
+| F09-016 | Alinear la UI con el producto `carousel-ai` | GATE-08 | `EN_PROGRESO` | Cada pantalla reproduce el shell y el workspace del proyecto origen | **Carrusel:** conserva la sidebar de Content Gen y el workspace editorial de tres paneles. El grid ya no fuerza un canvas mínimo ni recorta la ficha derecha; fue verificado sin overflow a 768, 1024, 1280 y 1536 px. En resoluciones menores a `xl`, el botón **Ajustes** abre la ficha completa como panel lateral con overlay, cierre explícito y Escape. Se añadió selector visual de variantes por layout y tamaño de título reutilizando `SlideVariantPreview`; siguen disponibles edición directa, imágenes, estilos, caption, acciones y exportación. **Renderer:** los diez layouts, Instagram/TikTok, temas, fuentes y fondos están portados. **Pendiente real:** adaptar el workspace de anuncios (`preview-stage`, `ad-form-panel`, `ad-style-panel`), terminar panel de marca/historial y retirar CSS legacy sin uso. `npm run verify` pasa con 0 vulnerabilidades, 33 comandos de prueba y ambos builds. |
 | F09-013 | Ejecutar revisión Ponytail del diff y repositorio | GOV-005 | `COMPLETADA` | No quedan abstracciones/dependencias sin uso justificadas | Auditoría completa Ponytail sobre 112 archivos: no hay factories, interfaces de una implementación, wrappers delegados ni dependencias declaradas sin uso. La duplicación de escritura de Asset en el worker es necesaria por el límite de proceso entre Node MJS y el runtime TS del Studio. `npm ls --omit=dev` solo reportó cinco paquetes extraneous en `node_modules` (no declarados/versionados); se normalizan con una instalación limpia y no se borraron. lint, typecheck, domain y persistencia pasan. |
 | F09-014 | Ejecutar backup/restore de desastre | F02-013, F08-011 | `COMPLETADA` | Entorno vacío recupera DB y archivos utilizables | El backup `storage/backups/f09-disaster-20260730` se restauró en un directorio vacío. `check:integrity` confirmó 183 assets y 48 contenidos; los conteos de marcas, campañas, contenidos, assets, generaciones, renders y exports coincidieron exactamente con el origen. La copia restaurada de verificación fue eliminada y el backup quedó conservado. |
-| F09-015 | Resolver hallazgos críticos y altos | F09-001 a F09-014 | `BLOQUEADA` | No quedan hallazgos críticos/altos abiertos | El usuario autorizó npm y Studio subió de Sharp 0.34.5 a 0.35.3; exportación PNG de carrusel/anuncio, lint, typecheck y build pasan. `npm audit` reveló además un crítico en `loader-utils` transitivo de Remotion 4.0.440, altas en Remotion/PostCSS/ws, altas de desarrollo en ESLint/minimatch y una copia privada de Sharp 0.34.5/PostCSS 8.4.31 dentro de Next 16.2.11. Remotion tiene corrección no-major 4.0.502 y ESLint corrección 10.8.0; requieren autorización explícita para instalar y enviar esos metadatos a npm. El override de Sharp dentro de Next no fue aceptado por npm y se retiró, dejando el árbol válido. |
+| F09-015 | Resolver hallazgos críticos y altos | F09-001 a F09-014 | `COMPLETADA` | No quedan hallazgos críticos/altos abiertos | Node quedó fijado en 24.19.0 con npm 11.17.0; Next subió a 16.3.0, Remotion completo a 4.0.509 y PostCSS a 8.5.26. `npm ci`, `npm ls`, exportaciones, E2E, lint, typecheck y builds pasaron. `npm audit` devuelve 0 vulnerabilidades. El lockfile reproducible quedó versionado. |
 
 #### GATE-10 — Release candidate
 
@@ -503,13 +503,13 @@ Objetivo: dejar el proyecto operable sin depender de memoria informal.
 
 | ID | Tarea | Dependencias | Estado | Verificación | Cómo se dejó / evidencia |
 |---|---|---|---|---|---|
-| F10-001 | Crear README de instalación y comandos | GATE-10 | `PENDIENTE` | Una instalación limpia sigue el README sin conocimiento adicional | — |
-| F10-002 | Documentar variables y proveedores | F10-001 | `PENDIENTE` | Cada variable tiene finalidad, obligatoriedad y ejemplo seguro | — |
-| F10-003 | Documentar backup, restore y ubicación de datos | F09-014 | `PENDIENTE` | Procedimiento fue ejecutado por segunda vez desde documentación | — |
-| F10-004 | Documentar recuperación de jobs fallidos | F06-014 | `PENDIENTE` | Operador puede diagnosticar/reintentar sin tocar DB manualmente | — |
-| F10-005 | Documentar creación de nuevas plantillas | F05-003 | `PENDIENTE` | Se añade plantilla de ejemplo sin modificar contenido existente | — |
-| F10-006 | Preparar build/release reproducible | F10-001 | `PENDIENTE` | Release se genera desde checkout limpio | — |
-| F10-007 | Ejecutar smoke test de release | F10-006 | `PENDIENTE` | Crear/guardar/exportar formatos principales funciona en release | — |
+| F10-001 | Crear README de instalación y comandos | GATE-10 | `EN_VERIFICACION` | Una instalación limpia sigue el README sin conocimiento adicional | `README.md` cubre NVM, `npm ci`, entorno, DB, desarrollo, producción y validación; falta repetirlo desde checkout limpio tras GATE-10. |
+| F10-002 | Documentar variables y proveedores | F10-001 | `EN_VERIFICACION` | Cada variable tiene finalidad, obligatoriedad y ejemplo seguro | README y `.env.example` describen proveedor, modelos, Unsplash, ElevenLabs, DB, media y worker sin valores secretos. |
+| F10-003 | Documentar backup, restore y ubicación de datos | F09-014 | `EN_VERIFICACION` | Procedimiento fue ejecutado por segunda vez desde documentación | `docs/operations.md` documenta backup, restore aislado e integridad; falta la segunda ejecución siguiendo solo la guía. |
+| F10-004 | Documentar recuperación de jobs fallidos | F06-014 | `EN_VERIFICACION` | Operador puede diagnosticar/reintentar sin tocar DB manualmente | `docs/operations.md` cubre autostart, modo manual, reintento desde UI y diagnóstico sin editar SQLite. |
+| F10-005 | Documentar creación de nuevas plantillas | F05-003 | `EN_VERIFICACION` | Se añade plantilla de ejemplo sin modificar contenido existente | `docs/video-templates.md` documenta dominio, componente, registro, fixtures, pruebas y render; falta ejecutar el ejemplo tras GATE-10. |
+| F10-006 | Preparar build/release reproducible | F10-001 | `EN_VERIFICACION` | Release se genera desde checkout limpio | Se añadieron `npm start`, `npm test`, `npm run test:integration`, `npm run verify` y CI para Node desde `.nvmrc`; el flujo local completo está verde y falta comprobar checkout limpio. |
+| F10-007 | Ejecutar smoke test de release | F10-006 | `COMPLETADA` | Crear/guardar/exportar formatos principales funciona en release | `npm run test:integration` recorrió marca, campaña, carrusel, anuncio, video, PNG, ZIP y MP4 contra el build real. `npm start` levantó Next 16.3 en producción y `/`, `/diagnostics`, `/carousel`, `/ads` y `/video` respondieron HTTP 200. |
 | F10-008 | Definir política de conservación de proyectos origen | F08-011, F10-007 | `PENDIENTE` | Se acuerda archivar, mantener o retirar sin borrar prematuramente | — |
 | F10-009 | Cerrar riesgos, decisiones y deuda aceptada | F10-007 | `PENDIENTE` | Cada entrada tiene resolución o propietario/fecha | — |
 | F10-010 | Aprobar release y actualizar estado general | F10-001 a F10-009 | `PENDIENTE` | Usuario aprueba entrega y el documento refleja cierre real | — |
@@ -613,21 +613,19 @@ Las variables se registran únicamente por nombre y propósito. Sus valores no s
 
 ## 13. Riesgos activos
 
-## 13. Riesgos activos
-
 | ID | Riesgo | Probabilidad | Impacto | Mitigación | Estado |
 |---|---|---|---|---|---|
-| R-001 | Incompatibilidad entre Next/React y Remotion Player | Media | Alto | Spike en F01-004/F01-005 antes de migrar UI | Abierto |
-| R-002 | Pérdida de carruseles guardados solo en navegador | Media | Alto | Importador cliente y backup antes de retirar `localStorage` | Abierto |
-| R-003 | Videos legacy dependen de código manual irrepetible | Alta | Alto | Clasificación legacy y migración gradual | Abierto |
-| R-004 | Render pesado bloquea o derriba el servidor web | Alta | Alto | Worker separado y jobs persistentes | Mitigación planificada |
+| R-001 | Incompatibilidad entre Next/React y Remotion Player | Media | Alto | Next 16.3, React 19.2 y Remotion 4.0.509 pasan Player, bundle y E2E | Resuelto |
+| R-002 | Pérdida de carruseles guardados solo en navegador | Media | Alto | Importación legacy, SQLite, biblioteca y backup verificados | Resuelto |
+| R-003 | Videos legacy dependen de código manual irrepetible | Alta | Alto | Contenido recuperable importado; composiciones manuales preservadas como legacy | Mitigado |
+| R-004 | Render pesado bloquea o derriba el servidor web | Alta | Alto | Worker separado, jobs persistentes, recuperación y límite de concurrencia | Mitigado |
 | R-005 | Costes de imágenes/voz por regeneraciones repetidas | Media | Medio | Registro de generaciones, límites y confirmaciones apropiadas | Abierto |
 | R-006 | Hechos inventados en contenido factual o noticias | Media | Alto | Contexto fuente, validación y advertencias; no inventar cifras | Abierto |
-| R-007 | Rutas construidas desde slug permiten acceso indebido | Media | Crítico | Normalización estricta y pruebas de traversal | Abierto |
+| R-007 | Rutas construidas desde slug permiten acceso indebido | Media | Crítico | Normalización estricta y pruebas de traversal | Resuelto |
 | R-008 | Scope creep hacia publicación, analítica y equipos | Alta | Medio | Fuera del MVP hasta GATE-08 | Controlado |
 | R-009 | `carousel-ai` contiene trabajo local no consolidado | Alta | Alto | Tratarlo como fuente de solo lectura; registrar estado y no ejecutar reset/clean/checkout destructivo | Mitigación activa |
-| R-010 | Dependencias transitivas reportan vulnerabilidades de seguridad | Media | Alto | Studio ya usa Sharp 0.35.3. Actualizar el conjunto Remotion a 4.0.502 y ESLint a 10.8.0; revalidar la copia privada Sharp/PostCSS de Next 16.2.11 contra la siguiente versión estable corregida. | Bloqueado por autorización / upstream Next |
-| R-011 | `node:sqlite` aún emite advertencia experimental en Node 24 | Media | Medio | Mantener su uso solo en MVP local, encapsular las consultas en scripts/repository y revisar estabilidad antes de producción. | Abierto |
+| R-010 | Dependencias transitivas reportan vulnerabilidades de seguridad | Media | Alto | Node 24.19, Next 16.3, Remotion 4.0.509 y lockfile auditados | Resuelto — 0 vulnerabilidades |
+| R-011 | Estabilidad de `node:sqlite` para despliegue multiusuario | Media | Medio | Mantener SQLite en MVP local; migrar a PostgreSQL antes de multiusuario | Aceptado para MVP local |
 
 ## 14. Registro cronológico de ejecución
 
@@ -745,6 +743,11 @@ Este registro es append-only. No se eliminan entradas antiguas; las correcciones
 | 2026-07-25 | F05-015 y GATE-06 | Paridad visual aprobada | Completado | El usuario aprobó los renders alineados al shell de `video-autom/remotion`; FASE-05 cerrada. |
 | 2026-07-25 | F06-001 | Cliente OpenAI unificado | Completado | Servicio único de configuración/modelo y rutas existentes con prueba aislada y regresiones verdes. |
 
+| 2026-08-12 | F09-015 | Seguridad y runtime cerrados | Completado | Node 24.19.0, npm 11.17.0, Next 16.3.0 y Remotion 4.0.509 quedaron fijados. Instalación limpia, `npm ls`, E2E, exportaciones y builds pasaron; `npm audit` reportó 0 vulnerabilidades. |
+| 2026-08-12 | F09-016 | Carrusel responsive y variantes | En progreso | Se corrigió el recorte del panel derecho, se añadió ficha lateral bajo `xl`, selector visual de variantes y tamaño de título. Verificación responsive sin overflow y `npm run verify` verde. Falta el workspace de anuncios y limpieza CSS legacy. |
+| 2026-08-12 | F10-001 a F10-006 | Operación y release preparados | En verificación | README, guía operativa, guía de plantillas, scripts `test`/`verify`/`start` y CI quedaron implementados antes de GATE-10; falta verificarlos desde checkout limpio. |
+| 2026-08-12 | F10-007 | Smoke test de release | Completado | La suite de integración recorrió persistencia, HTTP, PNG, ZIP y MP4; el servidor de producción respondió 200 en las cinco superficies principales. |
+
 ## 15. Bloqueos y acciones pendientes del usuario
 
 | ID | Relacionado | Acción requerida | Condición de desbloqueo | Estado |
@@ -772,5 +775,6 @@ Copiar este bloque al registro o a la descripción ampliada cuando una tarea nec
 
 ## 17. Próximo paso exacto
 
-1. Autorizar la actualización coordinada de Remotion 4.0.502, ESLint 10.8.0 y sus metadatos hacia npm para continuar F09-015.
-2. Terminar F09-016: completar la paridad visual pendiente antes de GATE-10.
+1. Terminar F09-016 adaptando el workspace de anuncios y limpiando el CSS legacy sin uso.
+2. Ejecutar la verificación final de GATE-10 y aprobar el release candidate.
+3. Completar las verificaciones operativas F10 desde un checkout limpio.

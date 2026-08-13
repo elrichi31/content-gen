@@ -9,6 +9,10 @@
   },
   "scripts": {
     "dev": "npm run dev --workspace=@content-gen/studio",
+    "start": "npm run start --workspace=@content-gen/studio",
+    "test": "node scripts/run-test-suite.mjs local",
+    "test:integration": "node scripts/run-test-suite.mjs integration",
+    "verify": "node scripts/verify.mjs",
     "test:worker": "npm run test:job --workspace=@content-gen/render-worker",
     "test:worker-progress": "node apps/render-worker/src/worker.test.mjs",
     "worker:once": "node --env-file-if-exists=.env.local --env-file-if-exists=.env apps/render-worker/src/worker.mjs --once",

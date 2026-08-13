@@ -2,6 +2,7 @@
   "name": "@content-gen/video-engine",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "exports": {
     "./templates": "./src/template-registry.ts"
   },
