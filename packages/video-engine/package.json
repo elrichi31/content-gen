@@ -14,11 +14,11 @@
   },
   "dependencies": {
     "@content-gen/domain": "0.1.0",
-    "@remotion/media-utils": "4.0.440",
-    "@remotion/cli": "4.0.440",
+    "@remotion/media-utils": "4.0.509",
+    "@remotion/cli": "4.0.509",
     "react": "19.2.4",
     "react-dom": "19.2.4",
-    "remotion": "4.0.440"
+    "remotion": "4.0.509"
   },
   "devDependencies": {
     "@types/react": "19.2.14",
