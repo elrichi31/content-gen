@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Plus, Undo2, Redo2, Save, ArrowLeft, ArrowRight, Copy, Trash2, Hash, Image as ImageIcon, FileArchive, RefreshCw, Wand2, Link2, Pencil, PencilOff, Check } from "lucide-react";
+import { Plus, Undo2, Redo2, Save, ArrowLeft, ArrowRight, Copy, Trash2, Hash, Image as ImageIcon, FileArchive, RefreshCw, Wand2, Link2, Pencil, PencilOff, Check, SlidersHorizontal, X } from "lucide-react";
 import type { CarouselDocument } from "@content-gen/domain/carousel";
 import { AppSidebar } from "@/components/app-sidebar";
 import { WorkspacePanel } from "@/components/workspace-panel";
 import { CarouselGenerator } from "@/components/carousel-generator";
 import { CarouselImagePanel } from "@/components/carousel-image-panel";
+import { LayoutVariantPicker } from "@/components/editor/layout-picker";
 import { CarouselFrame, carouselFixture, type CarouselBackground, type CarouselFont, type CarouselPlatform, type CarouselTheme } from "@/components/carousel-preview";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,6 +16,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
+import { colorThemes } from "@/lib/themes";
 import { useRequestedContentId } from "@/lib/use-requested-content-id";
 
 type Slide = typeof carouselFixture.slides[number];
@@ -69,6 +71,7 @@ export default function CarouselPage() {
   const [remixUrl, setRemixUrl] = useState("");
   const [remixCount, setRemixCount] = useState(6);
   const [editMode, setEditMode] = useState(false);
+  const [inspectorOpen, setInspectorOpen] = useState(false);
   const current = slides[active];
   const document = { ...carouselFixture, slides, platform, caption };
   const selectedCampaign = campaigns.find((campaign) => campaign.id === campaignId);
@@ -104,6 +107,12 @@ export default function CarouselPage() {
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   });
+  useEffect(() => {
+    if (!inspectorOpen) return;
+    const close = (event: KeyboardEvent) => { if (event.key === "Escape") setInspectorOpen(false); };
+    window.addEventListener("keydown", close);
+    return () => window.removeEventListener("keydown", close);
+  }, [inspectorOpen]);
 
   function commit(next: Slide[]) { setPast((value) => [...value.slice(-24), slides]); setSlides(next); setFuture([]); }
   function update(field: string, value: string) { commit(slides.map((slide, index) => index === active ? { ...slide, [field]: value } : slide)); }
@@ -286,6 +295,15 @@ export default function CarouselPage() {
                       </span>
                     ) : null}
                     <button
+                      onClick={() => setInspectorOpen(true)}
+                      title="Abrir ficha del slide"
+                      aria-label="Abrir ficha del slide"
+                      className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-white/8 hover:text-foreground xl:hidden"
+                    >
+                      <SlidersHorizontal className="h-3.5 w-3.5" />
+                      <span className="hidden sm:inline">Ajustes</span>
+                    </button>
+                    <button
                       onClick={undo}
                       disabled={!past.length}
                       title="Deshacer (Ctrl+Z)"
@@ -313,9 +331,20 @@ export default function CarouselPage() {
               </div>
             </section>
 
-            <WorkspacePanel className="hidden xl:block">
+            {inspectorOpen ? <button type="button" aria-label="Cerrar ficha del slide" className="fixed inset-0 z-40 bg-black/65 backdrop-blur-[2px] xl:hidden" onClick={() => setInspectorOpen(false)} /> : null}
+            <WorkspacePanel
+              className={cn(
+                "xl:block",
+                inspectorOpen
+                  ? "fixed inset-y-3 right-3 z-50 block w-[min(24rem,calc(100vw-1.5rem))] xl:static xl:w-auto"
+                  : "hidden",
+              )}
+            >
               <div className="flex h-full flex-col overflow-y-auto p-5">
-                <p className="text-xs font-semibold uppercase tracking-widest text-primary">Ficha de slide</p>
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-xs font-semibold uppercase tracking-widest text-primary">Ficha de slide</p>
+                  <button type="button" aria-label="Cerrar ficha del slide" className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground xl:hidden" onClick={() => setInspectorOpen(false)}><X className="h-4 w-4" /></button>
+                </div>
 
                 <div className="mt-4 space-y-4">
                   <div className="space-y-1.5">
@@ -324,6 +353,24 @@ export default function CarouselPage() {
                       <SelectTrigger aria-label="Layout" className="h-9"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         {layouts.map((layout) => <SelectItem key={layout} value={layout}>{layout}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <LayoutVariantPicker
+                    slide={current}
+                    activePrimary={accentColor ?? colorThemes[theme].primary}
+                    selectedBgStyle={background}
+                    onChange={(variant) => update("layoutVariant", variant)}
+                  />
+                  <div className="space-y-1.5">
+                    <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Tamaño del título</Label>
+                    <Select value={current.titleSize ?? "regular"} onValueChange={(value) => update("titleSize", value)}>
+                      <SelectTrigger aria-label="Tamaño del título" className="h-9"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="compact">Compacto</SelectItem>
+                        <SelectItem value="regular">Regular</SelectItem>
+                        <SelectItem value="large">Grande</SelectItem>
+                        <SelectItem value="display">Display</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
