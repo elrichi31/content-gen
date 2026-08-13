@@ -180,7 +180,7 @@ export default function CarouselPage() {
       <AppSidebar />
       <div className="overflow-hidden pt-14 md:pl-64 md:pt-0">
         <main className="mx-auto h-[calc(100vh-3.5rem)] w-full max-w-[1800px] px-3 pb-3 pt-3 sm:px-4 sm:pb-4 sm:pt-4 md:h-screen">
-          <div className="grid h-full grid-cols-1 gap-3 lg:grid-cols-[320px_minmax(0,1fr)] xl:grid-cols-[300px_minmax(0,1fr)_300px] 2xl:grid-cols-[340px_minmax(720px,1fr)_320px]">
+          <div className="grid h-full min-w-0 grid-cols-1 gap-3 lg:grid-cols-[320px_minmax(0,1fr)] xl:grid-cols-[300px_minmax(0,1fr)_300px] 2xl:grid-cols-[340px_minmax(0,1fr)_320px]">
 
             <WorkspacePanel className="hidden lg:block">
               <div className="flex h-full flex-col overflow-y-auto p-5">
@@ -246,7 +246,7 @@ export default function CarouselPage() {
               </div>
             </WorkspacePanel>
 
-            <section className="min-h-0 overflow-hidden rounded-[28px] border border-border/60 bg-muted/20">
+            <section className="min-h-0 min-w-0 overflow-hidden rounded-[28px] border border-border/60 bg-muted/20">
               <div className="flex h-full flex-col">
                 <div className="flex items-center gap-1 border-b border-border/30 px-3 py-2">
                   <div className="flex items-center gap-0.5">

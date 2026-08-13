@@ -7,7 +7,7 @@ export function WorkspacePanel({ children, className }: { children: ReactNode; c
   return (
     <section
       className={cn(
-        "min-h-0 overflow-hidden rounded-[28px] border border-border/60 bg-card/78 shadow-[0_18px_60px_rgba(0,0,0,0.28)] backdrop-blur-xl",
+        "min-h-0 min-w-0 overflow-hidden rounded-[28px] border border-border/60 bg-card/78 shadow-[0_18px_60px_rgba(0,0,0,0.28)] backdrop-blur-xl",
         className,
       )}
     >
