@@ -74,19 +74,27 @@ export function normalizeGeneratedArticle(value: unknown, input: ArticleGenerati
   if (!slug) throw new ArticleGenerationError("El titular que devolvió la IA no produce un slug válido.", 422);
 
   const body = appendSources(stripFrontmatter(generated.body), sources);
-  return articleDraftSchema.parse({
+  // Los límites del borrador se aplican aquí: el modelo se pasa de largo con frecuencia y perder
+  // el artículo entero (y la búsqueda web que costó) por un titular de más es un mal negocio.
+  const draft = {
     schemaVersion: 1,
     slug,
-    title: generated.title,
+    title: generated.title.slice(0, 200),
     excerpt: generated.excerpt.slice(0, 300),
     date: today,
-    category: input.category || generated.category,
-    tags: generated.tags.slice(0, 12),
+    category: (input.category || generated.category).slice(0, 80),
+    tags: generated.tags.map((tag) => tag.slice(0, 60)).slice(0, 12),
     image: coverPath(slug, "png"),
     readTime: estimateReadTime(body),
     body,
     coverAssetId: null,
-  });
+  };
+  const parsedDraft = articleDraftSchema.safeParse(draft);
+  if (!parsedDraft.success) {
+    const issue = parsedDraft.error.issues[0];
+    throw new ArticleGenerationError(`La IA no devolvió un artículo utilizable — ${issue?.path.join(".") || "artículo"}: ${issue?.message}`, 422);
+  }
+  return parsedDraft.data;
 }
 
 /** Si el modelo ignora la instrucción y devuelve frontmatter, se descarta: el nuestro manda. */
@@ -115,7 +123,7 @@ const RESEARCH_SYSTEM = [
 
 /** Paso 1: buscar en la web y volver con notas y fuentes. Sin modo JSON, que la API no lo permite aquí. */
 export async function researchTopic(input: ArticleGenerationInput, { request = fetch }: { request?: typeof fetch } = {}) {
-  const { text, sources, usage } = await generateOpenAiText({
+  const { text, sources, usage, model } = await generateOpenAiText({
     system: RESEARCH_SYSTEM,
     prompt: [
       `Investiga para escribir este artículo: ${input.prompt}`,
@@ -127,16 +135,19 @@ export async function researchTopic(input: ArticleGenerationInput, { request = f
     timeoutMs: 300_000,
     request,
   });
-  return { notes: text, sources, usage };
+  return { notes: text, sources, usage, model };
 }
+export type TopicResearch = Awaited<ReturnType<typeof researchTopic>>;
 
 /**
  * Redacta el artículo. Con búsqueda activada primero investiga y luego escribe sobre esas notas:
  * la Responses API no admite `web_search` junto al modo JSON, y separar los pasos además le da
  * al redactor material verificado en vez de pedirle buscar y estructurar a la vez.
  */
-export async function generateArticle(input: ArticleGenerationInput, { categories = [], request = fetch, today }: { categories?: string[]; request?: typeof fetch; today?: string } = {}) {
-  const research = input.webSearch ? await researchTopic(input, { request }) : null;
+export async function generateArticle(input: ArticleGenerationInput, { categories = [], request = fetch, today, research: provided = null }: { categories?: string[]; request?: typeof fetch; today?: string; research?: TopicResearch | null } = {}) {
+  // La investigación puede venir hecha desde fuera: así se registra su gasto como una operación
+  // aparte de la redacción, que es la única forma de saber cuánto pesa investigar (D-07).
+  const research = provided ?? (input.webSearch ? await researchTopic(input, { request }) : null);
   const { value, model, usage } = await generateOpenAiJson({
     system: SYSTEM,
     prompt: research

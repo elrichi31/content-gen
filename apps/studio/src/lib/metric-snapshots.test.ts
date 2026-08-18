@@ -38,8 +38,20 @@ await assert.rejects(() => saveMetricSnapshots([gsc("julio", { clicks: 1 })]), /
 assert.equal((await listMetricSnapshots({})).length, 2, "una tanda inválida no deja escrituras a medias");
 assert.deepEqual(await saveMetricSnapshots([]), { inserted: 0, updated: 0 }, "una tanda vacía no toca la base");
 
-assert.deepEqual(totalMetrics(stored), { clicks: 19, impressions: 720, ctr: 2.65, position: 11 }, "suma volúmenes y promedia tasas y posición");
+// clicks/impressions = 19/720 = 2.64 %; posición ponderada = (12*400 + 10*320) / 720 = 11.11.
+assert.deepEqual(totalMetrics(stored), { clicks: 19, impressions: 720, ctr: 2.64, position: 11.11 }, "suma volúmenes, recalcula el CTR y pondera la posición");
 assert.deepEqual(totalMetrics([]), {}, "sin datos no inventa totales");
+
+// Un día de cola no puede pesar lo mismo que uno de tráfico real: sin ponderar daban 47.5 y 0.5.
+const desigual = [gsc("2026-08-01", { clicks: 100, impressions: 10_000, ctr: 1, position: 5 }), gsc("2026-08-02", { clicks: 0, impressions: 2, ctr: 0, position: 90 })]
+  .map((row) => ({ ...row, id: row.date, schemaVersion: 1 as const, fetchedAt: "2026-08-03T00:00:00.000Z" }));
+assert.deepEqual(totalMetrics(desigual), { clicks: 100, impressions: 10_002, ctr: 1, position: 5.02 }, "una cola de 2 impresiones no arrastra la media del mes");
+
+// GA4 no trae impresiones: engagementRate se pondera por sesiones y las tasas sin peso caen a la media simple.
+const ga4 = [{ sessions: 900, engagementRate: 0.8 }, { sessions: 100, engagementRate: 0.3 }]
+  .map((metrics, index) => ({ platform: "google-analytics" as const, propertyId: "123456", dimension: "date", dimensionValue: "", date: `2026-08-0${index + 1}`, metrics, id: `ga${index}`, schemaVersion: 1 as const, fetchedAt: "2026-08-03T00:00:00.000Z" }));
+assert.deepEqual(totalMetrics(ga4), { sessions: 1000, engagementRate: 0.75 }, "pondera la tasa de interacción por sesiones");
+assert.deepEqual(totalMetrics([{ ...ga4[0], metrics: { position: 4 } }]), { position: 4 }, "sin métrica de peso usa la media simple en vez de descartar el dato");
 assert.deepEqual(await latestMetricDates(), { "search-console": { lastDate: "2026-07-02", lastSync: "2026-07-05T00:00:00.000Z" } }, "reporta el último día y la última sincronización");
 
 await rm(root, { recursive: true, force: true });

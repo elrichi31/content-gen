@@ -1,3 +1,4 @@
+import { emptyUsage, imageUsage } from "@content-gen/domain/cost";
 import { z } from "zod";
 import { openAiRequest } from "./openai.ts";
 
@@ -22,7 +23,7 @@ export async function createRemoteImage(input: z.infer<typeof carouselImageInput
     const image = body?.data?.[0]?.b64_json;
     if (!response.ok || typeof image !== "string") throw new Error(typeof body?.error?.message === "string" ? `OpenAI: ${body.error.message}` : "OpenAI no devolvió una imagen.");
     const bytes = Buffer.from(image, "base64"); if (bytes.length > maxImageBytes) throw new Error("La imagen supera el límite de 10 MB.");
-    return { bytes, mimeType: "image/webp", filename: "openai-image.webp" };
+    return { bytes, mimeType: "image/webp", filename: "openai-image.webp", model, usage: imageUsage(1) };
   }
   const key = process.env.UNSPLASH_ACCESS_KEY;
   if (!key) throw new Error("Falta configurar UNSPLASH_ACCESS_KEY.");
@@ -31,5 +32,6 @@ export async function createRemoteImage(input: z.infer<typeof carouselImageInput
   if (!search.ok || typeof url !== "string" || new URL(url).hostname !== "images.unsplash.com") throw new Error("Unsplash no encontró una imagen segura para esa búsqueda.");
   const image = await request(url, { redirect: "error", signal: AbortSignal.timeout(30_000) }); const mimeType = image.headers.get("content-type")?.split(";")[0] ?? "";
   if (!image.ok || !["image/jpeg", "image/png", "image/webp"].includes(mimeType)) throw new Error("Unsplash devolvió un archivo de imagen no válido.");
-  return { bytes: await limitedImageBytes(image), mimeType, filename: "unsplash-image.jpg" };
+  // Unsplash no cobra por imagen: el consumo va vacío para que no aparezca como gasto.
+  return { bytes: await limitedImageBytes(image), mimeType, filename: "unsplash-image.jpg", model: null, usage: emptyUsage() };
 }

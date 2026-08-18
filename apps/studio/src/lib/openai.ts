@@ -1,7 +1,24 @@
-export type OpenAiPurpose = "text" | "script" | "voiceoverScript" | "image";
+import { normalizeResponsesUsage } from "@content-gen/domain/cost";
 
-const modelEnv: Record<OpenAiPurpose, string> = { text: "OPENAI_TEXT_MODEL", script: "OPENAI_SCRIPT_MODEL", voiceoverScript: "OPENAI_VOICEOVER_SCRIPT_MODEL", image: "OPENAI_IMAGE_MODEL" };
-const defaults: Record<OpenAiPurpose, string> = { text: "gpt-5.6-sol", script: "gpt-5.6-sol", voiceoverScript: "gpt-5.6-sol", image: "gpt-image-2" };
+/**
+ * `research` y `structuring` existen separados para poder abaratar el radar sin tocar el resto:
+ * investigar necesita el modelo bueno porque decide qué buscar y qué creerse; ordenar unas notas
+ * ya escritas en JSON, no. Ambos caen al modelo de texto si no se configuran.
+ */
+export type OpenAiPurpose = "text" | "script" | "voiceoverScript" | "research" | "structuring" | "image";
+
+const modelEnv: Record<OpenAiPurpose, string> = { text: "OPENAI_TEXT_MODEL", script: "OPENAI_SCRIPT_MODEL", voiceoverScript: "OPENAI_VOICEOVER_SCRIPT_MODEL", research: "OPENAI_RESEARCH_MODEL", structuring: "OPENAI_STRUCTURING_MODEL", image: "OPENAI_IMAGE_MODEL" };
+const defaults: Record<OpenAiPurpose, string> = { text: "gpt-5.6-sol", script: "gpt-5.6-sol", voiceoverScript: "gpt-5.6-sol", research: "gpt-5.6-terra", structuring: "gpt-5.6-luna", image: "gpt-image-2" };
+
+/**
+ * Investigar y estructurar **no** heredan `OPENAI_TEXT_MODEL`. Son los dos pasos del radar, que
+ * es donde está el gasto, y hacer que sigan al modelo general significaba pagar el más caro sin
+ * decidirlo: en una corrida real, investigar con el modelo insignia costó $1.28.
+ *
+ * Por defecto investigar usa `terra` (2,5× más barato que `sol`) y estructurar `luna` (25×),
+ * porque ordenar unas notas ya escritas en JSON no necesita el modelo bueno.
+ */
+const INDEPENDENT_PURPOSES = new Set<OpenAiPurpose>(["research", "structuring"]);
 
 export class OpenAiError extends Error {
   readonly status: number;
@@ -9,7 +26,11 @@ export class OpenAiError extends Error {
 }
 
 export function openAiModel(purpose: OpenAiPurpose) {
-  return process.env[modelEnv[purpose]]?.trim() || (purpose === "image" ? defaults.image : process.env.OPENAI_TEXT_MODEL?.trim() || defaults[purpose]);
+  const configured = process.env[modelEnv[purpose]]?.trim();
+  if (configured) return configured;
+  // Imagen y los dos pasos del radar no heredan OPENAI_TEXT_MODEL: cada uno tiene el suyo.
+  if (purpose === "image" || INDEPENDENT_PURPOSES.has(purpose)) return defaults[purpose];
+  return process.env.OPENAI_TEXT_MODEL?.trim() || defaults[purpose];
 }
 
 function configuration(purpose: OpenAiPurpose) {
@@ -37,17 +58,16 @@ function outputText(value: unknown) {
   throw new OpenAiError("La IA no devolvió texto JSON.", 502);
 }
 
+/**
+ * Consumo ya normalizado a las unidades que se facturan. Se hace aquí, sobre el cuerpo completo,
+ * porque las llamadas de `web_search` no aparecen en `usage`: hay que contarlas en `output`.
+ */
 function usage(value: unknown) {
-  const raw = (value as { usage?: unknown } | null)?.usage;
-  return raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, unknown> : null;
+  return normalizeResponsesUsage(value);
 }
 
 export type WebSource = { url: string; title: string };
 
-/**
- * Fuentes que la IA consultó con `web_search`. La Responses API las adjunta como anotaciones
- * del texto; se extraen para poder citarlas en el artículo y comprobar de dónde salió el dato.
- */
 /** Parámetros de seguimiento y de sesión que no deberían acabar publicados en el blog. */
 const TRACKING_PARAMS = /^(utm_|msockid$|visit_id$|rd$|gclid$|fbclid$)/;
 
@@ -66,6 +86,15 @@ function cleanUrl(raw: string) {
   }
 }
 
+function hostnameOf(raw: string) {
+  try { return new URL(raw).hostname || raw; }
+  catch { return raw; }
+}
+
+/**
+ * Fuentes que la IA consultó con `web_search`. La Responses API las adjunta como anotaciones
+ * del texto; se extraen para poder citarlas en el artículo y comprobar de dónde salió el dato.
+ */
 export function webSources(value: unknown): WebSource[] {
   const response = value as { output?: { content?: { annotations?: { type?: unknown; url?: unknown; title?: unknown }[] }[] }[] };
   const found = new Map<string, WebSource>();
@@ -74,10 +103,11 @@ export function webSources(value: unknown): WebSource[] {
       for (const annotation of part.annotations ?? []) {
         if (annotation.type !== "url_citation" || typeof annotation.url !== "string") continue;
         const url = cleanUrl(annotation.url);
-        // Sin título el enlace saldría como «[](url)»: mejor el dominio que un hueco.
+        // Sin título el enlace saldría como «[](url)»: mejor el dominio que un hueco. La URL
+        // puede venir malformada, así que el respaldo del respaldo es la propia cadena.
         const title = typeof annotation.title === "string" && annotation.title.trim()
           ? annotation.title.trim().replace(/\s+/g, " ")
-          : new URL(url, "https://example.invalid").hostname;
+          : hostnameOf(url);
         if (!found.has(url)) found.set(url, { url, title });
       }
     }
@@ -86,21 +116,41 @@ export function webSources(value: unknown): WebSource[] {
 }
 
 /** Herramienta de búsqueda web de la Responses API. */
-export const WEB_SEARCH_TOOL = { type: "web_search" } as const;
+export const SEARCH_CONTEXT_SIZES = ["low", "medium", "high"] as const;
+export type SearchContextSize = (typeof SEARCH_CONTEXT_SIZES)[number];
+
+/**
+ * Cuanto contenido de los resultados se le entrega al modelo. Es el unico control DURO sobre el
+ * gasto de una busqueda: pedirle al modelo que busque menos es una instruccion que puede ignorar
+ * —y en una corrida real se le pidieron 8 busquedas e hizo 19—, mientras que esto lo aplica la API.
+ *
+ * En el radar, los tokens de entrada que traen las busquedas son ~62% del costo de la corrida.
+ */
+export function webSearchTool({ contextSize }: { contextSize?: SearchContextSize } = {}) {
+  return contextSize
+    ? { type: "web_search", search_context_size: contextSize } as const
+    : { type: "web_search" } as const;
+}
+
+/** Busqueda con el contexto por defecto del proveedor; la usa la redaccion de articulos. */
+export const WEB_SEARCH_TOOL = webSearchTool();
 
 /**
  * Texto libre, con herramientas si se piden. La búsqueda web no se puede combinar con el modo
  * JSON («Web Search cannot be used with JSON mode»), así que investigar y redactar son dos pasos.
  */
-export async function generateOpenAiText({ system, prompt, purpose = "text", tools, timeoutMs = 120_000, request = fetch }: {
+export async function generateOpenAiText({ system, prompt, purpose = "text", tools, timeoutMs = 120_000, model: override, request = fetch }: {
   system: string;
   prompt: string;
   purpose?: Exclude<OpenAiPurpose, "image">;
   tools?: readonly Record<string, unknown>[];
   timeoutMs?: number;
+  /** Modelo explícito para esta llamada; gana sobre la configuración del propósito. */
+  model?: string | null;
   request?: typeof fetch;
 }) {
-  const { key, model } = configuration(purpose);
+  const { key, model: configured } = configuration(purpose);
+  const model = override?.trim() || configured;
   const response = await request("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
@@ -112,15 +162,18 @@ export async function generateOpenAiText({ system, prompt, purpose = "text", too
   return { text: outputText(body), model, usage: usage(body), sources: webSources(body) };
 }
 
-export async function generateOpenAiJson({ system, prompt, purpose = "text", tools, timeoutMs = 60_000, request = fetch }: {
+export async function generateOpenAiJson({ system, prompt, purpose = "text", tools, timeoutMs = 60_000, model: override, request = fetch }: {
   system: string;
   prompt: string;
   purpose?: Exclude<OpenAiPurpose, "image">;
   tools?: readonly Record<string, unknown>[];
   timeoutMs?: number;
+  /** Modelo explícito para esta llamada; gana sobre la configuración del propósito. */
+  model?: string | null;
   request?: typeof fetch;
 }) {
-  const { key, model } = configuration(purpose);
+  const { key, model: configured } = configuration(purpose);
+  const model = override?.trim() || configured;
   const response = await request("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },

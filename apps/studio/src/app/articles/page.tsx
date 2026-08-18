@@ -11,6 +11,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { useRadarTopic } from "@/lib/use-radar-topic";
 import { useRequestedContentId } from "@/lib/use-requested-content-id";
 import { cn } from "@/lib/utils";
 
@@ -34,6 +35,7 @@ export default function ArticlesPage() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [current, setCurrent] = useState<Item | null>(null);
   const [draft, setDraft] = useState<ArticleDraft | null>(null);
+  const radar = useRadarTopic("article");
   const [campaignId, setCampaignId] = useState("");
   const [preview, setPreview] = useState<Preview | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -135,6 +137,8 @@ export default function ArticlesPage() {
       const payload = await response.json() as Item & { error?: unknown };
       if (!response.ok) { setNotice(typeof payload.error === "string" ? payload.error : "No se pudo guardar el artículo."); return; }
       setCurrent(payload);
+      // Deja constancia de que el artículo salió de un tema del radar. No bloquea el guardado.
+      await radar.link(payload.id);
       setNotice("Guardado.");
       await loadItems();
       await loadPreview(payload.id);
@@ -169,7 +173,8 @@ export default function ArticlesPage() {
 
       {notice ? <p className="mb-4 rounded-md border border-border bg-muted/50 px-3 py-2 text-sm">{notice}</p> : null}
 
-      <GeneratorPanel onGenerate={generate} busy={busy} />
+      {/* Remontar al llegar el tema: el encargo del radar carga un instante después del panel. */}
+      <GeneratorPanel key={radar.topic?.id ?? "manual"} onGenerate={generate} busy={busy} initialPrompt={radar.brief?.prompt ?? ""} />
 
       <div className="grid gap-6 lg:grid-cols-[260px_1fr]">
         <div className="space-y-2">
@@ -311,8 +316,8 @@ export default function ArticlesPage() {
  * Encargo para la IA. La búsqueda web va activada por defecto: sin ella el modelo puede
  * inventar precios y fechas, que es justo lo que no queremos publicar en el blog.
  */
-function GeneratorPanel({ onGenerate, busy }: { onGenerate: (input: { prompt: string; webSearch: boolean; words: number }) => Promise<void>; busy: boolean }) {
-  const [prompt, setPrompt] = useState("");
+function GeneratorPanel({ onGenerate, busy, initialPrompt = "" }: { onGenerate: (input: { prompt: string; webSearch: boolean; words: number }) => Promise<void>; busy: boolean; initialPrompt?: string }) {
+  const [prompt, setPrompt] = useState(initialPrompt);
   const [webSearch, setWebSearch] = useState(true);
   const [words, setWords] = useState(1200);
 

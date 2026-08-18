@@ -7,17 +7,21 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
-type Brand = { id: string; name: string; primaryColor: string };
+type Business = { sector: string; offering: string; audience: string; valueProposition: string };
+type Brand = { id: string; name: string; primaryColor: string; business?: Business };
 
 const DEFAULT_COLOR = "#2f7d40";
+const EMPTY_BUSINESS: Business = { sector: "", offering: "", audience: "", valueProposition: "" };
 
 export default function BrandsPage() {
   const [brands, setBrands] = useState<Brand[]>([]);
   const [selected, setSelected] = useState<Brand | null>(null);
   const [name, setName] = useState("");
   const [primaryColor, setPrimaryColor] = useState(DEFAULT_COLOR);
+  const [business, setBusiness] = useState<Business>(EMPTY_BUSINESS);
   const [error, setError] = useState("");
 
   async function refresh() {
@@ -26,15 +30,15 @@ export default function BrandsPage() {
   }
   useEffect(() => { void refresh(); }, []);
 
-  function reset() { setSelected(null); setName(""); setPrimaryColor(DEFAULT_COLOR); setError(""); }
-  function choose(brand: Brand) { setSelected(brand); setName(brand.name); setPrimaryColor(brand.primaryColor); setError(""); }
+  function reset() { setSelected(null); setName(""); setPrimaryColor(DEFAULT_COLOR); setBusiness(EMPTY_BUSINESS); setError(""); }
+  function choose(brand: Brand) { setSelected(brand); setName(brand.name); setPrimaryColor(brand.primaryColor); setBusiness({ ...EMPTY_BUSINESS, ...brand.business }); setError(""); }
 
   async function save(event: FormEvent) {
     event.preventDefault();
     const response = await fetch(selected ? `/api/brand-kits/${selected.id}` : "/api/brand-kits", {
       method: selected ? "PATCH" : "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, primaryColor }),
+      body: JSON.stringify({ name, primaryColor, business }),
     });
     if (!response.ok) return setError("Revisa el nombre y el color de la marca.");
     const brand = await response.json() as Brand;
@@ -95,6 +99,31 @@ export default function BrandsPage() {
                   className="h-10 w-14 cursor-pointer rounded-md border border-input bg-transparent p-1"
                 />
                 <code className="rounded-md bg-muted px-2 py-1 text-sm text-foreground">{primaryColor}</code>
+              </div>
+            </div>
+            <div className="space-y-4 border-t border-border/40 pt-5">
+              <div>
+                <h2 className="text-sm font-semibold">El negocio</h2>
+                <p className="text-xs text-muted-foreground">
+                  Para qué sirve: el radar busca temas que conecten con lo que vendes, y los generadores dejan de escribir en abstracto.
+                  Todo es opcional.
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="sector">Giro del negocio</Label>
+                <Input id="sector" value={business.sector} onChange={(event) => setBusiness({ ...business, sector: event.target.value })} placeholder="Ej. Consultora de ciberseguridad y automatización" />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="offering">Qué vende</Label>
+                <Textarea id="offering" rows={2} value={business.offering} onChange={(event) => setBusiness({ ...business, offering: event.target.value })} placeholder="Ej. auditorías de seguridad, flujos de n8n y tiendas online" />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="audience">A quién</Label>
+                <Input id="audience" value={business.audience} onChange={(event) => setBusiness({ ...business, audience: event.target.value })} placeholder="Ej. PyMEs de Latinoamérica" />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="value">Qué lo diferencia</Label>
+                <Textarea id="value" rows={2} value={business.valueProposition} onChange={(event) => setBusiness({ ...business, valueProposition: event.target.value })} placeholder="Ej. implementamos y damos soporte, no solo diagnosticamos" />
               </div>
             </div>
             {error ? <p className="text-sm text-destructive">{error}</p> : null}

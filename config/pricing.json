@@ -1,0 +1,56 @@
+{
+  "_comentario": [
+    "Tarifas de los proveedores de IA. La API no devuelve importes, así que el costo se calcula",
+    "aquí (ver PLAN_RADAR.md, D-03 y D-04). Los precios se copian a mano de la página de precios",
+    "del proveedor: no hay forma automática de obtenerlos.",
+    "",
+    "IMPORTANTE: al cambiar cualquier precio, cambia también 'version' con la fecha de vigencia.",
+    "Los importes ya registrados NO se recalculan: cada uno guarda la versión con la que se cobró,",
+    "y ese es el único modo de que el histórico siga siendo auditable.",
+    "",
+    "null significa 'sin cargar', no 'gratis': esas operaciones quedan sin importe en vez de",
+    "contarse como cero. 'npm run check:env' avisa de las que faltan.",
+    "",
+    "Verificado el 2026-08-18 en developers.openai.com/api/docs/pricing y la guía de imágenes.",
+    "",
+    "Dos supuestos que conviene recordar si algún día no cuadra con la factura:",
+    "- gpt-5.6-sol tiene una tarifa larga superior ($10/$45 por millón) al pasar cierto umbral de",
+    "  contexto. Aquí se usa la corta porque ningún prompt de la aplicación se acerca a ese umbral.",
+    "- gpt-image-2 se factura por tokens; $0.005 es el equivalente por imagen para el único tamaño",
+    "  y calidad que pide la aplicación (1024x1536, calidad low). Si eso cambia, cambia el precio.",
+    "- web_search cobra $10 por cada 1000 llamadas. Los tokens del contenido buscado se facturan",
+    "  al precio del modelo, y ya vienen contados dentro de input_tokens: no hay que sumarlos aparte.",
+    "",
+    "Familia GPT-5.6 verificada el 2026-08-18: sol $5/$30, terra $2/$12, luna $0.20/$1.20 por millon.",
+    "El radar gasta el 65% en tokens de ENTRADA (el contenido que traen las busquedas), asi que",
+    "cambiar de modelo divide esa partida directamente: los mismos tokens a otra tarifa."
+  ],
+  "version": "2026-08-18b",
+  "currency": "USD",
+  "models": {
+    "gpt-5.6-sol": {
+      "inputPerMillion": 5,
+      "cachedInputPerMillion": 0.5,
+      "outputPerMillion": 30
+    },
+    "gpt-image-2": {
+      "perImage": 0.005
+    },
+    "gpt-5.6-terra": {
+      "inputPerMillion": 2,
+      "cachedInputPerMillion": 0.2,
+      "outputPerMillion": 12
+    },
+    "gpt-5.6-luna": {
+      "inputPerMillion": 0.2,
+      "cachedInputPerMillion": 0.02,
+      "outputPerMillion": 1.2
+    }
+  },
+  "tools": {
+    "webSearchPerCall": 0.01
+  },
+  "speech": {
+    "perThousandCharacters": null
+  }
+}

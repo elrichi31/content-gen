@@ -28,6 +28,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const now = new Date().toISOString(); const stored = JSON.parse(current.document_json); const next = { ...stored, document: { ...stored.document, data: nextDocument }, revision: current.revision + 1, updatedAt: now };
     const result = await withDatabase((database) => database.prepare("UPDATE content_items SET document_json = ?, revision = ?, updated_at = ? WHERE id = ? AND revision = ?").run(JSON.stringify(next), next.revision, now, id, current.revision) as { changes: number });
     if (!result.changes) return NextResponse.json({ error: "El video cambió en otra edición." }, { status: 409 });
-    return NextResponse.json({ content: next, asset, generationRun: await finishGenerationRun(run.id, { durationMs: Date.now() - startedAt }) });
+    return NextResponse.json({ content: next, asset, generationRun: await finishGenerationRun(run.id, { durationMs: Date.now() - startedAt, usage: image.usage }) });
   } catch (error) { if (run) await finishGenerationRun(run.id, { durationMs: Date.now() - startedAt, error: error instanceof Error ? error.message : "Error desconocido" }); return NextResponse.json({ error: error instanceof Error ? error.message : "No se pudo crear la imagen." }, { status: 502 }); }
 }

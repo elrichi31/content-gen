@@ -43,11 +43,21 @@ if (blogSitePath && !existsSync(resolve(blogSitePath, "content", "blog"))) {
   throw new Error(`BLOG_SITE_PATH debe apuntar a la raíz del repositorio del sitio: no se encontró content/blog en ${resolve(blogSitePath)}.`);
 }
 
+// La tarifa no bloquea nada: sin ella se genera igual, solo que sin importe. Por eso avisa en vez
+// de fallar. Que esté mal escrita sí es un error, y `loadPricing` lo lanza.
+const { loadPricing, missingPrices } = await import("../apps/studio/src/lib/pricing.ts");
+const pricing = loadPricing();
+const pendingPrices = missingPrices(pricing);
+if (pendingPrices.length) {
+  console.warn(`Aviso: faltan tarifas en config/pricing.json (${pendingPrices.join(", ")}). Esas operaciones quedarán registradas sin importe.`);
+}
+
 console.log(
   JSON.stringify(
     {
       status: "ready",
       provider,
+      pricing: { version: pricing.version, currency: pricing.currency, status: pendingPrices.length ? "incomplete" : "configured", missing: pendingPrices },
       integrations: {
         openai: provider === "openai" ? "enabled" : "disabled",
         unsplash: process.env.UNSPLASH_ACCESS_KEY ? "configured" : "not-configured",

@@ -52,6 +52,13 @@ assert.equal(conFrontmatter.date, "2026-08-03", "la fecha sigue siendo la del si
 
 assert.equal(normalizeGeneratedArticle(generado, { ...input, category: "Tutoriales" }).category, "Tutoriales", "la categoría elegida gana a la del modelo");
 
+// Antes, un titular de más de 200 caracteres tiraba un ZodError crudo y se perdía el artículo entero.
+const largo = normalizeGeneratedArticle({ ...generado, title: "Titular ".repeat(40), category: "C".repeat(200), tags: ["etiqueta ".repeat(20)] }, input, { today: "2026-08-03" });
+assert.ok(largo.title.length <= 200 && largo.title.length > 190, "recorta el titular al máximo del borrador en vez de fallar");
+assert.equal(largo.category.length, 80, "recorta la categoría");
+assert.ok(largo.tags[0].length <= 60, "recorta cada etiqueta");
+assert.ok(largo.slug.length <= 120, "el slug sigue dentro del límite");
+
 // Las anotaciones de web_search se convierten en fuentes citadas al final del artículo.
 const respuesta = {
   output: [{

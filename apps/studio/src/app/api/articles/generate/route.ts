@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
-import { ArticleGenerationError, articleGenerationInputSchema, generateArticle } from "@/lib/article-generation";
+import { ArticleGenerationError, articleGenerationInputSchema, generateArticle, researchTopic } from "@/lib/article-generation";
 import { siteIndex } from "@/lib/blog-export";
-import { OpenAiError } from "@/lib/openai";
+import { trackGeneration } from "@/lib/generation-runs";
+import { openAiModel, OpenAiError } from "@/lib/openai";
 
 /**
  * Redacta un artículo a partir del encargo del usuario. Devuelve un borrador sin guardar:
@@ -14,7 +15,18 @@ export async function POST(request: Request) {
   // Si el sitio está configurado, se le ofrecen sus categorías para no inventar una nueva.
   const categories = await siteIndex().then((index) => index.categories, () => [] as string[]);
   try {
-    const { article, model, usage, sources } = await generateArticle(parsed.data, { categories });
+    // Investigar y redactar se registran por separado: son dos llamadas con costos muy distintos
+    // (la primera paga búsquedas web) y mezclarlas impediría saber cuánto cuesta cada cosa.
+    const research = parsed.data.webSearch
+      ? await trackGeneration({ operation: "article-research", model: openAiModel("text") }, async () => {
+        const done = await researchTopic(parsed.data);
+        return { value: done, usage: done.usage };
+      })
+      : null;
+    const { article, model, usage, sources } = await trackGeneration({ operation: "article-write", model: openAiModel("text") }, async () => {
+      const written = await generateArticle(parsed.data, { categories, research });
+      return { value: written, usage: written.usage };
+    });
     return NextResponse.json({ article, model, usage, sources });
   } catch (error) {
     const status = error instanceof ArticleGenerationError || error instanceof OpenAiError ? error.status : 502;

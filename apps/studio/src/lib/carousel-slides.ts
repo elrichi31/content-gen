@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { carouselDocumentSchema, carouselSlideSchema, type CarouselDocument } from "@content-gen/domain/carousel";
+import { normalizeResponsesUsage } from "@content-gen/domain/cost";
 import { openAiRequest } from "./openai.ts";
 
 type Slide = CarouselDocument["slides"][number];
@@ -26,5 +27,6 @@ function outputText(value: unknown) {
 export async function generateSlide(topic: string, layout: Slide["layout"], request: typeof fetch = fetch) {
   if (process.env.CONTENT_GEN_AI_PROVIDER !== "openai" || !process.env.OPENAI_API_KEY) throw new Error("OpenAI no está configurado.");
   const response = await openAiRequest("text", request, "https://api.openai.com/v1/responses", { method: "POST", headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, "Content-Type": "application/json" }, body: JSON.stringify({ model: process.env.OPENAI_TEXT_MODEL || "gpt-5.6-sol", input: `Responde solamente JSON de una slide layout ${layout} para el tema "${topic}". Incluye los campos de texto adecuados para ese layout.`, text: { format: { type: "json_object" } } }) });
-  const body = await response.json().catch(() => null); if (!response.ok) throw new Error("No se pudo generar la slide."); return JSON.parse(outputText(body));
+  const body = await response.json().catch(() => null); if (!response.ok) throw new Error("No se pudo generar la slide.");
+  return { slide: JSON.parse(outputText(body)), model: process.env.OPENAI_TEXT_MODEL || "gpt-5.6-sol", usage: normalizeResponsesUsage(body) };
 }

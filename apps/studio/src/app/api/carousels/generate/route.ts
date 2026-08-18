@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { campaignSchema } from "@content-gen/domain/schemas";
 import { GenerationError, carouselGenerationInputSchema, generateCarousel } from "../../../../lib/carousel-generation";
 import { withDatabase } from "../../../../lib/db";
+import { trackGeneration } from "../../../../lib/generation-runs";
+import { openAiModel } from "../../../../lib/openai";
 
 export async function POST(request: Request) {
   const parsed = carouselGenerationInputSchema.safeParse(await request.json().catch(() => null));
@@ -11,6 +13,12 @@ export async function POST(request: Request) {
   const campaign = stored ? campaignSchema.parse(JSON.parse(stored.campaign_json)) : undefined;
   const brief = campaign && typeof campaign.brief === "object" ? campaign.brief : undefined;
   const brand = stored?.brand_json ? JSON.parse(stored.brand_json) as { name?: string; primaryColor?: string } : undefined;
-  try { return NextResponse.json({ document: await generateCarousel({ ...parsed.data, ...brief, brandName: brand?.name, primaryColor: brand?.primaryColor }) }); }
+  try {
+    const document = await trackGeneration({ operation: "carousel-generate", model: openAiModel("text") }, async () => {
+      const generated = await generateCarousel({ ...parsed.data, ...brief, brandName: brand?.name, primaryColor: brand?.primaryColor });
+      return { value: generated.document, usage: generated.usage };
+    });
+    return NextResponse.json({ document });
+  }
   catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "No se pudo generar el carrusel." }, { status: error instanceof GenerationError ? error.status : 502 }); }
 }

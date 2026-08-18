@@ -2,7 +2,7 @@ import { z } from "zod";
 import { isoDate } from "./analytics.ts";
 
 /**
- * Artículos del blog. El contrato lo manda el sitio (`bethalabs-site`), que lee los `.md` de
+ * Artículos del blog. El contrato lo manda el sitio (zenlorlabs.com), que lee los `.md` de
  * `content/blog` con gray-matter y espera exactamente estos campos: si falta uno, el artículo
  * se publica roto. Por eso el frontmatter se valida aquí y no al escribir el fichero.
  */

@@ -8,8 +8,10 @@ export async function POST(request: Request) {
   try {
     const days = input?.days === undefined ? parseSyncDays() : parseSyncDays(String(input.days));
     const summary = await syncAnalytics({ days });
-    // 207 cuando una plataforma falló pero otra sí trajo datos: la UI lo muestra como aviso, no como error.
-    return NextResponse.json(summary, { status: summary.failed.length && summary.failed.length < summary.results.length ? 207 : summary.failed.length ? 502 : 200 });
+    // 207 solo si algo falló y algo salió bien de verdad. Contar los «skipped» como éxito daba
+    // un 207 optimista cuando la única plataforma configurada era justo la que había fallado.
+    const succeeded = summary.results.filter((result) => result.status === "ok").length;
+    return NextResponse.json(summary, { status: !summary.failed.length ? 200 : succeeded ? 207 : 502 });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "No se pudo sincronizar." }, { status: error instanceof GoogleAuthError ? error.status : 500 });
   }

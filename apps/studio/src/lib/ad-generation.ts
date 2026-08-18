@@ -1,4 +1,5 @@
 import { adDocumentSchema, type AdDocument } from "@content-gen/domain/ad";
+import { normalizeResponsesUsage } from "@content-gen/domain/cost";
 import { z } from "zod";
 import { openAiRequest } from "./openai.ts";
 
@@ -36,6 +37,6 @@ export async function generateAd(input: AdGenerationRequest, request: typeof fet
   const response = await openAiRequest("text", request, "https://api.openai.com/v1/responses", { method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" }, signal: AbortSignal.timeout(60_000), body: JSON.stringify({ model: process.env.OPENAI_TEXT_MODEL || "gpt-5.6-sol", input: [{ role: "system", content: "Generas anuncios. Responde solo JSON válido." }, { role: "user", content: buildAdPrompt(resolved) }], text: { format: { type: "json_object" } } }) });
   const body = await response.json().catch(() => null) as { error?: { message?: unknown } } | null;
   if (!response.ok) throw new AdGenerationError(typeof body?.error?.message === "string" ? `OpenAI: ${body.error.message}` : "No se pudo generar el anuncio.", 502);
-  try { return normalizeGeneratedAd(JSON.parse(responseText(body)), resolved); }
+  try { return { document: normalizeGeneratedAd(JSON.parse(responseText(body)), resolved), model: process.env.OPENAI_TEXT_MODEL || "gpt-5.6-sol", usage: normalizeResponsesUsage(body) }; }
   catch (error) { if (error instanceof AdGenerationError) throw error; throw new AdGenerationError("La IA no devolvió JSON válido.", 422); }
 }

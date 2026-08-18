@@ -66,7 +66,15 @@ try {
   await assert.rejects(() => updatePost(post.id, { platform: "tiktok", date: "2026-08-03", time: "19:00" }), (error: unknown) => error instanceof ScheduleError && error.status === 409, "mover a un hueco ocupado falla");
 
   assert.equal((await listPosts({ startDate: "2026-08-04" })).length, 1, "filtra por fecha inicial");
-  assert.equal((await listPosts({ campaignId: "camp1" })).length, 1, "filtra por campaña");
+  // Filtrar por campaña trae las suyas y las que no tienen ninguna, igual que con las pautas.
+  const deCampaña = await listPosts({ campaignId: "camp1" });
+  assert.deepEqual(new Set(deCampaña.map((row) => row.campaignId)), new Set(["camp1", null]), "la campaña ve lo suyo y lo global");
+
+  // Un hueco reservado sin campaña no puede desaparecer al filtrar: la pantalla lo pintaría
+  // libre y planificar encima chocaría con la clave única sin explicación.
+  const globalPost = await createPost({ platform: "linkedin", date: "2026-08-06", time: "09:00", title: "Reservado" });
+  assert.equal(globalPost.campaignId, null, "un hueco sin pieza puede quedarse sin campaña");
+  assert.ok((await listPosts({ campaignId: "camp1" })).some((row) => row.id === globalPost.id), "lo global sigue visible al filtrar por campaña");
 
   // Agosto de 2026 empieza en sábado: la rejilla arranca el 27 de julio.
   const calendario = await monthCalendar("2026-08");
@@ -87,8 +95,9 @@ try {
   assert.equal(huerfana?.post?.id, conservada.id, "y se sigue viendo en el calendario aunque ya no haya pauta");
   assert.equal(huerfana?.ruleId, null, "el hueco huérfano no apunta a una pauta borrada");
 
+  const antesDeBorrar = (await listPosts()).length;
   await deletePost(post.id);
-  assert.equal((await listPosts()).length, 1, "se puede vaciar un hueco");
+  assert.equal((await listPosts()).length, antesDeBorrar - 1, "se puede vaciar un hueco");
   await assert.rejects(() => deletePost(post.id), /no existe/, "borrar dos veces avisa");
 
   console.log("Cronograma (persistencia): pautas, huecos únicos, herencia de campaña y calendario del mes validados.");

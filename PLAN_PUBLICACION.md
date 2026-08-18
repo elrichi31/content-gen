@@ -60,7 +60,7 @@ exportador y generación en verde.
 
 | Tarea | Descripción | Criterio de verificación |
 |---|---|---|
-| T-02 | `GITHUB_TOKEN` fine-grained, solo `bethalabs-site`, permiso `Contents: read and write`, en `.env.local` y validado en `check:env` | `npm run check:env` reporta el blog como configurado y falla con un token de alcance incorrecto |
+| T-02 | `GITHUB_TOKEN` fine-grained, solo el repositorio del sitio (zenlorlabs.com), permiso `Contents: read and write`, en `.env.local` y validado en `check:env` | `npm run check:env` reporta el blog como configurado y falla con un token de alcance incorrecto |
 | T-03 | Publicar: un único commit con `.md` + portada usando la Git Data API (blob → tree → commit → ref) | Un artículo publicado desde la app aparece en `main` como **un** commit con ambos ficheros |
 | T-04 | Despublicar: commit inverso que elimina ambos ficheros | La URL devuelve 404 tras el despliegue y el artículo conserva su historial en git |
 | T-05 | Registrar en el cronograma el estado `publicada` con la URL y el SHA del commit | La publicación queda trazada: se puede llegar del hueco del calendario al commit |

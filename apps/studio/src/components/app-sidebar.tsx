@@ -17,6 +17,8 @@ import {
   BarChart3,
   CalendarDays,
   FileText,
+  Radar,
+  Wallet,
   type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -28,6 +30,10 @@ type NavGroup = { title?: string; items: NavItem[] };
 
 const GROUPS: NavGroup[] = [
   { items: [{ href: "/", label: "Inicio", icon: Home }] },
+  {
+    title: "Descubrir",
+    items: [{ href: "/radar", label: "Radar", icon: Radar, badge: "Beta" }],
+  },
   {
     title: "Crear",
     items: [
@@ -49,7 +55,10 @@ const GROUPS: NavGroup[] = [
   },
   {
     title: "Sistema",
-    items: [{ href: "/diagnostics", label: "Diagnóstico", icon: Activity }],
+    items: [
+      { href: "/costs", label: "Costos", icon: Wallet },
+      { href: "/diagnostics", label: "Diagnóstico", icon: Activity },
+    ],
   },
 ];
 

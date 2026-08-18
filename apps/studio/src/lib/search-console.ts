@@ -7,7 +7,10 @@ export type SearchConsoleDimension = (typeof SEARCH_CONSOLE_DIMENSIONS)[number];
 
 /** Search Console consolida con ~3 días de retraso: pedir más reciente devuelve huecos. */
 export const SEARCH_CONSOLE_LAG_DAYS = 3;
-const MAX_ROWS = 25_000;
+/** Máximo de filas que la API entrega por petición. */
+const PAGE_SIZE = 25_000;
+/** Tope por consulta. Un mes de `query` en un sitio grande cabe de sobra. */
+const MAX_ROWS = 200_000;
 
 export function readSearchConsoleSite() {
   const site = process.env.SEARCH_CONSOLE_SITE_URL?.trim();
@@ -17,29 +20,46 @@ export function readSearchConsoleSite() {
   return site;
 }
 
-type QueryOptions = { siteUrl?: string; startDate: string; endDate: string; dimension?: SearchConsoleDimension; rowLimit?: number; request?: typeof fetch };
+/** `pageSize` solo se baja en las pruebas: en producción manda el máximo de la API. */
+type QueryOptions = { siteUrl?: string; startDate: string; endDate: string; dimension?: SearchConsoleDimension; maxRows?: number; pageSize?: number; request?: typeof fetch };
+
+type SearchConsoleRow = { keys?: string[]; clicks?: number; impressions?: number; ctr?: number; position?: number };
 
 /**
  * Devuelve filas diarias normalizadas al modelo de snapshots. Para desgloses distintos de
  * `date` se pide `[date, dimension]` para conservar granularidad diaria y poder reprocesar.
+ *
+ * La API pagina con `startRow` y nunca avisa de que ha cortado: sin recorrer las páginas, un
+ * desglose por `query` de un mes se guardaría truncado y en silencio.
  */
-export async function querySearchConsole({ siteUrl = readSearchConsoleSite(), startDate, endDate, dimension = "date", rowLimit = 5000, request = fetch }: QueryOptions) {
+export async function querySearchConsole({ siteUrl = readSearchConsoleSite(), startDate, endDate, dimension = "date", maxRows = MAX_ROWS, pageSize = PAGE_SIZE, request = fetch }: QueryOptions) {
   isoDate.parse(startDate); isoDate.parse(endDate);
   if (startDate > endDate) throw new GoogleAuthError("El rango de fechas de Search Console está invertido.", 400);
   if (!SEARCH_CONSOLE_DIMENSIONS.includes(dimension)) throw new GoogleAuthError(`Dimensión no soportada en Search Console: ${dimension}.`, 400);
 
   const dimensions = dimension === "date" ? ["date"] : ["date", dimension];
   const token = await getGoogleAccessToken(SEARCH_CONSOLE_SCOPE, { request });
-  const response = await request(`https://searchconsole.googleapis.com/webmasters/v3/sites/${encodeURIComponent(siteUrl)}/searchAnalytics/query`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    signal: AbortSignal.timeout(60_000),
-    body: JSON.stringify({ startDate, endDate, dimensions, rowLimit: Math.min(Math.max(rowLimit, 1), MAX_ROWS), dataState: "final", type: "web" }),
-  });
-  if (!response.ok) throw googleApiError(response.status, "Search Console");
-  const body = await response.json().catch(() => null) as { rows?: { keys?: string[]; clicks?: number; impressions?: number; ctr?: number; position?: number }[] } | null;
+  const limit = Math.min(Math.max(Math.trunc(maxRows), 1), MAX_ROWS);
+  const rows: SearchConsoleRow[] = [];
 
-  return (body?.rows ?? []).flatMap((row) => {
+  while (rows.length < limit) {
+    const rowLimit = Math.min(Math.max(Math.trunc(pageSize), 1), PAGE_SIZE, limit - rows.length);
+    const response = await request(`https://searchconsole.googleapis.com/webmasters/v3/sites/${encodeURIComponent(siteUrl)}/searchAnalytics/query`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      signal: AbortSignal.timeout(60_000),
+      body: JSON.stringify({ startDate, endDate, dimensions, rowLimit, startRow: rows.length, dataState: "final", type: "web" }),
+    });
+    if (!response.ok) throw googleApiError(response.status, "Search Console");
+    const body = await response.json().catch(() => null) as { rows?: SearchConsoleRow[] } | null;
+    // Se recorta a lo pedido: el tope debe sostenerse aunque la API devuelva de más.
+    const page = (body?.rows ?? []).slice(0, rowLimit);
+    rows.push(...page);
+    // Una página incompleta es el final: la API no devuelve ningún contador de filas totales.
+    if (page.length < rowLimit) break;
+  }
+
+  return rows.flatMap((row) => {
     const date = normalizeApiDate(row.keys?.[0] ?? "");
     if (!isoDate.safeParse(date).success) return [];
     return [{

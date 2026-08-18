@@ -68,19 +68,60 @@ export async function listMetricSnapshots({ platform, propertyId, dimension = "d
     .all(...params) as { data_json: string }[]).map((row) => JSON.parse(row.data_json) as MetricSnapshot));
 }
 
-/** Suma las métricas de un conjunto de filas; sirve para las tarjetas de totales de la UI. */
+/**
+ * Métrica derivada que se recalcula desde sus componentes en vez de promediarse. El CTR del
+ * periodo es el de sus totales: promediar los CTR diarios da un número que no existe.
+ */
+const RATIOS: Record<string, { numerator: string; denominator: string; scale: number }> = {
+  ctr: { numerator: "clicks", denominator: "impressions", scale: 100 },
+};
+
+/**
+ * Métrica que es una media y hay que ponderar por el volumen de la fila. Sin ponderar, un día
+ * de cola con 2 impresiones pesa lo mismo que uno con 10.000 y arruina el resultado.
+ */
+const WEIGHTED: Record<string, string> = {
+  position: "impressions",
+  engagementRate: "sessions",
+  bounceRate: "sessions",
+  averageSessionDuration: "sessions",
+};
+
+/**
+ * Totales de un conjunto de filas para las tarjetas de la UI. Los volúmenes se suman; las tasas
+ * se recalculan y las medias se ponderan. Si falta el peso, se cae a la media simple: es peor
+ * que la ponderada, pero mejor que no dar el dato.
+ */
 export function totalMetrics(snapshots: MetricSnapshot[]) {
-  const sums: Record<string, number> = {};
-  const counts: Record<string, number> = {};
+  const sums: Record<string, number> = Object.create(null);
+  const counts: Record<string, number> = Object.create(null);
+  const weighted: Record<string, number> = Object.create(null);
+  const weights: Record<string, number> = Object.create(null);
+
   for (const snapshot of snapshots) {
     for (const [name, value] of Object.entries(snapshot.metrics)) {
       sums[name] = (sums[name] ?? 0) + value;
       counts[name] = (counts[name] ?? 0) + 1;
+      const weight = WEIGHTED[name] === undefined ? 0 : snapshot.metrics[WEIGHTED[name]] ?? 0;
+      if (weight > 0) {
+        weighted[name] = (weighted[name] ?? 0) + value * weight;
+        weights[name] = (weights[name] ?? 0) + weight;
+      }
     }
   }
-  // Posición media, CTR y tasas son promedios: sumarlos no significaría nada.
-  const averaged = new Set(["position", "ctr", "engagementRate", "averageSessionDuration", "bounceRate"]);
-  return Object.fromEntries(Object.entries(sums).map(([name, value]) => [name, averaged.has(name) ? Number((value / (counts[name] || 1)).toFixed(2)) : Math.round(value)]));
+
+  return Object.fromEntries(Object.keys(sums).map((name) => {
+    const ratio = RATIOS[name];
+    if (ratio && sums[ratio.denominator]) {
+      return [name, Number(((sums[ratio.numerator] ?? 0) / sums[ratio.denominator] * ratio.scale).toFixed(2))];
+    }
+    if (WEIGHTED[name] !== undefined) {
+      const average = weights[name] ? weighted[name] / weights[name] : sums[name] / (counts[name] || 1);
+      return [name, Number(average.toFixed(2))];
+    }
+    if (ratio) return [name, Number((sums[name] / (counts[name] || 1)).toFixed(2))];
+    return [name, Math.round(sums[name])];
+  }));
 }
 
 /** Última fecha con datos por plataforma; la UI la usa para avisar si la sincronización se atrasó. */

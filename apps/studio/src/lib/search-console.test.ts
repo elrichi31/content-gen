@@ -38,6 +38,26 @@ assert.equal(partial.length, 1, "descarta filas sin fecha válida");
 assert.deepEqual(partial[0].metrics, { clicks: 0, impressions: 0, ctr: 0, position: 0 }, "las métricas ausentes valen cero");
 
 assert.deepEqual(await querySearchConsole({ startDate: "2026-07-01", endDate: "2026-07-02", request: responder({}) }), [], "un informe sin filas no rompe");
+
+// Paginación: la API corta en `rowLimit` y solo se sabe que hay más si la página viene llena.
+const paginado: Record<string, unknown>[] = [];
+const porPaginas = (paginas: string[][]): typeof fetch => async (url, init) => {
+  if (String(url).includes("oauth2")) return new Response(JSON.stringify({ access_token: "token", expires_in: 3600 }));
+  const cuerpo = JSON.parse(String(init?.body));
+  paginado.push(cuerpo);
+  const pagina = (paginas[Number(cuerpo.startRow) / 2] ?? []).slice(0, Number(cuerpo.rowLimit));
+  return new Response(JSON.stringify({ rows: pagina.map((q) => ({ keys: ["2026-07-01", q], clicks: 1, impressions: 10, ctr: 0.1, position: 3 })) }));
+};
+
+const todas = await querySearchConsole({ startDate: "2026-07-01", endDate: "2026-07-02", dimension: "query", pageSize: 2, request: porPaginas([["a", "b"], ["c", "d"], ["e"]]) });
+assert.deepEqual(todas.map((row) => row.dimensionValue), ["a", "b", "c", "d", "e"], "recorre las páginas y concatena todas las filas");
+assert.deepEqual(paginado.map((cuerpo) => cuerpo.startRow), [0, 2, 4], "avanza startRow por página");
+assert.equal(paginado.at(-1)?.rowLimit, 2, "pide páginas del tamaño acordado");
+
+paginado.length = 0;
+const acotado = await querySearchConsole({ startDate: "2026-07-01", endDate: "2026-07-02", dimension: "query", pageSize: 2, maxRows: 3, request: porPaginas([["a", "b"], ["c", "d"], ["e"]]) });
+assert.equal(acotado.length, 3, "maxRows corta la recogida");
+assert.equal(paginado.at(-1)?.rowLimit, 1, "la última página pide solo lo que falta para el tope");
 await assert.rejects(() => querySearchConsole({ startDate: "2026-07-02", endDate: "2026-07-01", request: responder({}) }), /invertido/, "valida el orden del rango");
 await assert.rejects(() => querySearchConsole({ startDate: "2026-07-01", endDate: "2026-07-02", request: responder({}, 403) }), /permiso de lectura/, "explica el 403 de permisos");
 await assert.rejects(() => querySearchConsole({ startDate: "2026-07-01", endDate: "2026-07-02", request: responder({}, 429) }), /cuota/, "traduce la cuota agotada");

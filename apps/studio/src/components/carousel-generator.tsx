@@ -14,7 +14,7 @@ export function CarouselGenerator({
   onNotice,
 }: {
   campaignId?: string;
-  brief?: { topic: string; audience: string; tone: string };
+  brief?: { topic: string; audience: string; tone: string; context?: string };
   onGenerated: (document: CarouselDocument) => void;
   onNotice: (notice: string) => void;
 }) {
@@ -24,13 +24,22 @@ export function CarouselGenerator({
   const [tone, setTone] = useState("");
   const [advanced, setAdvanced] = useState(false);
   const [loading, setLoading] = useState(false);
-  useEffect(() => { if (brief) { setTopic(brief.topic); setAudience(brief.audience); setTone(brief.tone); } }, [brief]);
+  const [context, setContext] = useState("");
+  useEffect(() => {
+    if (!brief) return;
+    setTopic(brief.topic);
+    setAudience(brief.audience);
+    setTone(brief.tone);
+    // El contexto trae los hechos y las fuentes cuando el encargo viene del radar.
+    setContext(brief.context ?? "");
+  }, [brief]);
 
   async function generate() {
     setLoading(true);
     const body: Record<string, unknown> = { topic, slideCount };
     if (audience.trim()) body.audience = audience.trim();
     if (tone.trim()) body.tone = tone.trim();
+    if (context.trim()) body.context = context.trim();
     if (campaignId) body.campaignId = campaignId;
     const response = await fetch("/api/carousels/generate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const payload = await response.json();

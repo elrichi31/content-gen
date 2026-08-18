@@ -11,10 +11,19 @@ type Platform = "search-console" | "google-analytics";
 type Payload = {
   snapshots: MetricSnapshot[];
   totals: Record<string, number>;
+  period?: { startDate: string; endDate: string; days: number };
+  truncated?: boolean;
   freshness: Record<string, { lastDate: string; lastSync: string }>;
   configured: Record<Platform, boolean>;
   error?: string;
 };
+
+/** Periodos que cubren la ventana de sincronización por defecto y sus múltiplos habituales. */
+const PERIODS = [
+  { value: 7, label: "7 días" },
+  { value: 28, label: "28 días" },
+  { value: 90, label: "90 días" },
+];
 
 const PLATFORM_LABEL: Record<Platform, string> = { "search-console": "Search Console", "google-analytics": "Google Analytics" };
 
@@ -52,6 +61,7 @@ function formatMetric(name: string, value: number) {
 export function AnalyticsDashboard() {
   const [platform, setPlatform] = useState<Platform>("search-console");
   const [dimension, setDimension] = useState("date");
+  const [days, setDays] = useState(28);
   const [data, setData] = useState<Payload | null>(null);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -60,7 +70,7 @@ export function AnalyticsDashboard() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await fetch(`/api/analytics?platform=${platform}&dimension=${dimension}&limit=200`);
+      const response = await fetch(`/api/analytics?platform=${platform}&dimension=${dimension}&days=${days}&limit=200`);
       const payload = await response.json() as Payload;
       setData(payload);
       setNotice(response.ok ? null : payload.error ?? "No se pudieron leer las métricas.");
@@ -69,7 +79,7 @@ export function AnalyticsDashboard() {
     } finally {
       setLoading(false);
     }
-  }, [platform, dimension]);
+  }, [platform, dimension, days]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -93,6 +103,7 @@ export function AnalyticsDashboard() {
   const freshness = data?.freshness?.[platform];
   const totals = Object.entries(data?.totals ?? {});
   const snapshots = data?.snapshots ?? [];
+  const period = data?.period;
 
   return (
     <div className="space-y-6">
@@ -103,6 +114,17 @@ export function AnalyticsDashboard() {
           </Button>
         ))}
         <div className="ml-auto flex items-center gap-2">
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            Periodo
+            <select
+              aria-label="Periodo de las métricas"
+              className="h-8 rounded-md border border-input bg-transparent px-2 text-sm text-foreground"
+              value={days}
+              onChange={(event) => setDays(Number(event.target.value))}
+            >
+              {PERIODS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </select>
+          </label>
           {freshness ? <span className="text-xs text-muted-foreground">Últimos datos: {freshness.lastDate}</span> : null}
           <Button size="sm" variant="outline" onClick={() => void sync()} disabled={syncing}>
             <RefreshCw className={syncing ? "h-4 w-4 animate-spin" : "h-4 w-4"} /> {syncing ? "Sincronizando…" : "Sincronizar"}
@@ -132,15 +154,19 @@ export function AnalyticsDashboard() {
       ) : null}
 
       {totals.length ? (
-        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-          {totals.map(([name, value]) => (
-            <Card key={name}>
-              <CardContent className="space-y-1">
-                <p className="text-xs uppercase tracking-wide text-muted-foreground">{METRIC_LABEL[name] ?? name}</p>
-                <p className="text-2xl font-semibold tracking-tight text-foreground">{formatMetric(name, value)}</p>
-              </CardContent>
-            </Card>
-          ))}
+        <div className="space-y-2">
+          {/* El periodo se dice explícitamente: son los totales del rango, no los del desglose de abajo. */}
+          {period ? <p className="text-xs text-muted-foreground">Totales del {period.startDate} al {period.endDate}</p> : null}
+          <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+            {totals.map(([name, value]) => (
+              <Card key={name}>
+                <CardContent className="space-y-1">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">{METRIC_LABEL[name] ?? name}</p>
+                  <p className="text-2xl font-semibold tracking-tight text-foreground">{formatMetric(name, value)}</p>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
         </div>
       ) : null}
 
@@ -188,6 +214,12 @@ export function AnalyticsDashboard() {
           )}
         </CardContent>
       </Card>
+
+      {data?.truncated ? (
+        <p className="text-xs text-muted-foreground">
+          La tabla muestra las {snapshots.length} filas más recientes del periodo; hay más. Los totales de arriba sí cubren el periodo completo.
+        </p>
+      ) : null}
     </div>
   );
 }

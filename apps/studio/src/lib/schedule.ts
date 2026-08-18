@@ -70,9 +70,18 @@ export async function updateRule(id: string, patch: Record<string, unknown>) {
 /** Borrar la pauta deja de generar huecos, pero lo ya planificado sobre ella se conserva. */
 export async function deleteRule(id: string) {
   await getRule(id);
+  // En una transacción: desligar los huecos y borrar la pauta son un solo cambio. A medias
+  // dejaría publicaciones apuntando a una pauta inexistente.
   await withDatabase((database) => {
-    database.prepare("UPDATE scheduled_posts SET rule_id = NULL WHERE rule_id = ?").run(id);
-    database.prepare("DELETE FROM publishing_rules WHERE id = ?").run(id);
+    database.exec("BEGIN");
+    try {
+      database.prepare("UPDATE scheduled_posts SET rule_id = NULL WHERE rule_id = ?").run(id);
+      database.prepare("DELETE FROM publishing_rules WHERE id = ?").run(id);
+      database.exec("COMMIT");
+    } catch (error) {
+      database.exec("ROLLBACK");
+      throw error;
+    }
   });
 }
 
@@ -89,7 +98,10 @@ export async function listPosts({ startDate, endDate, campaignId }: { startDate?
   const params: unknown[] = [];
   if (startDate) { clauses.push("date >= ?"); params.push(startDate); }
   if (endDate) { clauses.push("date <= ?"); params.push(endDate); }
-  if (campaignId) { clauses.push("campaign_id = ?"); params.push(campaignId); }
+  // Igual que las pautas: lo que no tiene campaña es global y no puede desaparecer al filtrar.
+  // Ocultarlo dejaría el hueco pintado como libre aunque ya esté ocupado, y planificar encima
+  // chocaría con la clave única sin que la pantalla explicara por qué.
+  if (campaignId) { clauses.push("(campaign_id = ? OR campaign_id IS NULL)"); params.push(campaignId); }
   const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
   return withDatabase((database) => parseRows<ScheduledPost>(database.prepare(`SELECT data_json FROM scheduled_posts ${where} ORDER BY date ASC, time ASC, platform ASC`).all(...params)));
 }

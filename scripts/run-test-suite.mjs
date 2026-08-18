@@ -14,7 +14,11 @@ if (!["local", "integration"].includes(mode)) throw new Error("Uso: node scripts
 const failures = [];
 for (const name of selected) {
   console.log(`\n=== ${name} ===`);
-  const result = spawnSync(process.platform === "win32" ? "npm.cmd" : "npm", ["run", name], { stdio: "inherit" });
+  // Hay que pasar por el shell: desde Node 20.12 lanzar `npm.cmd` directamente falla con EINVAL
+  // en Windows y la suite reportaba «fallaron todos» sin haber ejecutado ninguno. El comando va
+  // como cadena única porque combinar `shell` con un array de argumentos está deprecado (DEP0190).
+  if (!/^[\w:-]+$/.test(name)) throw new Error(`Nombre de script no apto para el shell: ${name}`);
+  const result = spawnSync(`npm run ${name}`, { stdio: "inherit", shell: true });
   if (result.status !== 0) failures.push(name);
 }
 

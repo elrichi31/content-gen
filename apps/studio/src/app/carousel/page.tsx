@@ -17,6 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import { colorThemes } from "@/lib/themes";
+import { useRadarTopic } from "@/lib/use-radar-topic";
 import { useRequestedContentId } from "@/lib/use-requested-content-id";
 
 type Slide = typeof carouselFixture.slides[number];
@@ -87,6 +88,8 @@ export default function CarouselPage() {
   useEffect(() => { void refresh(); }, []);
 
   const requestedId = useRequestedContentId();
+  // Llegada desde el radar: el encargo se arma con el tema y sus fuentes, no solo con el titular.
+  const radar = useRadarTopic("carousel");
   useEffect(() => {
     if (!requestedId || contentId === requestedId) return;
     const item = stored.find((entry) => entry.id === requestedId);
@@ -178,7 +181,10 @@ export default function CarouselPage() {
     const response = await fetch(contentId ? `/api/content-items/${contentId}` : "/api/content-items", { method: contentId ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const saved = await response.json();
     if (!response.ok) return setNotice(saved.error ?? "No se pudo guardar.");
-    setContentId(saved.id); setRevision(saved.revision); setCampaignId(saved.campaignId); setNotice("Guardado en la biblioteca central."); await refresh();
+    setContentId(saved.id); setRevision(saved.revision); setCampaignId(saved.campaignId);
+    // Trazabilidad con el tema del radar, si la pieza salió de uno. No bloquea el guardado.
+    await radar.link(saved.id);
+    setNotice("Guardado en la biblioteca central."); await refresh();
   }
   const primaryField = current.layout === "cta" ? "ctaText" : current.layout === "quote" ? "quote" : current.layout === "bigNumber" ? "bigNumberLabel" : "title";
   const secondaryField = current.layout === "cta" ? "ctaSubtext" : current.layout === "quote" ? "quoteAuthor" : "content";
@@ -233,7 +239,16 @@ export default function CarouselPage() {
 
                 <Separator className="my-5" />
 
-                <CarouselGenerator campaignId={campaignId === NONE ? undefined : campaignId} brief={selectedCampaign && typeof selectedCampaign.brief === "object" ? selectedCampaign.brief : undefined} onGenerated={applyGenerated} onNotice={setNotice} />
+                <CarouselGenerator
+                  campaignId={campaignId === NONE ? undefined : campaignId}
+                  // El tema del radar manda sobre el brief de la campaña: si se vino desde un tema
+                  // concreto, es de eso de lo que se quiere hablar.
+                  brief={radar.brief
+                    ? { topic: radar.brief.topic, audience: "", tone: "", context: radar.brief.context }
+                    : selectedCampaign && typeof selectedCampaign.brief === "object" ? selectedCampaign.brief : undefined}
+                  onGenerated={applyGenerated}
+                  onNotice={setNotice}
+                />
 
                 <Separator className="my-5" />
 

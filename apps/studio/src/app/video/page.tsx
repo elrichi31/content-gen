@@ -5,6 +5,7 @@ import { Film, Plus } from "lucide-react";
 import { videoDocumentSchema, type VideoDocument } from "@content-gen/domain/video";
 import { PageShell } from "@/components/page-shell";
 import { Button } from "@/components/ui/button";
+import { useRadarTopic } from "@/lib/use-radar-topic";
 import { useRequestedContentId } from "@/lib/use-requested-content-id";
 import { ImageGallery } from "@/components/video/image-gallery";
 import { SavePanel } from "@/components/video/save-panel";
@@ -30,6 +31,8 @@ export default function VideoPage() {
   const [videos, setVideos] = useState<StoredVideo[]>([]);
   const [campaignId, setCampaignId] = useState("");
   const [form, setForm] = useState<TopicFormValues>(EMPTY_FORM);
+  // Llegada desde el radar. El tema tarda en cargar, así que el formulario se rellena al llegar.
+  const radar = useRadarTopic("video");
 
   const [document, setDocument] = useState<VideoDocument | null>(null);
   const [contentId, setContentId] = useState("");
@@ -88,6 +91,8 @@ export default function VideoPage() {
     if (!response.ok) throw new Error(typeof saved.error === "string" ? saved.error : "No se pudo guardar el video.");
     const persisted = videoDocumentSchema.parse(saved.document.data);
     setDocument(persisted); setContentId(saved.id); setRevision(saved.revision); setSavedSnapshot(JSON.stringify(persisted));
+    // Trazabilidad con el tema del radar, si el video salió de uno. No bloquea el guardado.
+    await radar.link(saved.id);
     await refresh();
     return saved as StoredVideo;
   }
@@ -132,10 +137,13 @@ export default function VideoPage() {
 
           {step === 1 ? (
             <TopicForm
+              // Remontar al llegar el tema: TopicForm toma `initial` solo al construirse, y sin
+              // esto el encargo del radar aparecería vacío por haber cargado un instante tarde.
+              key={radar.topic?.id ?? "manual"}
               campaigns={campaigns}
               campaignId={campaignId}
               onCampaign={setCampaignId}
-              initial={form}
+              initial={radar.brief ? { ...form, topic: radar.brief.topic, context: radar.brief.context } : form}
               onScript={(generated, values) => { setForm(values); setDocument(generated); setContentId(""); setRevision(0); setSavedSnapshot(""); go(2); }}
             />
           ) : null}

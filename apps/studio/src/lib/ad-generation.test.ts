@@ -10,6 +10,7 @@ assert.throws(() => normalizeGeneratedAd({ ...valid, stars: 7 }, input), /válid
 assert.match(buildAdPrompt(input), /promo.*square/, "el prompt fija layout y formato");
 assert.match(buildAdPrompt({ ...input, language: "es", context: "Lanzamiento regional", brandName: "Norte", primaryColor: "#0a8f52" }), /Idioma: es.*Lanzamiento regional.*Norte.*#0a8f52/, "el prompt hereda brief y marca");
 process.env.CONTENT_GEN_AI_PROVIDER = "openai"; process.env.OPENAI_API_KEY = "test";
-const generated = await generateAd(input, async () => new Response(JSON.stringify({ output_text: JSON.stringify(valid) })));
-assert.equal(generated.headline, "Título", "aplica una respuesta HTTP válida de IA");
-console.log("Generación de anuncio: contrato, formato y layout verificados.");
+const generated = await generateAd(input, async () => new Response(JSON.stringify({ output_text: JSON.stringify(valid), usage: { input_tokens: 40, output_tokens: 90 } })));
+assert.equal(generated.document.headline, "Título", "aplica una respuesta HTTP válida de IA");
+assert.deepEqual(generated.usage, { inputTokens: 40, cachedInputTokens: 0, outputTokens: 90, webSearchCalls: 0, images: 0, characters: 0 }, "devuelve el consumo para poder contabilizarlo");
+console.log("Generación de anuncio: contrato, formato, layout y consumo verificados.");

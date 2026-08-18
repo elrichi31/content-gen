@@ -10,7 +10,9 @@
     "./video": "./src/video.ts",
     "./analytics": "./src/analytics.ts",
     "./schedule": "./src/schedule.ts",
-    "./article": "./src/article.ts"
+    "./article": "./src/article.ts",
+    "./cost": "./src/cost.ts",
+    "./radar": "./src/radar.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

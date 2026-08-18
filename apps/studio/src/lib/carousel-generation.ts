@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { carouselDocumentSchema, type CarouselDocument } from "@content-gen/domain/carousel";
+import { normalizeResponsesUsage } from "@content-gen/domain/cost";
 import { z } from "zod";
 import { openAiRequest } from "./openai.ts";
 
@@ -71,5 +72,5 @@ export async function generateCarousel(input: CarouselGenerationRequest, request
   const response = await openAiRequest("text", request, "https://api.openai.com/v1/responses", { method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" }, signal: AbortSignal.timeout(60_000), body: JSON.stringify({ model, input: [{ role: "system", content: "Generas carruseles de contenido. Responde solo JSON válido." }, { role: "user", content: buildCarouselPrompt(resolved) }], text: { format: { type: "json_object" } } }) });
   const payload = await response.json().catch(() => null) as { error?: { message?: unknown } } | null;
   if (!response.ok) throw new GenerationError(typeof payload?.error?.message === "string" ? `OpenAI: ${payload.error.message}` : "No se pudo generar el carrusel.", 502);
-  return parseGeneratedCarousel(readOutputText(payload), resolved);
+  return { document: parseGeneratedCarousel(readOutputText(payload), resolved), model, usage: normalizeResponsesUsage(payload) };
 }

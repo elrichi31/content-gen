@@ -1,3 +1,4 @@
+import { speechUsage } from "@content-gen/domain/cost";
 import { z } from "zod";
 import { normalizeTextForTts, voiceSettingsFor } from "./tts-text.ts";
 
@@ -18,6 +19,8 @@ export async function listElevenLabsVoices(request: typeof fetch = fetch) {
 export async function createElevenLabsSpeech({ voiceId, text, modelId = "eleven_multilingual_v2", request = fetch }: { voiceId: string; text: string; modelId?: string; request?: typeof fetch }) {
   if (!/^[A-Za-z0-9_-]{8,64}$/.test(voiceId) || !text.trim() || text.length > 5000 || !/^[A-Za-z0-9_.-]{3,80}$/.test(modelId)) throw new ElevenLabsError("Configuración de voz inválida.", 400);
   // Mismo preprocesado y mismos ajustes de voz que `video-autom`: 128 kbps aguanta la recompresión de TikTok/Reels.
-  const response = await request(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}?output_format=mp3_44100_128`, { method: "POST", headers: { "xi-api-key": key(), "Content-Type": "application/json", Accept: "audio/mpeg" }, signal: AbortSignal.timeout(120_000), body: JSON.stringify({ text: normalizeTextForTts(text), model_id: modelId, language_code: "es", voice_settings: voiceSettingsFor(modelId) }) });
-  if (!response.ok) throw providerError(response.status); const bytes = Buffer.from(await response.arrayBuffer()); if (!bytes.length) throw new ElevenLabsError("ElevenLabs devolvió audio vacío.", 502); return { bytes, mimeType: "audio/mpeg", filename: "elevenlabs-voice.mp3", modelId };
+  // Se cobra por carácter enviado, así que el consumo se mide sobre el texto ya preprocesado.
+  const spoken = normalizeTextForTts(text);
+  const response = await request(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}?output_format=mp3_44100_128`, { method: "POST", headers: { "xi-api-key": key(), "Content-Type": "application/json", Accept: "audio/mpeg" }, signal: AbortSignal.timeout(120_000), body: JSON.stringify({ text: spoken, model_id: modelId, language_code: "es", voice_settings: voiceSettingsFor(modelId) }) });
+  if (!response.ok) throw providerError(response.status); const bytes = Buffer.from(await response.arrayBuffer()); if (!bytes.length) throw new ElevenLabsError("ElevenLabs devolvió audio vacío.", 502); return { bytes, mimeType: "audio/mpeg", filename: "elevenlabs-voice.mp3", modelId, usage: speechUsage(spoken.length) };
 }
