@@ -14,6 +14,9 @@ import {
   FolderKanban,
   Palette,
   Activity,
+  BarChart3,
+  CalendarDays,
+  FileText,
   type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -31,6 +34,7 @@ const GROUPS: NavGroup[] = [
       { href: "/carousel", label: "Carrusel", icon: GalleryHorizontal },
       { href: "/ads", label: "Anuncio", icon: Megaphone, badge: "Beta" },
       { href: "/video", label: "Video", icon: Clapperboard, badge: "Beta" },
+      { href: "/articles", label: "Artículo", icon: FileText, badge: "Beta" },
     ],
   },
   {
@@ -38,7 +42,9 @@ const GROUPS: NavGroup[] = [
     items: [
       { href: "/library", label: "Biblioteca", icon: Library },
       { href: "/campaigns", label: "Campañas", icon: FolderKanban },
+      { href: "/schedule", label: "Cronograma", icon: CalendarDays },
       { href: "/brands", label: "Marcas", icon: Palette },
+      { href: "/analytics", label: "Métricas", icon: BarChart3 },
     ],
   },
   {

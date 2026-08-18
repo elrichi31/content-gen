@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Copy, Archive, PencilLine, RotateCcw, GalleryHorizontal, Megaphone, Clapperboard, FileText, type LucideIcon } from "lucide-react";
 import { PageShell, PageHeading } from "@/components/page-shell";
+import { CONTENT_TYPE_LABEL, contentTitle } from "@/lib/content-title";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,17 +16,9 @@ type Option = { id: string; name: string };
 type Item = { id: string; revision: number; type: string; campaignId: string; campaignName: string; brandKitId: string | null; archivedAt: string | null; exportCount: number; document?: { data?: { title?: unknown; headline?: unknown } } };
 
 const typeIcon: Record<string, LucideIcon> = { carousel: GalleryHorizontal, ad: Megaphone, video: Clapperboard };
-const typeLabel: Record<string, string> = { carousel: "Carrusel", ad: "Anuncio", video: "Video" };
-const editorPath: Record<string, string> = { carousel: "/carousel", ad: "/ads", video: "/video" };
-
-// El título vive dentro del documento y cambia por formato: carrusel y video usan `title`,
-// el anuncio guarda su titular en `headline`.
-function itemTitle(item: Item) {
-  const data = item.document?.data;
-  if (typeof data?.title === "string" && data.title.trim()) return data.title;
-  if (typeof data?.headline === "string" && data.headline.trim()) return data.headline;
-  return typeLabel[item.type] ?? item.type;
-}
+const typeLabel = CONTENT_TYPE_LABEL;
+const editorPath: Record<string, string> = { carousel: "/carousel", ad: "/ads", video: "/video", article: "/articles" };
+const itemTitle = contentTitle;
 
 export default function LibraryPage() {
   const [items, setItems] = useState<Item[]>([]);

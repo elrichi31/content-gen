@@ -27,6 +27,62 @@ database.exec(`
 const columns = database.prepare("PRAGMA table_info(content_items)").all();
 if (!columns.some((column) => column.name === "revision")) database.exec("ALTER TABLE content_items ADD COLUMN revision INTEGER NOT NULL DEFAULT 0;");
 database.prepare("INSERT OR IGNORE INTO migrations (version, applied_at) VALUES (2, datetime('now'))").run();
+
+// Métricas externas (Search Console, GA4 y más adelante Instagram/TikTok). La clave única
+// permite reprocesar una ventana sin duplicar: los datos tardíos sobrescriben a los previos.
+database.exec(`
+  CREATE TABLE IF NOT EXISTS metric_snapshots (
+    id TEXT PRIMARY KEY,
+    schema_version INTEGER NOT NULL,
+    platform TEXT NOT NULL,
+    property_id TEXT NOT NULL,
+    dimension TEXT NOT NULL,
+    dimension_value TEXT NOT NULL DEFAULT '',
+    date TEXT NOT NULL,
+    data_json TEXT NOT NULL,
+    fetched_at TEXT NOT NULL,
+    UNIQUE (platform, property_id, dimension, dimension_value, date)
+  );
+  CREATE INDEX IF NOT EXISTS idx_metric_snapshots_lookup ON metric_snapshots (platform, property_id, dimension, date);
+`);
+database.prepare("INSERT OR IGNORE INTO migrations (version, applied_at) VALUES (3, datetime('now'))").run();
+
+// Cronograma de publicación. Las pautas describen la cadencia y los huecos que genera;
+// scheduled_posts guarda lo que se planifica en cada hueco. La clave única impide asignar
+// dos piezas a la misma plataforma, día y hora. Borrar una pauta no borra lo ya planificado.
+database.exec(`
+  CREATE TABLE IF NOT EXISTS publishing_rules (
+    id TEXT PRIMARY KEY,
+    schema_version INTEGER NOT NULL,
+    campaign_id TEXT,
+    platform TEXT NOT NULL,
+    active INTEGER NOT NULL DEFAULT 1,
+    data_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (campaign_id) REFERENCES campaigns(id)
+  );
+  CREATE TABLE IF NOT EXISTS scheduled_posts (
+    id TEXT PRIMARY KEY,
+    schema_version INTEGER NOT NULL,
+    platform TEXT NOT NULL,
+    date TEXT NOT NULL,
+    time TEXT NOT NULL,
+    status TEXT NOT NULL,
+    content_item_id TEXT,
+    campaign_id TEXT,
+    rule_id TEXT,
+    data_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE (platform, date, time),
+    FOREIGN KEY (content_item_id) REFERENCES content_items(id),
+    FOREIGN KEY (campaign_id) REFERENCES campaigns(id),
+    FOREIGN KEY (rule_id) REFERENCES publishing_rules(id) ON DELETE SET NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_scheduled_posts_range ON scheduled_posts (date, platform);
+`);
+database.prepare("INSERT OR IGNORE INTO migrations (version, applied_at) VALUES (4, datetime('now'))").run();
 const tableCount = database.prepare("SELECT COUNT(*) AS total FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").get().total;
 database.close();
 

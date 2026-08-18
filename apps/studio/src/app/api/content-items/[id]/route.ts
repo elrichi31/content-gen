@@ -1,5 +1,6 @@
 import { contentItemSchema } from "@content-gen/domain/schemas";
 import { adDocumentSchema } from "@content-gen/domain/ad";
+import { articleDraftSchema } from "@content-gen/domain/article";
 import { videoDocumentSchema } from "@content-gen/domain/video";
 import { NextResponse } from "next/server";
 import { validateAdImageAsset, validateVideoAssets } from "../../../../lib/content-assets";
@@ -38,7 +39,10 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (ad && !ad.success) return NextResponse.json({ error: ad.error.flatten() }, { status: 400 });
   const video = parsed.data.type === "video" ? videoDocumentSchema.safeParse(parsed.data.document.data) : null;
   if (video && !video.success) return NextResponse.json({ error: video.error.flatten() }, { status: 400 });
-  const documentData = ad?.success ? ad.data : video?.success ? video.data : parsed.data.document.data;
+  // El artículo se guarda como borrador: el contrato estricto del sitio se exige al exportar.
+  const article = parsed.data.type === "article" ? articleDraftSchema.safeParse(parsed.data.document.data) : null;
+  if (article && !article.success) return NextResponse.json({ error: article.error.flatten() }, { status: 400 });
+  const documentData = ad?.success ? ad.data : video?.success ? video.data : article?.success ? article.data : parsed.data.document.data;
   const data = { ...parsed.data, document: { ...parsed.data.document, data: documentData } };
   if (!data.archivedAt && !await withDatabase((database) => database.prepare("SELECT id FROM campaigns WHERE id = ? AND archived_at IS NULL").get(data.campaignId))) return NextResponse.json({ error: "No puedes restaurar contenido en una campaña archivada." }, { status: 409 });
   try { if (ad?.success) await validateAdImageAsset(ad.data, data.campaignId); if (video?.success) await validateVideoAssets(video.data, data.campaignId); }

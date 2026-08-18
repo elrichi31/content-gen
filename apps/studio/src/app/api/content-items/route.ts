@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { adDocumentSchema } from "@content-gen/domain/ad";
+import { articleDraftSchema } from "@content-gen/domain/article";
 import { contentItemSchema } from "@content-gen/domain/schemas";
 import { videoDocumentSchema } from "@content-gen/domain/video";
 import { NextResponse } from "next/server";
@@ -9,7 +10,7 @@ import { withDatabase } from "../../../lib/db";
 export async function GET(request: Request) {
   const query = new URL(request.url).searchParams; const filters: string[] = []; const values: string[] = [];
   const type = query.get("type"); const campaignId = query.get("campaignId"); const brandKitId = query.get("brandKitId"); const status = query.get("status") ?? "active"; const text = query.get("q")?.trim();
-  if (type && ["carousel", "ad", "video"].includes(type)) { filters.push("content.type = ?"); values.push(type); }
+  if (type && ["carousel", "ad", "video", "article"].includes(type)) { filters.push("content.type = ?"); values.push(type); }
   if (campaignId) { filters.push("content.campaign_id = ?"); values.push(campaignId); }
   if (brandKitId) { filters.push("campaign.brand_kit_id = ?"); values.push(brandKitId); }
   if (status === "archived") filters.push("content.archived_at IS NOT NULL"); else if (status !== "all") filters.push("content.archived_at IS NULL");
@@ -28,7 +29,10 @@ export async function POST(request: Request) {
   if (ad && !ad.success) return NextResponse.json({ error: ad.error.flatten() }, { status: 400 });
   const video = parsed.data.type === "video" ? videoDocumentSchema.safeParse(parsed.data.document.data) : null;
   if (video && !video.success) return NextResponse.json({ error: video.error.flatten() }, { status: 400 });
-  const documentData = ad?.success ? ad.data : video?.success ? video.data : parsed.data.document.data;
+  // El artículo se guarda como borrador: el contrato estricto del sitio se exige al exportar.
+  const article = parsed.data.type === "article" ? articleDraftSchema.safeParse(parsed.data.document.data) : null;
+  if (article && !article.success) return NextResponse.json({ error: article.error.flatten() }, { status: 400 });
+  const documentData = ad?.success ? ad.data : video?.success ? video.data : article?.success ? article.data : parsed.data.document.data;
   const data = { ...parsed.data, document: { ...parsed.data.document, data: documentData } };
   const campaign = await withDatabase((database) => database.prepare("SELECT id FROM campaigns WHERE id = ? AND archived_at IS NULL").get(data.campaignId));
   if (!campaign) return NextResponse.json({ error: "La campaña no existe o está archivada." }, { status: 400 });

@@ -38,7 +38,7 @@ export const contentItemSchema = z.object({
   id,
   schemaVersion,
   campaignId: id,
-  type: z.enum(["carousel", "ad", "video"]),
+  type: z.enum(["carousel", "ad", "video", "article"]),
   document: z.object({ schemaVersion, data: z.record(z.unknown()) }),
   revision: z.number().int().nonnegative().default(0),
   createdAt: timestamp,

@@ -1,3 +1,6 @@
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
+
 const provider = process.env.CONTENT_GEN_AI_PROVIDER ?? "none";
 const allowedProviders = new Set(["none", "openai"]);
 const renderLimit = process.env.MAX_ACTIVE_RENDER_JOBS;
@@ -18,6 +21,28 @@ if (renderLimit && (!/^\d+$/.test(renderLimit) || Number(renderLimit) < 1 || Num
   throw new Error("MAX_ACTIVE_RENDER_JOBS debe ser un entero entre 1 y 10.");
 }
 
+const googleCredential = process.env.GOOGLE_SERVICE_ACCOUNT_JSON?.trim() || process.env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE?.trim();
+const searchConsoleSite = process.env.SEARCH_CONSOLE_SITE_URL?.trim();
+const ga4Property = process.env.GA4_PROPERTY_ID?.trim();
+const syncDays = process.env.ANALYTICS_SYNC_DAYS;
+
+if ((searchConsoleSite || ga4Property) && !googleCredential) {
+  throw new Error(
+    "Falta la credencial de Google: configura GOOGLE_SERVICE_ACCOUNT_KEY_FILE o GOOGLE_SERVICE_ACCOUNT_JSON para leer métricas.",
+  );
+}
+
+if (syncDays && (!/^\d+$/.test(syncDays) || Number(syncDays) < 1 || Number(syncDays) > 460)) {
+  throw new Error("ANALYTICS_SYNC_DAYS debe ser un entero entre 1 y 460.");
+}
+
+// El blog vive en otro repositorio: si la ruta está mal, el fallo aparecería al exportar,
+// cuando el artículo ya está escrito. Mejor detectarlo aquí.
+const blogSitePath = process.env.BLOG_SITE_PATH?.trim();
+if (blogSitePath && !existsSync(resolve(blogSitePath, "content", "blog"))) {
+  throw new Error(`BLOG_SITE_PATH debe apuntar a la raíz del repositorio del sitio: no se encontró content/blog en ${resolve(blogSitePath)}.`);
+}
+
 console.log(
   JSON.stringify(
     {
@@ -27,6 +52,9 @@ console.log(
         openai: provider === "openai" ? "enabled" : "disabled",
         unsplash: process.env.UNSPLASH_ACCESS_KEY ? "configured" : "not-configured",
         elevenlabs: process.env.ELEVENLABS_API_KEY ? "configured" : "not-configured",
+        searchConsole: searchConsoleSite && googleCredential ? "configured" : "not-configured",
+        googleAnalytics: ga4Property && googleCredential ? "configured" : "not-configured",
+        blog: blogSitePath ? "configured" : "not-configured",
       },
     },
     null,
