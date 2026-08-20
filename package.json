@@ -29,6 +29,7 @@
     "test:performance": "node scripts/performance-baseline.mjs",
     "test:path-safety": "node --experimental-strip-types scripts/path-safety.test.mjs",
     "test:video-metadata": "node --experimental-strip-types packages/video-engine/src/video-metadata.test.ts",
+    "test:text-fit": "node --experimental-strip-types packages/video-engine/src/text-fit.test.ts",
     "test:migrate-videos": "node --experimental-strip-types scripts/migrate-video-documents.test.mjs",
     "test:repair-encoding": "node scripts/repair-text-encoding.test.mjs",
     "test:render-limits": "node --experimental-strip-types apps/studio/src/lib/render-limits.test.ts",

@@ -12,6 +12,7 @@ import {
   useVideoConfig,
 } from "remotion";
 import type { AccentPair } from "@content-gen/domain/video";
+import { fitFontSize, fontStack, monoStack, safeBounds, safeContentWidth } from "./text-fit.ts";
 
 // Background image that simply disappears if the file is missing, instead of
 // failing the whole render. This lets a video be saved/previewed with some (or
@@ -22,21 +23,12 @@ const OptionalBg: FC<{ src: string; style: CSSProperties }> = ({ src, style }) =
   return <Img src={src} style={style} onError={() => setFailed(true)} />;
 };
 
+/** Ancho útil de una escena: el lienzo menos los márgenes seguros de `DarkShell`. */
+const useSafeContentWidth = () => safeContentWidth(useVideoConfig().width);
+
 const clamp = {
   extrapolateLeft: "clamp" as const,
   extrapolateRight: "clamp" as const,
-};
-
-const fontStack =
-  '"Poppins", "Inter", "Avenir Next", "SF Pro Display", ui-sans-serif, system-ui, sans-serif';
-const monoStack =
-  '"JetBrains Mono", "Fira Code", "SF Mono", "Cascadia Code", monospace';
-
-const safeBounds = {
-  left: 86,
-  right: 86,
-  top: 108,
-  bottom: 120,
 };
 
 // `interpolate` exige un inputRange estrictamente creciente. En escenas muy cortas
@@ -544,16 +536,19 @@ const AlertBorder: FC<{ accent: AccentPair }> = ({ accent }) => {
 export const GlitchTitle: FC<{ text: string; accent: AccentPair; size?: number }> = ({
   text,
   accent,
-  size = 140,
+  size: requestedSize = 140,
 }) => {
   const frame = useCurrentFrame();
+  const maxWidth = useSafeContentWidth();
+  // Los tres calcos comparten cuerpo para que los fantasmas corten líneas igual que el texto principal.
+  const size = fitFontSize({ text, maxWidth, size: requestedSize, weight: 900, letterSpacing: -6, minRatio: 0.45 });
   const glitchActive = (frame % 90) > 82 || (frame % 60) > 55;
   const offsetR = glitchActive ? interpolate(random(`g-r-${frame}`), [0, 1], [-6, 6]) : 0;
   const offsetB = glitchActive ? interpolate(random(`g-b-${frame}`), [0, 1], [-4, 4]) : 0;
   const skew = glitchActive ? interpolate(random(`g-s-${frame}`), [0, 1], [-1.5, 1.5]) : 0;
 
   return (
-    <div style={{ position: "relative", textAlign: "center" }}>
+    <div style={{ position: "relative", width: "100%", maxWidth, textAlign: "center" }}>
       {/* Red ghost */}
       <div
         style={{
@@ -615,6 +610,7 @@ export const GlitchTitle: FC<{ text: string; accent: AccentPair; size?: number }
 export const TimestampDisplay: FC<{ time: string; accent: AccentPair }> = ({ time, accent }) => {
   const frame = useCurrentFrame();
   const blink = Math.floor(frame / 15) % 2 === 0;
+  const size = fitFontSize({ text: time, maxWidth: useSafeContentWidth() - 14 - 16, size: 36, weight: 700, family: monoStack, letterSpacing: 4 });
 
   return (
     <div
@@ -638,7 +634,7 @@ export const TimestampDisplay: FC<{ time: string; accent: AccentPair }> = ({ tim
       <div
         style={{
           fontFamily: monoStack,
-          fontSize: 36,
+          fontSize: size,
           fontWeight: 700,
           letterSpacing: 4,
           color: accent[0],
@@ -660,6 +656,10 @@ export const TerminalBlock: FC<{
 }> = ({ lines, accent, startFrame = 0 }) => {
   const frame = useCurrentFrame();
   const charsPerFrame = 1.2;
+  // Un comando o una URL no parte, y la consola pierde el sentido si cada linea tiene
+  // un cuerpo distinto: se ajusta el bloque entero a la linea mas ancha.
+  const size = Math.min(...lines.map((line) => fitFontSize({ text: line, maxWidth: 780 - 32 * 2, size: 28, weight: 500, family: monoStack })), 28);
+  const cursorHeight = Math.round(24 * (size / 28));
 
   return (
     <div
@@ -687,7 +687,7 @@ export const TerminalBlock: FC<{
             key={`term-${i}`}
             style={{
               fontFamily: monoStack,
-              fontSize: 28,
+              fontSize: size,
               lineHeight: 1.7,
               fontWeight: 500,
               color: i === lines.length - 1 ? accent[0] : "rgba(255,255,255,0.72)",
@@ -700,8 +700,8 @@ export const TerminalBlock: FC<{
               <span
                 style={{
                   display: "inline-block",
-                  width: 12,
-                  height: 24,
+                  width: Math.round(12 * (size / 28)),
+                  height: cursorHeight,
                   background: accent[0],
                   marginLeft: 2,
                   opacity: Math.floor(frame / 8) % 2 === 0 ? 1 : 0,
@@ -721,6 +721,7 @@ export const TerminalBlock: FC<{
 export const PhaseLabel: FC<{ text: string; accent: string }> = ({ text, accent }) => {
   const frame = useCurrentFrame();
   const pulse = loop(frame, [0.85, 1.2, 0.85], 70);
+  const size = fitFontSize({ text: text.toUpperCase(), maxWidth: useSafeContentWidth() - 12 - 16, size: 28, weight: 700, letterSpacing: 5 });
 
   return (
     <div
@@ -731,7 +732,7 @@ export const PhaseLabel: FC<{ text: string; accent: string }> = ({ text, accent 
         gap: 16,
         letterSpacing: 5,
         textTransform: "uppercase",
-        fontSize: 28,
+        fontSize: size,
         fontWeight: 700,
         color: accent,
         textShadow: `0 0 12px ${accent}66`,
@@ -759,10 +760,13 @@ export const NarrativeText: FC<{
   size?: number;
   maxWidth?: number;
   accent?: string;
-}> = ({ text, size = 64, maxWidth = 700, accent = "rgba(255,255,255,0.92)" }) => (
+}> = ({ text, size: requestedSize = 64, maxWidth = 700, accent = "rgba(255,255,255,0.92)" }) => {
+  const width = Math.min(maxWidth, useSafeContentWidth());
+  const size = fitFontSize({ text, maxWidth: width, size: requestedSize, weight: 700 });
+  return (
   <div
     style={{
-      maxWidth,
+      maxWidth: width,
       margin: "0 auto",
       fontSize: size,
       lineHeight: 1.12,
@@ -775,7 +779,8 @@ export const NarrativeText: FC<{
   >
     {text}
   </div>
-);
+  );
+};
 
 /* ─── DETAIL TEXT ─── */
 
@@ -783,10 +788,13 @@ export const DetailText: FC<{
   text: string;
   size?: number;
   maxWidth?: number;
-}> = ({ text, size = 36, maxWidth = 720 }) => (
+}> = ({ text, size: requestedSize = 36, maxWidth = 720 }) => {
+  const width = Math.min(maxWidth, useSafeContentWidth());
+  const size = fitFontSize({ text, maxWidth: width, size: requestedSize, weight: 500 });
+  return (
   <div
     style={{
-      maxWidth,
+      maxWidth: width,
       margin: "0 auto",
       fontSize: size,
       lineHeight: 1.22,
@@ -798,7 +806,8 @@ export const DetailText: FC<{
   >
     {text}
   </div>
-);
+  );
+};
 
 /* ─── INDICATOR CARD ─── */
 
@@ -846,9 +855,12 @@ export const IndicatorCard: FC<{
   );
 };
 
+const INDICATOR_TEXT_WIDTH = 660 - 28 * 2 - 10 - 16;
+
 const IndicatorRow: FC<{ text: string; accent: AccentPair; index: number }> = ({ text, accent, index }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
+  const size = fitFontSize({ text, maxWidth: INDICATOR_TEXT_WIDTH, size: 40, weight: 600 });
   const progress = revealSpring(frame - index * 8, fps, 26);
   const pulse = loop(frame + index * 12, [0.8, 1.25, 0.8], 80);
   const color = index === 0 ? accent[0] : accent[1];
@@ -876,7 +888,7 @@ const IndicatorRow: FC<{ text: string; accent: AccentPair; index: number }> = ({
       />
       <div
         style={{
-          fontSize: 40,
+          fontSize: size,
           lineHeight: 1.1,
           fontWeight: 600,
           color: "rgba(255,248,248,0.92)",
@@ -912,6 +924,7 @@ export const ActionList: FC<{
       {items.map((item, i) => {
         const delay = i * 14;
         const progress = revealSpring(frame - delay, fps, 28);
+        const size = fitFontSize({ text: item, maxWidth: 740 - 24 * 2 - 36 - 20, size: 34, weight: 600 });
         return (
           <div
             key={item}
@@ -947,7 +960,7 @@ export const ActionList: FC<{
             </div>
             <div
               style={{
-                fontSize: 34,
+                fontSize: size,
                 lineHeight: 1.15,
                 fontWeight: 600,
                 color: "rgba(255,252,252,0.92)",
@@ -1127,6 +1140,7 @@ export const CloseLayout: FC<{
 export const YearBadge: FC<{ year: string; accent: AccentPair }> = ({ year, accent }) => {
   const frame = useCurrentFrame();
   const pulse = loop(frame, [1, 1.015, 1], 80);
+  const size = fitFontSize({ text: year, maxWidth: useSafeContentWidth(), size: 148, weight: 900, family: monoStack, letterSpacing: -6 });
 
   return (
     <div style={{ position: "relative", textAlign: "center" }}>
@@ -1136,7 +1150,7 @@ export const YearBadge: FC<{ year: string; accent: AccentPair }> = ({ year, acce
           position: "absolute",
           inset: 0,
           fontFamily: monoStack,
-          fontSize: 148,
+          fontSize: size,
           fontWeight: 900,
           letterSpacing: -6,
           lineHeight: 1,
@@ -1153,7 +1167,7 @@ export const YearBadge: FC<{ year: string; accent: AccentPair }> = ({ year, acce
         style={{
           position: "relative",
           fontFamily: monoStack,
-          fontSize: 148,
+          fontSize: size,
           fontWeight: 900,
           letterSpacing: -6,
           lineHeight: 1,
