@@ -91,6 +91,12 @@ export const radarEvidenceSchema = z.object({
   title: z.string().trim().min(1).max(300),
   /** Sin fecha comprobada se deja nulo: inventarla sería peor que no tenerla. */
   publishedAt: isoDate.nullable().default(null),
+  /**
+   * Si el dominio aparece de verdad en lo que devolvió la búsqueda. El paso de estructuración no
+   * busca nada: si cita una fuente que no está en las notas, se la inventó. Nulo significa que no
+   * había con qué comprobarlo (corridas antiguas, sin notas guardadas).
+   */
+  verified: z.boolean().nullable().default(null),
 });
 export type RadarEvidence = z.infer<typeof radarEvidenceSchema>;
 
@@ -141,11 +147,31 @@ const STOPWORDS = new Set([
 ]);
 
 /**
+ * Sitios que reproducen la nota de otro. No son medios: son el mismo teletipo servido desde otra
+ * dirección, así que verlo en tres de ellos no es haberlo confirmado tres veces.
+ */
+const SYNDICATION = new Set([
+  "news.google.com", "msn.com", "news.yahoo.com", "finance.yahoo.com", "flipboard.com",
+  "medium.com", "linkedin.com", "x.com", "twitter.com", "facebook.com", "reddit.com",
+  "news.ycombinator.com", "t.me", "substack.com",
+]);
+
+function isSyndication(host: string) {
+  return SYNDICATION.has(host) || [...SYNDICATION].some((domain) => host.endsWith(`.${domain}`));
+}
+
+/**
  * Cuántas fuentes **independientes** respaldan el tema. Dos enlaces del mismo medio no son dos
  * confirmaciones: son la misma noticia dos veces. Corroborar exige medios distintos.
+ *
+ * Los agregadores cuentan todos juntos como uno: Google News, MSN y Yahoo publicando el mismo
+ * teletipo son una sola fuente por mucho que sean tres dominios. No se descartan del todo porque
+ * un tema que solo ellos recogen sigue siendo un tema, solo que sin corroborar.
  */
 export function independentSources(evidence: { url: string }[] = []) {
-  return new Set(evidence.map((item) => hostOf(item.url))).size;
+  const hosts = new Set(evidence.map((item) => hostOf(item.url)));
+  const originals = [...hosts].filter((host) => !isSyndication(host));
+  return originals.length + (originals.length < hosts.size ? 1 : 0);
 }
 
 /** Hostname sin `www`; si la URL no es analizable se conserva el texto para no perder la señal. */
@@ -162,8 +188,12 @@ function hostOf(url: string) {
 const STEM_LENGTH = 5;
 
 /**
- * Huella de deduplicación. Combina las raíces de las palabras significativas del titular
- * —ordenadas, para que reformularlo no genere un tema nuevo— con los dominios que lo respaldan.
+ * Huella de deduplicación: las raíces de las palabras significativas del titular, ordenadas para
+ * que reformularlo no genere un tema nuevo.
+ *
+ * **No entran los dominios.** Los llevó hasta que se vio el efecto: la misma historia encontrada
+ * la semana siguiente en otros medios daba huella distinta y volvía a entrar como tema nuevo, que
+ * es exactamente lo que la huella existe para impedir (R-01). Quién lo publica no cambia qué pasó.
  *
  * Es deliberadamente legible en vez de un hash: cuando dos temas colisionan sin deberlo, se ve
  * por qué mirando la propia huella.
@@ -172,18 +202,25 @@ const STEM_LENGTH = 5;
  * caso se le escapa y el tema entra repetido; para eso está la memoria de titulares recientes que
  * se le pasa al modelo, que sí razona sobre el significado.
  */
-export function topicFingerprint({ title, evidence = [] }: { title: string; evidence?: { url: string }[] }) {
+export function topicFingerprint(title: string) {
   const words = [...new Set(
     slugify(title)
       .split("-")
       .filter((word) => word.length >= 4 && !STOPWORDS.has(word))
       .map((word) => word.slice(0, STEM_LENGTH)),
   )].sort().slice(0, 8);
-  const hosts = [...new Set(evidence.map((item) => hostOf(item.url)))].sort().slice(0, 3);
   // Sin palabras significativas la huella caería en la cadena vacía y colisionaría con cualquiera:
   // el título completo, aunque sea largo, distingue mejor que nada.
-  const subject = words.length ? words.join("-") : slugify(title) || "sin-titulo";
-  return `${subject}|${hosts.join(",")}`.slice(0, 300);
+  return (words.length ? words.join("-") : slugify(title) || "sin-titulo").slice(0, 300);
+}
+
+/**
+ * El asunto de una huella. Las corridas anteriores guardaban `asunto|dominios`; al comparar se
+ * queda con el asunto para que un tema de entonces siga reconociéndose como el mismo de ahora, sin
+ * tener que reescribir el histórico.
+ */
+export function fingerprintSubject(fingerprint: string) {
+  return fingerprint.split("|")[0] || fingerprint;
 }
 
 /**
@@ -191,12 +228,13 @@ export function topicFingerprint({ title, evidence = [] }: { title: string; evid
  * es la señal de que la corrida está aportando poco.
  */
 export function dedupeTopics<T extends { fingerprint: string }>(topics: T[], { known = [] }: { known?: string[] } = {}) {
-  const seen = new Set(known);
+  const seen = new Set(known.map(fingerprintSubject));
   const fresh: T[] = [];
   const repeated: T[] = [];
   for (const topic of topics) {
-    if (seen.has(topic.fingerprint)) { repeated.push(topic); continue; }
-    seen.add(topic.fingerprint);
+    const subject = fingerprintSubject(topic.fingerprint);
+    if (seen.has(subject)) { repeated.push(topic); continue; }
+    seen.add(subject);
     fresh.push(topic);
   }
   return { fresh, repeated };
@@ -219,8 +257,10 @@ function daysSince(date: string, today: Date) {
  * Pesa cuatro cosas: cuánto se fía el modelo, si hay fuentes y cuántas, cuán recientes son, y si
  * el tema caduca. Un tema perecedero de hace tres semanas ya no vale lo mismo que uno de ayer.
  */
-export function scoreTopic(topic: { confidence: number; evidence?: { url: string; publishedAt: string | null }[]; shelfLife?: "perecedero" | "evergreen" }, { today = new Date() }: { today?: Date } = {}) {
-  const evidence = topic.evidence ?? [];
+export function scoreTopic(topic: { confidence: number; evidence?: { url: string; publishedAt: string | null; verified?: boolean | null }[]; shelfLife?: "perecedero" | "evergreen" }, { today = new Date() }: { today?: Date } = {}) {
+  // Una fuente que no apareció en la búsqueda no respalda nada, así que no puntúa. Se queda en el
+  // tema —quien revisa tiene derecho a verla— pero no sube la nota.
+  const evidence = (topic.evidence ?? []).filter((item) => item.verified !== false);
   // Sin fuentes no hay tema verificable: el techo baja mucho por mucha confianza que declare.
   if (!evidence.length) return Math.round(Math.max(0, Math.min(1, topic.confidence)) * 25);
 
@@ -281,7 +321,18 @@ export const generatedTopicSchema = z.object({
   confidence: z.number().nullish(),
 });
 
-export class RadarTopicError extends Error {}
+/**
+ * Por qué no se pudo usar un tema. Es un código y no un texto porque quien cuenta los descartes
+ * necesita distinguirlos: «el modelo devolvió basura» y «encontró algo que no pudo contrastar» son
+ * diagnósticos distintos, y adivinarlo leyendo el mensaje se rompe al reescribir el mensaje.
+ */
+export const RADAR_REJECTIONS = ["malformed", "insufficient-sources", "unverified"] as const;
+export type RadarRejection = (typeof RADAR_REJECTIONS)[number];
+
+export class RadarTopicError extends Error {
+  readonly reason: RadarRejection;
+  constructor(message: string, reason: RadarRejection = "malformed") { super(message); this.reason = reason; }
+}
 
 function trim(value: string | null | undefined, max: number) {
   const text = value?.trim();
@@ -292,10 +343,14 @@ function trim(value: string | null | undefined, max: number) {
  * Convierte un tema del modelo en uno del sistema. La huella, la puntuación, el estado y las
  * fechas los pone la aplicación: son datos del sistema, no opinión de la IA.
  */
-export function normalizeGeneratedTopic(value: unknown, { runId, vertical, now = new Date().toISOString(), today = new Date(), makeId, minSources = 0 }: { runId: string; vertical: string; now?: string; today?: Date; makeId: () => string; minSources?: number }): RadarTopic {
+export function normalizeGeneratedTopic(value: unknown, { runId, vertical, now = new Date().toISOString(), today = new Date(), makeId, minSources = 0, knownHosts = null, requireVerified = true }: { runId: string; vertical: string; now?: string; today?: Date; makeId: () => string; minSources?: number; knownHosts?: Iterable<string> | null; requireVerified?: boolean }): RadarTopic {
   const parsed = generatedTopicSchema.safeParse(value);
   if (!parsed.success) throw new RadarTopicError(`El tema no es utilizable: falta ${parsed.error.issues[0]?.path.join(".") || "contenido"}.`);
   const generated = parsed.data;
+
+  // Dominios que aparecieron de verdad en la búsqueda. El paso de estructuración no busca nada:
+  // toda fuente suya tiene que venir de las notas, así que lo que no esté aquí se lo inventó.
+  const known = knownHosts ? new Set([...knownHosts].map((host) => hostOf(host))) : null;
 
   // Solo se conservan las fuentes con URL válida: una cita que no se puede abrir no es evidencia.
   const evidence = generated.evidence.flatMap((item) => {
@@ -306,6 +361,7 @@ export function normalizeGeneratedTopic(value: unknown, { runId, vertical, now =
       url,
       title: item.title.trim().slice(0, 300),
       publishedAt: publishedAt && /^\d{4}-\d{2}-\d{2}$/.test(publishedAt) ? publishedAt : null,
+      verified: known ? known.has(hostOf(url)) : null,
     }];
   });
 
@@ -324,9 +380,20 @@ export function normalizeGeneratedTopic(value: unknown, { runId, vertical, now =
 
   // Corroboración: un tema respaldado por un solo medio no se puede contrastar, y publicar sobre
   // él es asumir que ese medio no se equivocó. Se rechaza antes de llegar a la revisión.
-  const independent = independentSources(evidence);
+  //
+  // Solo cuentan las fuentes comprobadas: una cita inventada es la peor clase de respaldo, porque
+  // aparenta corroborar. Si el tema tenía dominios suficientes pero ninguno salió de la búsqueda,
+  // se dice así en vez de confundirlo con «no había suficientes fuentes».
+  // Marcar y exigir son cosas distintas: las fuentes se comprueban siempre que haya con qué, pero
+  // `requireVerified` decide si una sin comprobar tumba el tema o solo se señala.
+  const countable = known && requireVerified ? evidence.filter((item) => item.verified) : evidence;
+  const independent = independentSources(countable);
   if (independent < minSources) {
-    throw new RadarTopicError(`«${generated.title.trim().slice(0, 80)}» solo tiene ${independent} fuente(s) independiente(s); se exigen ${minSources}.`);
+    const label = generated.title.trim().slice(0, 80);
+    if (known && requireVerified && independentSources(evidence) >= minSources) {
+      throw new RadarTopicError(`«${label}» se apoya en dominios que no aparecen en la investigación: no se puede comprobar de dónde salieron.`, "unverified");
+    }
+    throw new RadarTopicError(`«${label}» solo tiene ${independent} fuente(s) independiente(s); se exigen ${minSources}.`, "insufficient-sources");
   }
 
   const confidence = typeof generated.confidence === "number" && Number.isFinite(generated.confidence)
@@ -345,7 +412,7 @@ export function normalizeGeneratedTopic(value: unknown, { runId, vertical, now =
     status: "nuevo",
     origin: "web",
     score: scoreTopic({ confidence, evidence, shelfLife }, { today }),
-    fingerprint: topicFingerprint({ title, evidence }),
+    fingerprint: topicFingerprint(title),
     title,
     whyNow: generated.why_now.trim().slice(0, 1000),
     angleForAgency: generated.angle_for_agency.trim().slice(0, 1000),

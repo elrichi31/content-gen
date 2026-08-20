@@ -35,6 +35,15 @@ export const radarScanInputSchema = z.object({
    */
   searchContextSize: z.enum(SEARCH_CONTEXT_SIZES).default("low"),
   /**
+   * Exigir que las fuentes de un tema aparezcan en la investigación. El paso que las escribe no
+   * busca nada, así que una fuente que no está en las notas la puso él: es la única defensa contra
+   * una cita inventada, que es peor que una cita ausente porque aparenta corroborar.
+   *
+   * Se puede apagar para una corrida concreta: si la comprobación se traga temas buenos, verlos
+   * es más útil que discutir con el filtro a ciegas.
+   */
+  verifySources: z.boolean().default(true),
+  /**
    * Modelos de cada paso. Nulo usa el configurado. Se eligen por corrida porque el compromiso
    * —cuánto cuesta frente a cuánto entiende— cambia según lo que se esté buscando.
    */
@@ -128,7 +137,7 @@ export function buildStructurePrompt(research: VerticalResearch[], { maxTopics, 
     '- "why_now": qué ocurrió en la ventana investigada que lo hace relevante ahora.',
     '- "vertical": el vertical del que sale.',
     '- "angle_for_agency": cómo conecta con lo que vende la agencia.',
-    `- "evidence": lista de {url, title, published_at} con al menos ${minSources} dominios distintos. ` + '`published_at` en formato YYYY-MM-DD, o null si no lo verificaste. Usa solo URLs que aparezcan en las notas.',
+    `- "evidence": lista de {url, title, published_at} con al menos ${minSources} dominios distintos. ` + '`published_at` en formato YYYY-MM-DD, o null si no lo verificaste. Usa solo URLs que aparezcan en las notas: las de dominios que no estén ahí se descartan al guardar, así que completar la lista con fuentes plausibles no salva el tema, lo tumba.',
     '- "formats": lista de {type, reason, hook, keyword, intent}. `type` es "carousel", "video" o "article". `hook` solo para carousel y video; `keyword` e `intent` solo para article. Usa null en los que no apliquen.',
     '- "shelf_life": "perecedero" si pierde valor en semanas, "evergreen" si no.',
     '- "confidence": número de 0 a 1 según lo verificado que esté el tema.',

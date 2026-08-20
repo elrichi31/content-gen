@@ -12,9 +12,9 @@
 | Campo | Valor |
 |---|---|
 | Fecha de creación | 2026-08-17 |
-| Última actualización | 2026-08-18 |
-| Estado general | F0 a F3 implementadas (T-01 a T-20) + T-27 adelantada; gates pendientes de ejecución real con claves |
-| Próxima tarea ejecutable | T-21 — botones de generación desde el tema (F4) |
+| Última actualización | 2026-08-19 |
+| Estado general | F0 a F4 implementadas (T-01 a T-22) + T-26/T-27; corregidos siete defectos encontrados al revisar el radar en funcionamiento (§5.1). Gates pendientes de ejecución real con claves |
+| Próxima tarea ejecutable | T-23 — costo total por tema (F4), y después F5 |
 | Personalización | Perfil de negocio en Marcas y lista de vigilancia editable desde `/radar` (D-11, T-27) |
 | Control de gasto | Tope de búsquedas y umbral de corroboración por corrida; freno de presupuesto activo (D-12, D-13, T-26) |
 | Relación con los otros planes | No modifica ninguno. Consume los generadores existentes; no los reemplaza. |
@@ -52,6 +52,10 @@ convierten en pieza y en qué formato. Esto es deliberado: ver D-01 y R-02.
 | D-10 | El tope de presupuesto frena la corrida **automática**; la manual avisa pero procede | `PROPUESTA` | Un control de costos que solo informa no controla nada. Bloquear también lo manual convertiría el tope en un obstáculo y acabaría desactivado. |
 | D-12 | Un tema exige **fuentes de medios distintos** (`minSources`, por defecto 2) para llegar a la revisión | `ACORDADA` (usuario, 2026-08-18) | Con una sola fuente no hay forma de contrastar: publicar sobre ella es fiarse de que ese medio acertó. Dos enlaces del mismo sitio no son dos confirmaciones, así que se cuentan **dominios**, no enlaces. |
 | D-13 | El gasto se limita con un **tope de búsquedas por vertical** (`maxSearches`, por defecto 8), no bajando la calidad del modelo | `ACORDADA` (usuario, 2026-08-18) | Medido en la primera corrida real: de $0.99, **$0.60 fueron tokens del contenido buscado** y solo $0.18 las llamadas de búsqueda. El tope ataca la partida grande; cambiar de modelo degradaría la investigación, que es lo único que el radar aporta. |
+| D-14 | La huella de deduplicación **no incluye los dominios**, y el veto por repetición dura lo mismo que la memoria (8 semanas) | `ACORDADA` (2026-08-19) | Con los dominios dentro, la misma historia encontrada la semana siguiente en otros medios daba huella distinta y volvía a entrar como nueva: la defensa de R-01 tenía una fuga por la que se colaba justo lo que debía parar. Y vetarla para siempre era el error contrario —un asunto que reaparece medio año después con novedades reales no podía volver a entrar nunca—, así que ambas puntas usan ahora la misma ventana. |
+| D-15 | La evidencia de un tema se **comprueba contra las notas** de la investigación. Marcarla y rechazarla son cosas distintas | `ACORDADA` (2026-08-19) | El paso que escribe las fuentes no busca nada: si cita un dominio que no aparece en las notas, se lo inventó. Una cita inventada es peor que ninguna, porque aparenta corroborar justo donde el sistema mira para dejar pasar el tema. Marcar siempre y rechazar solo si se pide (`verifySources`) deja ver qué está tirando el filtro en vez de discutir con él a ciegas. |
+| D-16 | Una corrida a la vez, y las que quedan colgadas se cierran solas a los 45 minutos | `ACORDADA` (2026-08-19) | Una corrida son varios minutos sin respuesta visible: el segundo clic es fácil y costaba dos búsquedas idénticas. El barrido va antes del cerrojo porque un proceso muerto dejaba su registro en `running` para siempre, y sin barrerlo el cerrojo habría bloqueado el radar hasta tocar la base a mano. |
+| D-17 | La puntuación se **recalcula al leer**; la guardada es la del día en que entró el tema | `ACORDADA` (2026-08-19) | La nota mide en buena parte frescura, y la frescura envejece. Congelada, un perecedero de hace tres semanas seguía encabezando la revisión con la nota que sacó cuando era noticia. La columna sigue existiendo y ordenando la consulta: fija qué página se lee, y el reordenado fino ocurre encima. |
 | D-11 | El **giro del negocio** vive en la marca (`brand_kits.business`); la lista de vigilancia lo **referencia**, no lo duplica | `ACORDADA` (usuario, 2026-08-18) | Una marca ya representa un negocio, así que es su sitio natural, y lo aprovechan también los generadores. Pero *qué vigilar* cambia por su cuenta —se añaden y quitan verticales sin que el negocio cambie—, así que la vigilancia sigue siendo su propia tabla con un `brand_kit_id` nulable. Un vertical sin marca es de la agencia. |
 
 ## 4. Estado de partida (verificado el 2026-08-17)
@@ -178,6 +182,34 @@ en vivo con los contadores actualizándose y las acciones cambiando a «Marcar u
 en consola. El tema no se puede editar por API: solo cambia de estado, porque es el registro de lo
 que se encontró aquel día.
 
+### 5.1 Correcciones sobre lo implementado · `COMPLETADA` (2026-08-19)
+
+Revisión del radar ya construido, antes de seguir con F5. Siete defectos, todos de comportamiento
+—no de forma— y todos con prueba que los fija:
+
+| Qué estaba mal | Por qué importaba | Qué se hizo |
+|---|---|---|
+| Si la estructuración fallaba, la corrida moría llevándose las notas de investigación | Buscar es el ~80% del gasto: se tiraba lo caro justo en el caso para el que existe «Reinterpretar» | Las notas se guardan al terminar la búsqueda, antes de interpretarlas. Una corrida fallida ya se puede reinterpretar |
+| La evidencia no se comprobaba contra nada | Un tema con dos dominios inventados pasaba el umbral de corroboración entero | D-15: cada fuente se marca según aparezca o no en las notas, y solo cuentan las comprobadas |
+| La huella incluía los dominios y el veto era eterno | Duplicados por un lado y amnesia por el otro (R-01) | D-14 |
+| No había cerrojo: dos clics eran dos corridas cobrando | Y una corrida muerta dejaba `running` para siempre | D-16 |
+| Un tema con etiqueta desconocida caía en `verticals[0]` | No desaparecía del filtro: aparecía donde no era, que es peor | Manda la etiqueta si se reconoce; si no, las fuentes; y con varios verticales en juego y ninguna pista, se descarta |
+| La puntuación quedaba congelada | «Mejor puntuación» ordenaba por frescura de hace tres semanas | D-17 |
+| Los agregadores contaban como medios independientes | MSN, Google News y Yahoo sirviendo el mismo teletipo eran «tres confirmaciones» | Cuentan todos juntos como uno |
+
+Además, de paso: el costo de la corrida se dice al terminarla en vez de haber que ir a buscarlo;
+se avisa cuando el modelo se salta el tope de búsquedas —que es una petición, no un límite—; el
+gasto del mes contra el presupuesto se muestra **antes** de correr; y los contadores de la pantalla
+los cuenta SQLite sobre la columna en vez de leer y parsear quinientos documentos en cada carga.
+
+Los descartes se cuentan ahora por motivo (`malformed`, `insufficient-sources`, `unverified`), con
+código y no adivinando por el texto del mensaje: «devolvió basura», «no lo pudo contrastar» y «se
+inventó las fuentes» son tres diagnósticos distintos y el tercero es el único que indica invención.
+
+Verificación: suite local 49/49, integración 4/4, `typecheck` y `lint` limpios, y `/radar`
+comprobada en el navegador contra la base real (contadores por SQL, puntuación recalculada al leer
+—78 guardado, 77 servido un día después—, y la pantalla sin errores en consola).
+
 ### F4 — Puente a los generadores · `PENDIENTE`
 
 | Tarea | Descripción | Criterio de verificación |
@@ -294,13 +326,14 @@ aprobado**: si una corrida cuesta X y se aprueban 2 de 10 temas, cada idea usabl
 
 | ID | Riesgo | Impacto | Mitigación | Estado |
 |---|---|---|---|---|
-| R-01 | El radar repite los mismos temas cada semana | Alto | Triple defensa de T-16: huella, memoria de títulos recientes y ventana temporal. Los descartados (D-09) alimentan la memoria negativa. | Abierto |
+| R-01 | El radar repite los mismos temas cada semana | Alto | Triple defensa de T-16: huella, memoria de títulos recientes y ventana temporal. Los descartados (D-09) alimentan la memoria negativa. La huella dejó de depender de los dominios, que era por donde se colaban los repetidos (D-14). | Abierto |
 | R-02 | Se produce en volumen contenido generado sin criterio | **Alto** | D-01: el radar no genera piezas. Se mantiene D-04 de `PLAN_PUBLICACION.md` (revisión humana obligatoria). | Abierto |
 | R-03 | El gasto de la API se dispara sin que nadie lo note | Alto | F0/F1 antes que el radar (D-06); freno por presupuesto (T-26) | Abierto |
 | R-04 | La tabla de precios queda desactualizada y el histórico miente | Medio | `pricingVersion` congelada por run (D-03/D-04); el importe pasado nunca se recalcula | Abierto |
 | R-05 | El modelo devuelve tendencias genéricas en vez de hechos de la semana | Medio | Ventana temporal explícita, `evidence` con `published_at` obligatorio y `confidence` visible en la revisión | Abierto |
 | R-06 | La instrumentación de F0 rompe las rutas de video que ya funcionan | Medio | La migración T-04 solo relaja restricciones y añade columnas; los registros antiguos deben seguir leyéndose | Abierto |
 | R-07 | Buscar solo en español deja fuera la mitad de las fuentes de ciberseguridad | Medio | Investigar en inglés y español; redactar el tema en español | Abierto |
+| R-08 | El modelo que estructura cita fuentes que no encontró, y el tema aparenta estar corroborado | **Alto** | D-15: solo cuentan los dominios que aparecen en las notas de la investigación; el resto se marca «sin comprobar» a la vista de quien revisa | Mitigado (2026-08-19) |
 
 ## 9. Orden de ejecución
 

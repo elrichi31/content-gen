@@ -52,7 +52,7 @@ database.prepare("INSERT INTO brand_kits VALUES (?, 1, ?, ?, ?, NULL)").run(
 );
 database.close();
 
-const { createWatchlistEntry, listTopics, listRadarRuns, setTopicStatus, linkTopicToContent, topicContentItems, recentMemory, RadarError } = await import("./radar.ts");
+const { beginRadarRun, createWatchlistEntry, listTopics, listRadarRuns, saveTopics, setTopicStatus, linkTopicToContent, topicContentItems, recentMemory, RadarError } = await import("./radar.ts");
 const { scanRadar } = await import("./radar-scan.ts");
 
 await createWatchlistEntry({ vertical: "Ciberseguridad", offering: "Auditorías y hardening para PyMEs", priority: 1, brandKitId: "marca-1" });
@@ -84,8 +84,10 @@ const fakeFetch = (async (_url: string, init?: RequestInit) => {
   const parsed = JSON.parse(body) as { model: string; tools?: unknown[]; text?: unknown };
   calls.push({ body, tools: Array.isArray(parsed.tools) && parsed.tools.length > 0 });
   if (parsed.tools) {
+    // Las notas nombran los dos dominios que luego se citan: es lo que la comprobación de fuentes
+    // busca, y una fuente que no aparezca aquí es una que el estructurador se inventó.
     return new Response(JSON.stringify({
-      output_text: `Notas de ${parsed.model}`,
+      output_text: `Notas de ${parsed.model}: ejemplo.com y otro-medio.org lo publicaron`,
       usage: { input_tokens: 2000, output_tokens: 500, input_tokens_details: { cached_tokens: 1500 } },
       output: [{ type: "web_search_call" }, { type: "web_search_call" }, { type: "message", content: [{ type: "output_text", text: "Notas", annotations: [{ type: "url_citation", url: "https://ejemplo.com/uno?utm_source=openai", title: "Fuente uno" }] }] }],
     }));
@@ -296,6 +298,124 @@ await assert.rejects(
 const total = calls.length;
 await assert.rejects(() => scanRadar({ windowDays: 999 }, { request: fakeFetch }), /válida/, "una ventana imposible se rechaza");
 assert.equal(calls.length, total, "una solicitud inválida no llega a llamar a la API");
+
+/* ------------- Lo caro se guarda antes de interpretarlo ------------- */
+
+// Buscar es el ~80% del gasto. Si la estructuración falla, la corrida termina en error, pero las
+// notas ya pagadas tienen que quedar en la base: guardarlas solo al final era tirarlas justo
+// cuando fallaba, y con ellas la única forma barata de recuperar la corrida.
+const estructuracionRota = (async (_url: string, init?: RequestInit) => {
+  const parsed = JSON.parse(String(init?.body ?? "{}")) as { tools?: unknown[] };
+  if (parsed.tools) {
+    return new Response(JSON.stringify({
+      output_text: "Notas caras de ejemplo.com",
+      usage: { input_tokens: 100, output_tokens: 10 },
+      output: [{ type: "web_search_call" }, { type: "message", content: [{ type: "output_text", text: "Notas", annotations: [{ type: "url_citation", url: "https://ejemplo.com/uno", title: "Fuente" }] }] }],
+    }));
+  }
+  return new Response(JSON.stringify({ error: { message: "El modelo de estructuración se cayó" } }), { status: 500 });
+}) as unknown as typeof fetch;
+
+await assert.rejects(() => scanRadar({}, { request: estructuracionRota, now: new Date("2026-08-23T10:00:00.000Z") }), "si la estructuración falla, la corrida falla");
+const rota = (await listRadarRuns({ limit: 1 }))[0]!;
+assert.equal(rota.status, "failed", "y queda registrada como fallida");
+assert.equal(rota.research.length, 2, "pero las notas de investigación sobreviven: ya estaban pagadas");
+const rescatada = await restructureRun(rota.id, { minSources: 1 }, { request: fakeFetch, now: new Date("2026-08-23T11:00:00.000Z") });
+assert.ok(rescatada.summary.found > 0, "y la corrida fallida se puede reinterpretar sin volver a buscar");
+
+/* ----------------- Una corrida a la vez, y ninguna colgada ----------------- */
+
+const colgada = await beginRadarRun({ verticals: ["Ciberseguridad"], windowDays: 7 });
+const durante = calls.length;
+await assert.rejects(
+  // Con la hora real: el barrido de corridas colgadas mide desde que empezaron, y una recién
+  // abierta no es una colgada.
+  () => scanRadar({}, { request: fakeFetch, now: new Date() }),
+  (error: unknown) => error instanceof RadarError && error.status === 409,
+  "con una corrida viva, la segunda no arranca: buscar dos veces lo mismo se paga dos veces",
+);
+assert.equal(calls.length, durante, "y sobre todo no llama a la API");
+
+// Un proceso que muere deja su corrida en «running» para siempre. Sin barrerlas, el cerrojo
+// anterior dejaría el radar bloqueado hasta que alguien tocara la base a mano.
+const despues = await scanRadar({}, { request: fakeFetch, now: new Date(Date.now() + 2 * 60 * 60 * 1000) });
+assert.equal(despues.run.status, "completed", "una corrida colgada se cierra sola y deja pasar la siguiente");
+const barrida = (await listRadarRuns({ limit: 50 })).find((item) => item.id === colgada.id)!;
+assert.equal(barrida.status, "failed", "la colgada queda como fallida, no como eterna");
+assert.match(barrida.error ?? "", /interrumpi/, "diciendo qué le pasó");
+
+/* -------------------- Fuentes que el modelo se inventa -------------------- */
+
+const inventaFuentes = (async (_url: string, init?: RequestInit) => {
+  const parsed = JSON.parse(String(init?.body ?? "{}")) as { tools?: unknown[] };
+  if (parsed.tools) {
+    return new Response(JSON.stringify({
+      output_text: "Solo se encontro en ejemplo.com",
+      usage: { input_tokens: 10, output_tokens: 10 },
+      output: [{ type: "web_search_call" }, { type: "message", content: [{ type: "output_text", text: "Notas", annotations: [{ type: "url_citation", url: "https://ejemplo.com/real", title: "Real" }] }] }],
+    }));
+  }
+  return new Response(JSON.stringify({
+    output_text: JSON.stringify({ topics: [{
+      ...topicFor("Brecha inedita en proveedores de nomina", "Ciberseguridad"),
+      evidence: [
+        { url: "https://ejemplo.com/real", title: "Real", published_at: "2026-08-17" },
+        { url: "https://periodico-inventado.com/nota", title: "Inventada", published_at: "2026-08-17" },
+      ],
+    }] }),
+    usage: { input_tokens: 10, output_tokens: 10 },
+  }));
+}) as unknown as typeof fetch;
+
+const inventado = await scanRadar({}, { request: inventaFuentes, now: new Date("2026-08-24T10:00:00.000Z") });
+assert.equal(inventado.summary.unverified, 1, "un tema que cita dominios ausentes de la investigacion no pasa");
+assert.equal(inventado.summary.kept, 0, "y no llega a la revision aparentando dos fuentes");
+assert.equal(inventado.summary.insufficientSources, 0, "inventar fuentes se cuenta aparte de no tenerlas");
+
+const permitiendoInventadas = await scanRadar({ verifySources: false }, { request: inventaFuentes, now: new Date("2026-08-24T11:00:00.000Z") });
+assert.equal(permitiendoInventadas.summary.kept, 1, "la comprobacion se puede apagar para ver que esta tirando");
+const conSinComprobar = permitiendoInventadas.topics[0]!;
+assert.deepEqual(conSinComprobar.evidence.map((item) => item.verified), [true, false], "pero la fuente queda marcada como no comprobada");
+
+/* ------------- El vertical sale de las fuentes, no del primero ------------- */
+
+const etiquetaEquivocada = (async (_url: string, init?: RequestInit) => {
+  const body = String(init?.body ?? "{}");
+  const parsed = JSON.parse(body) as { tools?: unknown[] };
+  if (parsed.tools) {
+    // Cada vertical trae dominios propios: es lo que permite reconocer de cual salio un tema.
+    const host = body.includes("Vertical a vigilar: Automatizaci") ? "flujos.dev" : "seguridad.dev";
+    return new Response(JSON.stringify({
+      output_text: `Notas de ${host}`,
+      usage: { input_tokens: 10, output_tokens: 10 },
+      output: [{ type: "web_search_call" }, { type: "message", content: [{ type: "output_text", text: "Notas", annotations: [{ type: "url_citation", url: `https://${host}/nota`, title: "Fuente" }] }] }],
+    }));
+  }
+  return new Response(JSON.stringify({
+    output_text: JSON.stringify({ topics: [{
+      ...topicFor("Integraciones sin codigo para conciliar pagos", "Un vertical que nadie pidio"),
+      evidence: [{ url: "https://flujos.dev/nota", title: "Fuente", published_at: "2026-08-17" }],
+    }] }),
+    usage: { input_tokens: 10, output_tokens: 10 },
+  }));
+}) as unknown as typeof fetch;
+
+const clasificado = await scanRadar({ minSources: 1 }, { request: etiquetaEquivocada, now: new Date("2026-08-25T10:00:00.000Z") });
+assert.equal(clasificado.summary.kept, 1, "una etiqueta inventada no tira el tema si sus fuentes lo situan");
+assert.equal(clasificado.topics[0]?.vertical, "Automatización", "el tema va al vertical cuya investigacion trajo esos dominios, no al primero de la lista");
+
+/* --------------- Lo repetido caduca: la memoria tiene ventana --------------- */
+
+// Vetar una huella para siempre no es deduplicar, es ir olvidando verticales: un asunto que
+// vuelve medio ano despues con novedades reales no podia volver a entrar nunca.
+const yaGuardado = (await listTopics({ limit: 1 }))[0]!;
+const mismoMedioAno = await saveTopics(
+  [{ ...yaGuardado, id: "tema-reincidente" }],
+  { now: new Date(Date.parse(yaGuardado.createdAt) + 9 * 7 * 24 * 60 * 60 * 1000) },
+);
+assert.equal(mismoMedioAno.inserted, 1, "pasada la ventana, un asunto que reaparece vuelve a entrar");
+const dentroDeVentana = await saveTopics([{ ...yaGuardado, id: "tema-repetido" }], { now: new Date(yaGuardado.createdAt) });
+assert.equal(dentroDeVentana.inserted, 0, "dentro de la ventana sigue siendo un duplicado");
 
 await rm(root, { recursive: true, force: true });
 console.log("Radar (corrida): dos pasos, modelos separados, deduplicación entre semanas, costo por partes y fallos aislados validados.");

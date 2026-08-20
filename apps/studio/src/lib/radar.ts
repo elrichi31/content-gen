@@ -1,9 +1,12 @@
 import { randomUUID } from "node:crypto";
 import {
   canTransition,
+  fingerprintSubject,
   radarRunSchema,
   radarTopicSchema,
   radarWatchlistSchema,
+  RADAR_TOPIC_STATUSES,
+  scoreTopic,
   type RadarRun,
   type RadarTopic,
   type RadarTopicStatus,
@@ -119,6 +122,55 @@ export async function finishRadarRun(id: string, patch: Partial<Pick<RadarRun, "
   return run;
 }
 
+/**
+ * Guarda las notas de investigación en cuanto se tienen, sin cerrar la corrida.
+ *
+ * Existe porque buscar es el ~80% del gasto y antes se guardaba solo al terminar: si el paso de
+ * estructuración fallaba, la corrida moría llevándose unas notas ya pagadas —justo el caso para el
+ * que se inventó «Reinterpretar».
+ */
+export async function saveRunResearch(id: string, research: RadarRun["research"]) {
+  const row = await withDatabase((database) => database.prepare("SELECT data_json FROM radar_runs WHERE id = ?").get(id) as Row | undefined);
+  if (!row) throw new RadarError("La corrida no existe.", 404);
+  const run = radarRunSchema.parse({ ...JSON.parse(row.data_json), research });
+  await withDatabase((database) => database.prepare("UPDATE radar_runs SET data_json = ? WHERE id = ?").run(JSON.stringify(run), id));
+  return run;
+}
+
+/**
+ * Una corrida tarda minutos y cuesta dinero, así que dos a la vez es gastar dos veces por lo
+ * mismo. Antes de mirar si hay alguna viva se cierran las que quedaron colgadas: un proceso que
+ * muere a mitad deja su registro en `running` para siempre y bloquearía el radar entero.
+ */
+const STALE_RUN_MS = 45 * 60 * 1000;
+
+export async function expireStaleRuns({ now = new Date(), afterMs = STALE_RUN_MS }: { now?: Date; afterMs?: number } = {}) {
+  const cutoff = new Date(now.getTime() - afterMs).toISOString();
+  const rows = await withDatabase((database) => database
+    .prepare("SELECT data_json FROM radar_runs WHERE status = 'running' AND started_at < ?")
+    .all(cutoff) as Row[]);
+  for (const row of rows) {
+    const run = radarRunSchema.parse({
+      ...JSON.parse(row.data_json),
+      status: "failed",
+      completedAt: now.toISOString(),
+      error: "La corrida se interrumpió: el proceso terminó sin cerrarla. Las notas que alcanzó a guardar se conservan.",
+    });
+    await withDatabase((database) => database
+      .prepare("UPDATE radar_runs SET status = ?, completed_at = ?, data_json = ? WHERE id = ?")
+      .run(run.status, run.completedAt, JSON.stringify(run), run.id));
+  }
+  return rows.length;
+}
+
+/** La corrida viva, si la hay. Lo que impide que dos clics paguen dos búsquedas iguales. */
+export async function activeRadarRun() {
+  const row = await withDatabase((database) => database
+    .prepare("SELECT data_json FROM radar_runs WHERE status = 'running' ORDER BY started_at DESC LIMIT 1")
+    .get() as Row | undefined);
+  return row ? JSON.parse(row.data_json) as RadarRun : null;
+}
+
 export async function getRadarRun(id: string) {
   const row = await withDatabase((database) => database.prepare("SELECT data_json FROM radar_runs WHERE id = ?").get(id) as Row | undefined);
   if (!row) throw new RadarError("La corrida no existe.", 404);
@@ -137,16 +189,23 @@ export async function listRadarRuns({ limit = 20 }: { limit?: number } = {}) {
  * Guarda los temas de una corrida. La huella es la defensa contra el duplicado, pero se comprueba
  * aquí y no con un índice único: un tema repetido no es un error que deba abortar la corrida, es
  * simplemente un tema que no se guarda.
+ *
+ * La comprobación mira la **misma ventana** que la memoria reciente, no todo el histórico. Vetarlo
+ * para siempre significaba que un asunto que vuelve medio año después con novedades reales no
+ * podía entrar nunca más, y eso no es deduplicar: es olvidar un vertical entero poco a poco.
  */
-export async function saveTopics(topics: RadarTopic[]) {
+export async function saveTopics(topics: RadarTopic[], { now = new Date(), weeks = MEMORY_WEEKS }: { now?: Date; weeks?: number } = {}) {
   if (!topics.length) return { inserted: 0, skipped: 0 };
+  const since = new Date(now.getTime() - weeks * 7 * DAY_MS).toISOString();
   return withDatabase((database) => {
-    const exists = database.prepare("SELECT 1 FROM radar_topics WHERE fingerprint = ?");
+    // Las huellas antiguas eran `asunto|dominios`; el `LIKE` las reconoce sin reescribir la base.
+    const exists = database.prepare("SELECT 1 FROM radar_topics WHERE created_at >= ? AND (fingerprint = ? OR fingerprint LIKE ?)");
     const insert = database.prepare("INSERT INTO radar_topics (id, schema_version, run_id, vertical, status, score, fingerprint, origin, data_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
     let inserted = 0;
     let skipped = 0;
     for (const topic of topics) {
-      if (exists.get(topic.fingerprint)) { skipped += 1; continue; }
+      const subject = fingerprintSubject(topic.fingerprint);
+      if (exists.get(since, subject, `${subject}|%`)) { skipped += 1; continue; }
       insert.run(topic.id, 1, topic.runId, topic.vertical, topic.status, topic.score, topic.fingerprint, topic.origin, JSON.stringify(topic), topic.createdAt, topic.updatedAt);
       inserted += 1;
     }
@@ -162,7 +221,7 @@ export async function saveTopics(topics: RadarTopic[]) {
 export const TOPIC_SORTS = { score: "score DESC, created_at DESC", recent: "created_at DESC, score DESC", oldest: "created_at ASC, score DESC" } as const;
 export type TopicSort = keyof typeof TOPIC_SORTS;
 
-export async function listTopics({ status, vertical, runId, sort = "score", limit = 100 }: { status?: RadarTopicStatus; vertical?: string; runId?: string; sort?: TopicSort; limit?: number } = {}) {
+export async function listTopics({ status, vertical, runId, sort = "score", limit = 100, now = new Date() }: { status?: RadarTopicStatus; vertical?: string; runId?: string; sort?: TopicSort; limit?: number; now?: Date } = {}) {
   const clauses: string[] = [];
   const params: unknown[] = [];
   if (status) { clauses.push("status = ?"); params.push(status); }
@@ -171,9 +230,37 @@ export async function listTopics({ status, vertical, runId, sort = "score", limi
   const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
   // El orden sale de una tabla fija, nunca del parámetro: es lo único que impide inyectar SQL.
   const order = TOPIC_SORTS[sort] ?? TOPIC_SORTS.score;
-  return withDatabase((database) => parseRows<RadarTopic>(database
+  const topics = await withDatabase((database) => parseRows<RadarTopic>(database
     .prepare(`SELECT data_json FROM radar_topics ${where} ORDER BY ${order} LIMIT ?`)
     .all(...params, Math.max(1, Math.min(500, limit)))));
+
+  // La puntuación se recalcula al leer. La guardada es la del día en que entró el tema, y la
+  // frescura de la evidencia envejece: sin esto, un perecedero de hace tres semanas seguía
+  // encabezando la revisión con la nota que sacó cuando era noticia.
+  //
+  // La columna sigue existiendo y ordenando la consulta: fija qué página se lee. Reordenar dentro
+  // de ella basta mientras la revisión quepa en una tanda, que es como está pensada.
+  const scored = topics.map((topic) => ({ ...topic, score: scoreTopic(topic, { today: now }) }));
+  return sort === "score"
+    ? scored.sort((a, b) => b.score - a.score || (a.createdAt < b.createdAt ? 1 : -1))
+    : scored;
+}
+
+/**
+ * Contadores y verticales del histórico completo. Salen de la propia base y no de leer los temas:
+ * la pantalla los pide en cada carga y parsear quinientos documentos JSON para contar cuatro
+ * estados es trabajo que SQLite hace con la columna que ya tiene indexada.
+ */
+export async function topicSummary() {
+  return withDatabase((database) => {
+    const counted = database.prepare("SELECT status, COUNT(*) AS total FROM radar_topics GROUP BY status").all() as { status: string; total: number }[];
+    const verticals = database.prepare("SELECT DISTINCT vertical FROM radar_topics ORDER BY vertical ASC").all() as { vertical: string }[];
+    const byStatus = new Map(counted.map((row) => [row.status, row.total]));
+    return {
+      counts: Object.fromEntries(RADAR_TOPIC_STATUSES.map((status) => [status, byStatus.get(status) ?? 0])) as Record<RadarTopicStatus, number>,
+      verticals: verticals.map((row) => row.vertical),
+    };
+  });
 }
 
 export async function getTopic(id: string) {
@@ -198,13 +285,20 @@ export async function setTopicStatus(id: string, status: RadarTopicStatus) {
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
+ * Cuánto tiempo se considera «ya cubierto» un tema. Lo comparten la memoria que se le pasa al
+ * modelo y el filtro de guardado: dos ventanas distintas darían dos ideas distintas de qué es un
+ * duplicado, y una de las dos estaría siempre equivocada.
+ */
+export const MEMORY_WEEKS = 8;
+
+/**
  * Lo que la corrida anterior ya trajo. Las huellas filtran de forma exacta al guardar; los
  * titulares se le pasan al modelo, que sí puede darse cuenta de que dos redacciones distintas
  * cuentan lo mismo (T-16).
  *
  * Incluye los descartados a propósito: son memoria negativa, para no volver a proponerlos.
  */
-export async function recentMemory({ weeks = 8, limit = 60, now = new Date() }: { weeks?: number; limit?: number; now?: Date } = {}) {
+export async function recentMemory({ weeks = MEMORY_WEEKS, limit = 60, now = new Date() }: { weeks?: number; limit?: number; now?: Date } = {}) {
   const since = new Date(now.getTime() - weeks * 7 * DAY_MS).toISOString();
   const rows = await withDatabase((database) => database
     .prepare("SELECT fingerprint, data_json FROM radar_topics WHERE created_at >= ? ORDER BY created_at DESC LIMIT ?")

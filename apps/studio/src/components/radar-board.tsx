@@ -17,6 +17,7 @@ type Payload = {
   watchlist: RadarWatchlistEntry[];
   runs: RadarRun[];
   models?: { available: { id: string; inputPerMillion: number; outputPerMillion: number }[]; research: string | null; structuring: string | null };
+  spend?: { month: string; amount: number; budget: number | null } | null;
   truncated?: boolean;
   error?: string;
 };
@@ -42,11 +43,20 @@ const ACTIONS: Record<RadarTopicStatus, { to: RadarTopicStatus; label: string; v
 };
 
 /** Resumen de la corrida: lo guardado y, sobre todo, por qué se cayó el resto. */
-function summaryText(summary: RunSummary) {
+function summaryText(summary: RunSummary, cost?: { amount: number | null; currency: string } | null) {
   return [
     `Corrida terminada: ${summary.kept} temas nuevos de ${summary.found} propuestos.`,
     `Descartados: ${summary.repeated} repetidos, ${summary.insufficientSources} sin corroborar, ${summary.rejected} mal formados.`,
-    summary.failedVerticals.length ? `Verticales fallidos: ${summary.failedVerticals.length}.` : "",
+    // Se dice aparte: significa que el modelo escribió fuentes que no salieron de la búsqueda, y
+    // eso no es un tema flojo, es un tema inventado.
+    summary.unverified ? `${summary.unverified} con fuentes que no aparecen en la investigación.` : "",
+    summary.failedVerticals?.length ? `Verticales fallidos: ${summary.failedVerticals.length}.` : "",
+    // El tope de búsquedas es una petición al modelo, no un límite de la API: cuando se lo salta
+    // conviene saberlo, porque es donde se va la factura.
+    summary.searches && summary.searches.performed > summary.searches.requested
+      ? `Se pidieron ${summary.searches.requested} búsquedas y se hicieron ${summary.searches.performed}.`
+      : "",
+    cost?.amount != null ? `Costo: ${cost.amount} ${cost.currency}.` : "",
     summary.overBudget ? "Aviso: el gasto del mes ya superó el presupuesto." : "",
   ].filter(Boolean).join(" ");
 }
@@ -60,10 +70,20 @@ type ScanEvent =
   | { type: "research-failed"; vertical: string; reason: string; step: number; steps: number }
   | { type: "structure"; step: number; steps: number }
   | { type: "saving"; step: number; steps: number }
-  | { type: "done"; summary: RunSummary }
+  | { type: "done"; summary: RunSummary; run?: { cost?: { amount: number | null; currency: string } | null } }
   | { type: "error"; error: string };
 
-type RunSummary = { found: number; kept: number; repeated: number; rejected: number; insufficientSources: number; overBudget?: boolean; failedVerticals: string[] };
+type RunSummary = {
+  found: number;
+  kept: number;
+  repeated: number;
+  rejected: number;
+  insufficientSources: number;
+  unverified?: number;
+  overBudget?: boolean;
+  failedVerticals?: string[];
+  searches?: { requested: number; performed: number };
+};
 
 /** Cada mensaje dice qué está pasando de verdad; ninguno se inventa para rellenar el silencio. */
 function progressOf(event: ScanEvent): Progress {
@@ -138,6 +158,9 @@ export function RadarBoard() {
   const [maxSearches, setMaxSearches] = useState(8);
   const [minSources, setMinSources] = useState(2);
   const [contextSize, setContextSize] = useState<"low" | "medium" | "high">("low");
+  // Encendida por defecto: una fuente inventada es peor que ninguna. Se puede apagar para ver qué
+  // está tirando el filtro, que es la única forma de saber si se está pasando de estricto.
+  const [verifySources, setVerifySources] = useState(true);
   // Nulo significa «el que venga configurado»; el usuario solo lo fija si quiere cambiarlo.
   const [researchModel, setResearchModel] = useState<string | null>(null);
   const [structuringModel, setStructuringModel] = useState<string | null>(null);
@@ -183,7 +206,7 @@ export function RadarBoard() {
     setNotice(null);
     setProgress(null);
     try {
-      const response = await fetch("/api/radar/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ maxSearches, minSources, searchContextSize: contextSize, researchModel, structuringModel }) });
+      const response = await fetch("/api/radar/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ maxSearches, minSources, searchContextSize: contextSize, verifySources, researchModel, structuringModel }) });
       if (!response.body) { setNotice("El servidor no devolvió progreso."); return; }
 
       // La respuesta llega como server-sent events: cada evento es una línea `data: {...}`.
@@ -209,7 +232,9 @@ export function RadarBoard() {
           if (event.type === "error") { setNotice(event.error); finished = true; continue; }
           if (event.type === "done") {
             finished = true;
-            setNotice(summaryText(event.summary));
+            // El costo llega con la corrida: verlo al terminar es lo que permite decidir si la
+            // siguiente se lanza igual, y no tener que ir a buscarlo a la pantalla de costos.
+            setNotice(summaryText(event.summary, event.run?.cost));
             continue;
           }
           setProgress(progressOf(event));
@@ -226,7 +251,7 @@ export function RadarBoard() {
       setScanning(false);
       setProgress(null);
     }
-  }, [load, maxSearches, minSources, contextSize, researchModel, structuringModel]);
+  }, [load, maxSearches, minSources, contextSize, verifySources, researchModel, structuringModel]);
 
   /**
    * Vuelve a interpretar las notas de la última corrida con los ajustes actuales. Buscar es el
@@ -242,12 +267,11 @@ export function RadarBoard() {
       const response = await fetch(`/api/radar/runs/${lastRunId}/restructure`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ minSources, structuringModel }),
+        body: JSON.stringify({ minSources, verifySources, structuringModel }),
       });
       const result = await response.json() as { summary?: RunSummary; cost?: { amount: number | null; currency: string } | null; error?: string };
       if (!response.ok || !result.summary) { setNotice(result.error ?? "No se pudo reinterpretar la corrida."); return; }
-      const coste = result.cost?.amount !== null && result.cost !== undefined && result.cost !== null ? ` Costo: ${result.cost.amount} ${result.cost.currency}.` : "";
-      setNotice(`${summaryText({ ...result.summary, failedVerticals: [] })}${coste}`);
+      setNotice(summaryText(result.summary, result.cost));
       setStatus("nuevo");
       await load();
     } catch {
@@ -256,7 +280,7 @@ export function RadarBoard() {
       setScanning(false);
       setProgress(null);
     }
-  }, [lastRunId, minSources, structuringModel, load]);
+  }, [lastRunId, minSources, verifySources, structuringModel, load]);
 
   const changeStatus = useCallback(async (id: string, next: RadarTopicStatus) => {
     try {
@@ -279,6 +303,7 @@ export function RadarBoard() {
 
   const activeVerticals = data.watchlist.filter((entry) => entry.active);
   const lastRun = data.runs[0];
+  const overBudget = Boolean(data.spend?.budget && data.spend.amount >= data.spend.budget);
 
   return (
     <div className="space-y-6">
@@ -332,6 +357,16 @@ export function RadarBoard() {
             <option value="high">Completo (caro)</option>
           </select>
         </label>
+        <label className="flex items-center gap-1.5 text-xs text-muted-foreground" title="El paso que escribe las fuentes no busca nada: si cita un dominio que no aparece en la investigación, se lo inventó. Apagarlo deja pasar esos temas.">
+          <input
+            type="checkbox"
+            className="h-3.5 w-3.5 accent-primary"
+            aria-label="Comprobar que las fuentes citadas aparecen en la investigación"
+            checked={verifySources}
+            onChange={(event) => setVerifySources(event.target.checked)}
+          />
+          Comprobar fuentes
+        </label>
         {lastRun ? (
           <span className="text-xs text-muted-foreground">
             Última corrida: {new Date(lastRun.startedAt).toLocaleString("es")} · {lastRun.topicsKept} temas
@@ -345,6 +380,22 @@ export function RadarBoard() {
         <strong className="font-medium text-foreground">Texto por fuente</strong> cuánto lee de cada una ·{" "}
         <strong className="font-medium text-foreground">Fuentes mín.</strong> cuántos medios distintos deben confirmar un tema para guardarlo
       </p>
+
+      {/* El gasto se dice antes de gastar. Avisar al terminar la corrida es informar de un hecho
+          consumado, que es justo lo que el tope de presupuesto existe para evitar. */}
+      {data.spend?.budget ? (
+        <Card className={overBudget ? "border-amber-500/40" : undefined}>
+          <CardContent className="flex flex-wrap items-baseline gap-x-2 gap-y-1 py-3 text-xs">
+            <span className="text-muted-foreground">Gasto de {data.spend.month}:</span>
+            <span className="font-medium tabular-nums">{data.spend.amount} de {data.spend.budget}</span>
+            {overBudget ? (
+              <span className="text-amber-600 dark:text-amber-500">
+                Ya se pasó del presupuesto. Una corrida manual sigue arrancando —el tope no bloquea el trabajo deliberado—, pero esta gastará por encima.
+              </span>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
 
       {!activeVerticals.length ? (
         <Card className="border-amber-500/40">
@@ -506,6 +557,13 @@ export function RadarBoard() {
                           <ExternalLink className="h-3 w-3 shrink-0 self-center" aria-hidden />
                         </a>
                         <span className="text-muted-foreground">· {hostOf(source.url)} · {relativeDate(source.publishedAt)}</span>
+                        {/* Se queda a la vista en vez de desaparecer: quien revisa tiene que poder
+                            juzgar la fuente, pero sabiendo que no salió de la búsqueda. */}
+                        {source.verified === false ? (
+                          <span className="text-amber-600 dark:text-amber-500" title="Este dominio no aparece en las notas de la investigación: puede ser una cita inventada.">
+                            · sin comprobar
+                          </span>
+                        ) : null}
                       </li>
                     ))}
                   </ul>

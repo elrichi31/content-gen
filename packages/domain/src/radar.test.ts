@@ -3,6 +3,7 @@ import {
   canTransition,
   independentSources,
   dedupeTopics,
+  fingerprintSubject,
   normalizeGeneratedTopic,
   radarRunSchema,
   radarTopicSchema,
@@ -30,27 +31,40 @@ assert.equal(run.cost, null, "una corrida en marcha todavía no tiene importe");
 
 /* ------------------------------- Huella ------------------------------- */
 
-const base = { title: "Ransomware golpea hospitales de Colombia", evidence: [{ url: "https://www.bleepingcomputer.com/news/uno" }] };
+const base = "Ransomware golpea hospitales de Colombia";
 assert.equal(
   topicFingerprint(base),
-  topicFingerprint({ title: "En Colombia, un hospital golpeado por ransomware", evidence: [{ url: "https://bleepingcomputer.com/news/otro" }] }),
-  "reordenar, cambiar el plural y cambiar de ruta en el mismo dominio no crea un tema nuevo",
+  topicFingerprint("En Colombia, un hospital golpeado por ransomware"),
+  "reordenar y cambiar el plural no crea un tema nuevo",
+);
+// Los dominios no entran en la huella: la misma historia contada la semana siguiente por otros
+// medios es la misma historia. Cuando los llevaba, volvía a entrar como tema nuevo.
+assert.equal(
+  topicFingerprint(base),
+  topicFingerprint("Ransomware golpea hospitales de Colombia"),
+  "quién lo publica no cambia qué pasó: la huella no depende de las fuentes",
 );
 // Límite conocido y aceptado: la huella es léxica, no entiende familias de palabras. De esto se
 // encarga la memoria de titulares recientes que se le pasa al modelo.
 assert.notEqual(
   topicFingerprint(base),
-  topicFingerprint({ title: "Ataque de ransomware a hospitales de Colombia", evidence: [{ url: "https://bleepingcomputer.com/news/tres" }] }),
+  topicFingerprint("Ataque de ransomware a hospitales de Colombia"),
   "la derivación entre familias de palabras se le escapa a la huella",
 );
 assert.notEqual(
   topicFingerprint(base),
-  topicFingerprint({ title: "Phishing masivo contra bancos mexicanos", evidence: [{ url: "https://www.bleepingcomputer.com/news/tres" }] }),
-  "temas distintos del mismo medio no colisionan",
+  topicFingerprint("Phishing masivo contra bancos mexicanos"),
+  "temas distintos no colisionan",
 );
-assert.equal(topicFingerprint({ title: "Que es esto" }), topicFingerprint({ title: "Que es esto" }), "es determinista");
-assert.match(topicFingerprint({ title: "!!! ???" }), /sin-titulo|\|/, "un titular sin palabras útiles no degenera en cadena vacía");
-assert.equal(topicFingerprint({ title: "Fuga de datos", evidence: [{ url: "no-es-una-url" }] }).includes("no-es-una-url"), true, "una URL ilegible conserva su texto en vez de perderse");
+assert.equal(topicFingerprint("Que es esto"), topicFingerprint("Que es esto"), "es determinista");
+assert.equal(topicFingerprint("!!! ???"), "sin-titulo", "un titular sin palabras útiles no degenera en cadena vacía");
+
+// Las corridas viejas guardaron `asunto|dominios`. Al comparar manda el asunto, o el histórico
+// entero dejaría de reconocerse y todo volvería a entrar como nuevo.
+assert.equal(fingerprintSubject("ransom-hospi|bleepingcomputer.com"), "ransom-hospi", "de una huella antigua se queda el asunto");
+assert.equal(fingerprintSubject("ransom-hospi"), "ransom-hospi", "y una nueva ya es solo el asunto");
+const conHistoricoViejo = dedupeTopics([{ fingerprint: "ransom-hospi" }], { known: ["ransom-hospi|bleepingcomputer.com"] });
+assert.equal(conHistoricoViejo.fresh.length, 0, "un tema guardado con el formato antiguo se sigue reconociendo como repetido");
 
 const { fresh, repeated } = dedupeTopics(
   [{ fingerprint: "a" }, { fingerprint: "b" }, { fingerprint: "a" }, { fingerprint: "c" }],
@@ -82,6 +96,18 @@ assert.ok(scoreTopic({ confidence: 0.9, evidence: [{ url: "https://a.com/1", pub
 assert.equal(independentSources([{ url: "https://www.medio.com/a" }, { url: "https://medio.com/b" }]), 1, "dos notas del mismo medio son una sola fuente");
 assert.equal(independentSources([{ url: "https://medio.com/a" }, { url: "https://otro.org/b" }]), 2, "medios distintos sí corroboran");
 assert.equal(independentSources([]), 0, "sin evidencia no hay fuentes");
+// Un agregador no confirma: reproduce. Tres portales sirviendo el mismo teletipo son una sola
+// fuente, y contarlos como tres era la forma barata de aparentar corroboración.
+assert.equal(
+  independentSources([{ url: "https://news.google.com/x" }, { url: "https://www.msn.com/y" }, { url: "https://finance.yahoo.com/z" }]),
+  1,
+  "los agregadores cuentan todos juntos como uno",
+);
+assert.equal(
+  independentSources([{ url: "https://news.google.com/x" }, { url: "https://medio.com/y" }]),
+  2,
+  "pero un medio propio más un agregador siguen siendo dos cosas distintas",
+);
 
 const mismoMedio = scoreTopic({ confidence: 0.9, evidence: [{ url: "https://medio.com/a", publishedAt: "2026-08-17" }, { url: "https://medio.com/b", publishedAt: "2026-08-17" }, { url: "https://medio.com/c", publishedAt: "2026-08-17" }] }, { today });
 const variosMedios = scoreTopic({ confidence: 0.9, evidence: [{ url: "https://medio.com/a", publishedAt: "2026-08-17" }, { url: "https://otro.org/b", publishedAt: "2026-08-17" }, { url: "https://tercero.net/c", publishedAt: "2026-08-17" }] }, { today });
@@ -126,7 +152,7 @@ assert.equal(topic.evidence[1]?.publishedAt, null, "una fecha ilegible queda nul
 assert.deepEqual(topic.formats.map((format) => format.type), ["carousel", "article"], "ignora formatos que la aplicación no produce");
 assert.equal(topic.formats[0]?.keyword, null, "los campos que no aplican al formato quedan nulos");
 assert.ok(topic.score > 0, "la puntuación la calcula el sistema");
-assert.equal(topic.fingerprint, topicFingerprint({ title: topic.title, evidence: topic.evidence }), "la huella se deriva del tema ya normalizado");
+assert.equal(topic.fingerprint, topicFingerprint(topic.title), "la huella se deriva del tema ya normalizado");
 assert.equal(radarTopicSchema.safeParse(topic).success, true, "el resultado cumple el esquema del sistema");
 
 assert.throws(
@@ -154,6 +180,46 @@ assert.throws(
   /solo tiene 1 fuente/,
   "dos enlaces del mismo medio no cuentan como corroboración",
 );
+
+/* --------------------- Fuentes comprobadas contra la búsqueda --------------------- */
+
+// El paso que escribe las fuentes no busca nada: si cita un dominio que no salió de la
+// investigación, se lo inventó. Y una cita inventada es peor que ninguna, porque aparenta
+// corroborar justo donde el sistema mira para decidir si el tema pasa.
+const conInventada = {
+  ...generado,
+  evidence: [
+    { url: "https://www.bleepingcomputer.com/news/uno", title: "Real", published_at: "2026-08-17" },
+    { url: "https://medio-que-no-existe.com/dos", title: "Inventada", published_at: "2026-08-17" },
+  ],
+};
+
+const marcado = normalizeGeneratedTopic(conInventada, { runId: "r1", vertical: "Ciberseguridad", now, today, makeId, knownHosts: ["bleepingcomputer.com"] });
+assert.deepEqual(marcado.evidence.map((item) => item.verified), [true, false], "cada fuente queda marcada según haya aparecido o no en la búsqueda");
+
+const rechazado = (() => {
+  try { normalizeGeneratedTopic(conInventada, { runId: "r1", vertical: "Ciberseguridad", now, today, makeId, minSources: 2, knownHosts: ["bleepingcomputer.com"] }); }
+  catch (error) { return error as RadarTopicError; }
+  return null;
+})();
+assert.ok(rechazado instanceof RadarTopicError, "con dos dominios pero uno inventado, el tema no pasa el umbral");
+assert.equal(rechazado.reason, "unverified", "y el motivo lo distingue de un tema simplemente flojo");
+
+const sinComprobar = normalizeGeneratedTopic(conInventada, { runId: "r1", vertical: "Ciberseguridad", now, today, makeId, minSources: 2 });
+assert.equal(sinComprobar.evidence.every((item) => item.verified === null), true, "sin nada contra lo que comparar no se marca nada como inventado");
+
+// La nota tampoco puede subir por una fuente que no se pudo comprobar: si contara, inventar
+// fuentes seguiría siendo rentable aunque el tema no se rechace.
+const conRuido = scoreTopic({ confidence: 0.9, evidence: [{ url: "https://a.com/1", publishedAt: "2026-08-17", verified: true }, { url: "https://b.com/2", publishedAt: "2026-08-17", verified: false }] }, { today });
+const soloReal = scoreTopic({ confidence: 0.9, evidence: [{ url: "https://a.com/1", publishedAt: "2026-08-17", verified: true }] }, { today });
+assert.equal(conRuido, soloReal, "una fuente sin comprobar no puntúa");
+
+const flojo = (() => {
+  try { normalizeGeneratedTopic({ ...generado, evidence: [{ url: "https://unico.com/a", title: "Una", published_at: "2026-08-17" }] }, { runId: "r1", vertical: "Ciberseguridad", now, today, makeId, minSources: 2 }); }
+  catch (error) { return error as RadarTopicError; }
+  return null;
+})();
+assert.equal(flojo?.reason, "insufficient-sources", "faltar fuentes e inventarlas son dos diagnósticos distintos");
 
 console.log("Radar: esquemas, huella, deduplicación, puntuación, estados y contrato con la IA validados.");
 
