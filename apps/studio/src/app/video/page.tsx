@@ -5,6 +5,7 @@ import { Film, Plus } from "lucide-react";
 import { videoDocumentSchema, type VideoDocument } from "@content-gen/domain/video";
 import { PageShell } from "@/components/page-shell";
 import { Button } from "@/components/ui/button";
+import { Notice, noticeError, noticeOk, type NoticeState } from "@/components/ui/notice";
 import { useRadarTopic } from "@/lib/use-radar-topic";
 import { useRequestedContentId } from "@/lib/use-requested-content-id";
 import { ImageGallery } from "@/components/video/image-gallery";
@@ -38,7 +39,7 @@ export default function VideoPage() {
   const [contentId, setContentId] = useState("");
   const [revision, setRevision] = useState(0);
   const [savedSnapshot, setSavedSnapshot] = useState("");
-  const [notice, setNotice] = useState("");
+  const [notice, setNotice] = useState<NoticeState>(null);
   const [saving, setSaving] = useState(false);
 
   const refresh = useCallback(async () => {
@@ -55,26 +56,26 @@ export default function VideoPage() {
     if (!requestedId || contentId === requestedId) return;
     const item = videos.find((entry) => entry.id === requestedId);
     if (item) openEditor(item);
-    else if (videos.length) setNotice("Ese video no está disponible: puede estar archivado.");
+    else if (videos.length) setNotice(noticeError("Ese video no está disponible: puede estar archivado."));
   }, [requestedId, videos]);
 
   function adopt(content: Persisted) {
     const parsed = videoDocumentSchema.safeParse(content.document.data);
-    if (!parsed.success) return setNotice("El servidor devolvió un documento de video inválido.");
+    if (!parsed.success) return setNotice(noticeError("El servidor devolvió un documento de video inválido."));
     setDocument(parsed.data); setRevision(content.revision); setSavedSnapshot(JSON.stringify(parsed.data));
   }
 
   function openEditor(item: StoredVideo) {
     const parsed = videoDocumentSchema.safeParse(item.document.data);
-    if (!parsed.success) return setNotice("Este contenido no es un VideoDocument v1 válido.");
+    if (!parsed.success) return setNotice(noticeError("Este contenido no es un VideoDocument v1 válido."));
     setDocument(parsed.data); setContentId(item.id); setRevision(item.revision); setCampaignId(item.campaignId);
-    setSavedSnapshot(JSON.stringify(parsed.data)); setView("editor"); setNotice("");
+    setSavedSnapshot(JSON.stringify(parsed.data)); setView("editor"); setNotice(null);
   }
 
   function startNew(topic = "") {
     setForm({ ...EMPTY_FORM, topic });
     setDocument(null); setContentId(""); setRevision(0); setSavedSnapshot("");
-    setStep(1); setReached(1); setView("wizard"); setNotice("");
+    setStep(1); setReached(1); setView("wizard"); setNotice(null);
   }
 
   /** Guarda el borrador para que imágenes, voz y render puedan trabajar sobre el documento persistido. */
@@ -99,13 +100,13 @@ export default function VideoPage() {
 
   async function saveAnd(nextStep?: WizardStep) {
     if (!document) return;
-    setSaving(true); setNotice("");
+    setSaving(true); setNotice(null);
     try {
       await persist(document);
       if (nextStep) { setStep(nextStep); setReached((current) => (Math.max(current, nextStep) as WizardStep)); }
-      else setNotice("Video guardado en la biblioteca central.");
+      else setNotice(noticeOk("Video guardado en la biblioteca central."));
     } catch (reason) {
-      setNotice(reason instanceof Error ? reason.message : "No se pudo guardar el video.");
+      setNotice(noticeError(reason instanceof Error ? reason.message : "No se pudo guardar el video."));
     } finally {
       setSaving(false);
     }
@@ -125,11 +126,11 @@ export default function VideoPage() {
         </div>
         <div className="flex items-center gap-2">
           <Button type="button" variant={view === "wizard" ? "default" : "outline"} onClick={() => startNew()}><Plus className="h-4 w-4" /> Nuevo video</Button>
-          <Button type="button" variant={view === "wizard" ? "outline" : "default"} onClick={() => { setView("videos"); setNotice(""); }}><Film className="h-4 w-4" /> Mis videos</Button>
+          <Button type="button" variant={view === "wizard" ? "outline" : "default"} onClick={() => { setView("videos"); setNotice(null); }}><Film className="h-4 w-4" /> Mis videos</Button>
         </div>
       </div>
 
-      {notice ? <p className="mb-4 text-sm text-primary">{notice}</p> : null}
+      {notice ? <Notice className="mb-4 max-w-3xl" notice={notice} onDismiss={() => setNotice(null)} /> : null}
 
       {view === "wizard" ? (
         <>

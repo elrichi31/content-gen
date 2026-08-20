@@ -15,6 +15,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
+import { Notice, noticeError, noticeOk, type NoticeState } from "@/components/ui/notice";
 import { cn } from "@/lib/utils";
 import { colorThemes } from "@/lib/themes";
 import { useRadarTopic } from "@/lib/use-radar-topic";
@@ -25,6 +26,30 @@ type Campaign = { id: string; name: string; brief: string | { topic: string; aud
 type Brand = { id: string; name: string; primaryColor: string };
 type Stored = { id: string; revision: number; campaignId: string; document: { data: unknown } };
 const layouts = ["cover", "content", "list", "bigNumber", "quote", "split", "imageOverlay", "timeline", "statGrid", "cta"] as const;
+
+/** El nombre interno del layout no es el nombre del layout: la pantalla está en español. */
+const LAYOUT_LABEL: Record<(typeof layouts)[number], string> = {
+  cover: "Portada", content: "Contenido", list: "Lista", bigNumber: "Número grande", quote: "Cita",
+  split: "Dividido", imageOverlay: "Imagen de fondo", timeline: "Línea de tiempo", statGrid: "Rejilla de datos", cta: "Cierre (CTA)",
+};
+
+/** Layouts cuyo contenido real son sus elementos, no un párrafo. */
+const LIST_LAYOUTS = new Set(["list", "timeline", "statGrid"]);
+
+/**
+ * Lo que se compara para saber si hay cambios sin guardar. Es exactamente lo que se persiste:
+ * si entrara algo más —el tema visual, por ejemplo— la pieza aparecería sucia sin haberla tocado.
+ */
+const snapshotOf = (slides: Slide[], platform: CarouselPlatform, caption: CarouselDocument["caption"]) =>
+  JSON.stringify({ slides, platform, caption });
+
+/** Nombre con el que se reconoce un documento guardado. El identificador no es un nombre. */
+function storedLabel(item: Stored) {
+  const data = item.document.data as { topic?: unknown; slides?: { title?: unknown }[] } | null;
+  const topic = typeof data?.topic === "string" ? data.topic.trim() : "";
+  const first = typeof data?.slides?.[0]?.title === "string" ? (data.slides[0].title as string).trim() : "";
+  return topic || first || `Sin título · ${item.id.slice(0, 8)}`;
+}
 const NEW = "new";
 const NONE = "none";
 
@@ -67,7 +92,10 @@ export default function CarouselPage() {
   const [campaignId, setCampaignId] = useState(NONE);
   const [contentId, setContentId] = useState("");
   const [revision, setRevision] = useState(0);
-  const [notice, setNotice] = useState("");
+  const [notice, setNotice] = useState<NoticeState>(null);
+  // Contra qué se compara «sin guardar». Arranca con la pieza de ejemplo: recién abierta no hay
+  // nada que perder, y marcarla como sucia enseñaría a ignorar el aviso desde el primer segundo.
+  const [savedSnapshot, setSavedSnapshot] = useState(() => snapshotOf(carouselFixture.slides, "instagram", carouselFixture.caption));
   const [busy, setBusy] = useState("");
   const [remixUrl, setRemixUrl] = useState("");
   const [remixCount, setRemixCount] = useState(6);
@@ -75,6 +103,7 @@ export default function CarouselPage() {
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const current = slides[active];
   const document = { ...carouselFixture, slides, platform, caption };
+  const dirty = snapshotOf(slides, platform, caption) !== savedSnapshot;
   const selectedCampaign = campaigns.find((campaign) => campaign.id === campaignId);
   const brandColor = selectedCampaign?.brandKitId ? brands.find((brand) => brand.id === selectedCampaign.brandKitId)?.primaryColor : undefined;
   const accentColor = brandColor && !themeTouched ? brandColor : undefined;
@@ -94,8 +123,17 @@ export default function CarouselPage() {
     if (!requestedId || contentId === requestedId) return;
     const item = stored.find((entry) => entry.id === requestedId);
     if (item) load(item);
-    else if (stored.length) setNotice("Ese contenido no está disponible: puede estar archivado.");
+    else if (stored.length) setNotice(noticeError("Ese contenido no está disponible: puede estar archivado."));
   }, [requestedId, stored]);
+
+  // El trabajo vive en memoria hasta que se guarda, y el historial de deshacer también: una
+  // recarga se lo lleva entero sin preguntar. El navegador solo deja avisar, así que se avisa.
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
 
   // Atajos del original: Ctrl+Z deshacer, Ctrl+Y o Ctrl+Shift+Z rehacer.
   useEffect(() => {
@@ -123,6 +161,18 @@ export default function CarouselPage() {
   function create() { const next = { ...current, id: crypto.randomUUID(), title: "Nueva idea", content: "Escribe una idea clara.", layout: "content" as const }; commit([...slides, next]); setActive(slides.length); }
   function remove() { if (slides.length < 2) return; commit(slides.filter((_, index) => index !== active)); setActive(Math.max(0, active - 1)); }
   function move(offset: number) { const target = active + offset; if (target < 0 || target >= slides.length) return; const next = [...slides]; [next[active], next[target]] = [next[target], next[active]]; commit(next); setActive(target); }
+  /**
+   * Los elementos de una slide de lista. El marco de preview aceptaba `onUpdateListItem` desde
+   * el principio y nadie se lo pasaba, así que `list`, `timeline` y `statGrid` eran de solo
+   * lectura: se generaban con IA y ya no había forma de tocarlos.
+   */
+  const patchList = (mutate: (items: { emoji: string; text: string }[]) => { emoji: string; text: string }[]) =>
+    commit(slides.map((slide, index) => index === active ? { ...slide, listItems: mutate([...(slide.listItems ?? [])]) } : slide));
+  const updateListItem = (index: number, text: string) => patchList((items) => items.map((item, position) => position === index ? { ...item, text } : item));
+  const updateListEmoji = (index: number, emoji: string) => patchList((items) => items.map((item, position) => position === index ? { ...item, emoji } : item));
+  const addListItem = () => patchList((items) => [...items, { emoji: String(items.length + 1).padStart(2, "0"), text: "" }]);
+  const removeListItem = (index: number) => patchList((items) => items.filter((_, position) => position !== index));
+
   function applyImage(url: string, source: "dalle" | "unsplash" | "upload") { commit(slides.map((slide, index) => index === active ? { ...slide, imageUrl: url || undefined, imageSource: url ? source : undefined } : slide)); }
   function setCaptionText(text: string) { setCaption((value) => ({ ...value, text })); }
   function setHashtags(value: string) { setCaption((current) => ({ ...current, hashtags: value.split(/[\s,]+/).map((tag) => tag.trim()).filter(Boolean).map((tag) => (tag.startsWith("#") ? tag : `#${tag}`)) })); }
@@ -137,8 +187,8 @@ export default function CarouselPage() {
       anchor.href = url; anchor.download = `carousel.${format}`;
       window.document.body.appendChild(anchor); anchor.click(); anchor.remove();
       URL.revokeObjectURL(url);
-      setNotice(format === "png" ? "Portada exportada como PNG." : "Carrusel exportado como ZIP (incluye caption.txt).");
-    } catch (error) { setNotice(error instanceof Error ? error.message : "No se pudo exportar."); }
+      setNotice(noticeOk(format === "png" ? "Portada exportada como PNG." : "Carrusel exportado como ZIP (incluye caption.txt)."));
+    } catch (error) { setNotice(noticeError(error instanceof Error ? error.message : "No se pudo exportar.")); }
     finally { setBusy(""); }
   }
   async function slideAction(action: "regenerate" | "add") {
@@ -150,8 +200,8 @@ export default function CarouselPage() {
       const next = payload.document as CarouselDocument;
       commit(next.slides); setCaption(next.caption);
       setActive(action === "add" ? Math.max(0, next.slides.length - 2) : active);
-      setNotice(action === "regenerate" ? "Slide regenerada con IA." : "Slide añadida antes del CTA.");
-    } catch (error) { setNotice(error instanceof Error ? error.message : "No se pudo modificar la slide."); }
+      setNotice(noticeOk(action === "regenerate" ? "Slide regenerada con IA." : "Slide añadida antes del cierre."));
+    } catch (error) { setNotice(noticeError(error instanceof Error ? error.message : "No se pudo modificar la slide.")); }
     finally { setBusy(""); }
   }
   async function remix() {
@@ -161,30 +211,36 @@ export default function CarouselPage() {
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error ?? "No se pudo crear el remix.");
       applyGenerated(payload.document);
-      setNotice("Remix generado desde la URL. Revísalo y guárdalo.");
-    } catch (error) { setNotice(error instanceof Error ? error.message : "No se pudo crear el remix."); }
+      setNotice(noticeOk("Remix generado desde la URL. Revísalo y guárdalo."));
+    } catch (error) { setNotice(noticeError(error instanceof Error ? error.message : "No se pudo crear el remix.")); }
     finally { setBusy(""); }
   }
   function undo() { const previous = past.at(-1); if (!previous) return; setPast((value) => value.slice(0, -1)); setFuture((value) => [slides, ...value].slice(0, 25)); setSlides(previous); setActive(Math.min(active, previous.length - 1)); }
   function redo() { const next = future[0]; if (!next) return; setFuture((value) => value.slice(1)); setPast((value) => [...value.slice(-24), slides]); setSlides(next); setActive(Math.min(active, next.length - 1)); }
   function load(item: Stored) {
     const data = item.document.data as { slides?: Slide[]; platform?: CarouselPlatform; caption?: CarouselDocument["caption"] };
-    if (!Array.isArray(data.slides)) return setNotice("Este contenido todavía no usa CarouselDocument v1.");
-    setSlides(data.slides); setPlatform(data.platform ?? "instagram"); setCaption(data.caption ?? carouselFixture.caption); setContentId(item.id); setRevision(item.revision); setCampaignId(item.campaignId); setThemeTouched(false); setActive(0); setPast([]); setFuture([]); setNotice("Documento cargado desde la biblioteca.");
+    if (!Array.isArray(data.slides)) return setNotice(noticeError("Este contenido todavía no usa CarouselDocument v1."));
+    const platform = data.platform ?? "instagram";
+    const caption = data.caption ?? carouselFixture.caption;
+    setSlides(data.slides); setPlatform(platform); setCaption(caption); setContentId(item.id); setRevision(item.revision); setCampaignId(item.campaignId); setThemeTouched(false); setActive(0); setPast([]); setFuture([]);
+    // Lo recién cargado es exactamente lo guardado: la pieza empieza limpia.
+    setSavedSnapshot(snapshotOf(data.slides, platform, caption));
+    setNotice(noticeOk(`Cargado: ${storedLabel(item)}`));
   }
   function applyGenerated(generated: CarouselDocument) {
     setSlides(generated.slides); setPlatform(generated.platform); setCaption(generated.caption); setContentId(""); setRevision(0); setActive(0); setPast([]); setFuture([]);
   }
   async function save() {
-    if (campaignId === NONE) return setNotice("Selecciona una campaña antes de guardar.");
+    if (campaignId === NONE) return setNotice(noticeError("Selecciona una campaña antes de guardar."));
     const body = contentId ? { revision, campaignId, type: "carousel", document: { schemaVersion: 1, data: document } } : { campaignId, type: "carousel", document: { schemaVersion: 1, data: document } };
     const response = await fetch(contentId ? `/api/content-items/${contentId}` : "/api/content-items", { method: contentId ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const saved = await response.json();
-    if (!response.ok) return setNotice(saved.error ?? "No se pudo guardar.");
+    if (!response.ok) return setNotice(noticeError(typeof saved.error === "string" ? saved.error : "No se pudo guardar."));
     setContentId(saved.id); setRevision(saved.revision); setCampaignId(saved.campaignId);
+    setSavedSnapshot(snapshotOf(slides, platform, caption));
     // Trazabilidad con el tema del radar, si la pieza salió de uno. No bloquea el guardado.
     await radar.link(saved.id);
-    setNotice("Guardado en la biblioteca central."); await refresh();
+    setNotice(noticeOk("Guardado en la biblioteca central.")); await refresh();
   }
   const primaryField = current.layout === "cta" ? "ctaText" : current.layout === "quote" ? "quote" : current.layout === "bigNumber" ? "bigNumberLabel" : "title";
   const secondaryField = current.layout === "cta" ? "ctaSubtext" : current.layout === "quote" ? "quoteAuthor" : "content";
@@ -221,7 +277,7 @@ export default function CarouselPage() {
                       <SelectTrigger aria-label="Documento" className="h-9"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value={NEW}>Nuevo documento</SelectItem>
-                        {stored.map((item) => <SelectItem key={item.id} value={item.id}>{item.id.slice(0, 8)}</SelectItem>)}
+                        {stored.map((item) => <SelectItem key={item.id} value={item.id}>{storedLabel(item)}</SelectItem>)}
                       </SelectContent>
                     </Select>
                   </div>
@@ -266,7 +322,6 @@ export default function CarouselPage() {
                   </div>
                 </div>
 
-                {notice ? <p className="mt-5 text-xs text-primary">{notice}</p> : null}
               </div>
             </WorkspacePanel>
 
@@ -304,11 +359,16 @@ export default function CarouselPage() {
                   </button>
 
                   <div className="ml-auto flex items-center gap-1">
-                    {contentId ? (
-                      <span className="mr-1 hidden items-center gap-1 text-[10px] text-muted-foreground/50 sm:flex">
-                        <Check className="h-3 w-3 text-green-500/70" /> Guardado
-                      </span>
-                    ) : null}
+                    {/* Antes decía «Guardado» con que el documento existiera, aunque llevaras diez
+                        slides editadas encima. Ahora compara contra lo último que se persistió. */}
+                    <span
+                      className={cn("mr-1 hidden items-center gap-1 text-[10px] sm:flex", dirty ? "text-amber-500" : "text-muted-foreground/50")}
+                      title={dirty ? "Los cambios viven en el navegador hasta que pulses Guardar." : "No hay cambios sin guardar."}
+                    >
+                      {dirty
+                        ? <><span className="h-1.5 w-1.5 rounded-full bg-amber-500" aria-hidden /> Sin guardar</>
+                        : <><Check className="h-3 w-3 text-green-500/70" aria-hidden /> Guardado</>}
+                    </span>
                     <button
                       onClick={() => setInspectorOpen(true)}
                       title="Abrir ficha del slide"
@@ -337,10 +397,14 @@ export default function CarouselPage() {
                   </div>
                 </div>
 
+                {/* El aviso vive junto a la pieza y no en el panel lateral: ahí abajo no lo veía
+                    nadie, y por debajo de `lg` el panel entero está oculto. */}
+                {notice ? <div className="px-3 pt-3"><Notice notice={notice} onDismiss={() => setNotice(null)} /></div> : null}
+
                 <div className="flex-1 overflow-y-auto">
                   <div className="mx-auto flex min-h-full w-full flex-col items-center justify-start gap-3 p-4 sm:p-6 xl:p-8">
-                    <CarouselFrame document={document} activeSlide={active} onSlideChange={setActive} platform={platform} theme={theme} font={font} background={background} accentColor={accentColor} onUpdate={editMode ? update : undefined} />
-                    <p className="text-xs uppercase tracking-wider text-muted-foreground">{current.layout} · slide {active + 1} de {slides.length}{editMode ? " · edición directa activa" : ""}</p>
+                    <CarouselFrame document={document} activeSlide={active} onSlideChange={setActive} platform={platform} theme={theme} font={font} background={background} accentColor={accentColor} onUpdate={editMode ? update : undefined} onUpdateListItem={editMode ? updateListItem : undefined} />
+                    <p className="text-xs uppercase tracking-wider text-muted-foreground">{LAYOUT_LABEL[current.layout] ?? current.layout} · slide {active + 1} de {slides.length}{editMode ? " · edición directa activa" : ""}</p>
                   </div>
                 </div>
               </div>
@@ -367,7 +431,7 @@ export default function CarouselPage() {
                     <Select value={current.layout} onValueChange={(value) => commit(slides.map((slide, index) => index === active ? { ...slide, layout: value as Slide["layout"] } : slide))}>
                       <SelectTrigger aria-label="Layout" className="h-9"><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        {layouts.map((layout) => <SelectItem key={layout} value={layout}>{layout}</SelectItem>)}
+                        {layouts.map((layout) => <SelectItem key={layout} value={layout}>{LAYOUT_LABEL[layout]}</SelectItem>)}
                       </SelectContent>
                     </Select>
                   </div>
@@ -398,15 +462,55 @@ export default function CarouselPage() {
                     <Textarea aria-label="Texto secundario" value={record[secondaryField] ?? ""} onChange={(event) => update(secondaryField, event.target.value)} rows={3} />
                   </div>
 
+                  {/* Los layouts de lista no tienen «texto principal»: su contenido son estos
+                      elementos, y hasta ahora no había forma de tocarlos desde ninguna parte. */}
+                  {LIST_LAYOUTS.has(current.layout) ? (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Elementos de la lista</Label>
+                        <span className="text-[10px] tabular-nums text-muted-foreground">{(current.listItems ?? []).length}</span>
+                      </div>
+                      {(current.listItems ?? []).map((item, index) => (
+                        <div key={index} className="flex items-start gap-1.5">
+                          <Input
+                            aria-label={`Viñeta del elemento ${index + 1}`}
+                            title="Número, guion o emoji con el que empieza la línea."
+                            className="h-9 w-12 shrink-0 px-1 text-center"
+                            value={item.emoji}
+                            onChange={(event) => updateListEmoji(index, event.target.value)}
+                          />
+                          <Textarea
+                            aria-label={`Texto del elemento ${index + 1}`}
+                            className="min-h-0 flex-1"
+                            rows={2}
+                            value={item.text}
+                            onChange={(event) => updateListItem(index, event.target.value)}
+                          />
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-9 w-9 shrink-0 text-muted-foreground hover:text-destructive"
+                            aria-label={`Eliminar elemento ${index + 1}`}
+                            onClick={() => removeListItem(index)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      ))}
+                      <Button variant="outline" size="sm" className="w-full" onClick={addListItem}><Plus className="h-4 w-4" /> Añadir elemento</Button>
+                      {(current.listItems ?? []).length ? null : <p className="text-[10px] text-muted-foreground">Este layout se dibuja a partir de una lista, y ahora mismo está vacía.</p>}
+                    </div>
+                  ) : null}
+
                   <CarouselImagePanel imageUrl={current.imageUrl} campaignId={campaignId === NONE ? undefined : campaignId} onApply={applyImage} />
 
                   <div className="grid grid-cols-2 gap-2">
-                    <Button variant="outline" size="sm" onClick={() => move(-1)} disabled={!active}><ArrowLeft className="h-4 w-4" /> Mover</Button>
-                    <Button variant="outline" size="sm" onClick={() => move(1)} disabled={active === slides.length - 1}>Mover <ArrowRight className="h-4 w-4" /></Button>
+                    <Button variant="outline" size="sm" aria-label="Mover la slide una posición antes" onClick={() => move(-1)} disabled={!active}><ArrowLeft className="h-4 w-4" /> Antes</Button>
+                    <Button variant="outline" size="sm" aria-label="Mover la slide una posición después" onClick={() => move(1)} disabled={active === slides.length - 1}>Después <ArrowRight className="h-4 w-4" /></Button>
                     <Button variant="outline" size="sm" onClick={duplicate}><Copy className="h-4 w-4" /> Duplicar</Button>
                     <Button variant="outline" size="sm" className="border-destructive/40 text-destructive hover:bg-destructive/10" onClick={remove} disabled={slides.length < 2}><Trash2 className="h-4 w-4" /> Eliminar</Button>
                     <Button variant="outline" size="sm" onClick={create}><Plus className="h-4 w-4" /> Nueva</Button>
-                    <Button variant="outline" size="sm" disabled={busy === "add"} onClick={() => void slideAction("add")}><Wand2 className="h-4 w-4" /> {busy === "add" ? "Añadiendo…" : "IA"}</Button>
+                    <Button variant="outline" size="sm" title="Escribe una slide nueva con IA y la coloca antes del cierre." disabled={busy === "add"} onClick={() => void slideAction("add")}><Wand2 className="h-4 w-4" /> {busy === "add" ? "Añadiendo…" : "Con IA"}</Button>
                   </div>
                   <Button variant="outline" size="sm" className="w-full" disabled={busy === "regenerate"} onClick={() => void slideAction("regenerate")}>
                     <RefreshCw className="h-4 w-4" /> {busy === "regenerate" ? "Regenerando…" : "Regenerar slide (IA)"}
@@ -484,11 +588,11 @@ export default function CarouselPage() {
                 <Separator className="my-5" />
 
                 <div className="grid grid-cols-2 gap-2">
-                  <Button variant="outline" size="sm" disabled={busy === "png"} onClick={() => void exportCarousel("png")}>
-                    <ImageIcon className="h-4 w-4" /> {busy === "png" ? "…" : "PNG"}
+                  <Button variant="outline" size="sm" title="Exporta solo la portada como imagen." disabled={busy === "png"} onClick={() => void exportCarousel("png")}>
+                    <ImageIcon className="h-4 w-4" /> {busy === "png" ? "…" : "Portada"}
                   </Button>
-                  <Button variant="outline" size="sm" disabled={busy === "zip"} onClick={() => void exportCarousel("zip")}>
-                    <FileArchive className="h-4 w-4" /> {busy === "zip" ? "…" : "ZIP"}
+                  <Button variant="outline" size="sm" title="Exporta todas las slides y el caption en un ZIP." disabled={busy === "zip"} onClick={() => void exportCarousel("zip")}>
+                    <FileArchive className="h-4 w-4" /> {busy === "zip" ? "…" : "Todo (ZIP)"}
                   </Button>
                 </div>
               </div>

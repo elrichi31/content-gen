@@ -5,6 +5,7 @@ import { Sparkles, ChevronDown } from "lucide-react";
 import type { CarouselDocument } from "@content-gen/domain/carousel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { noticeError, noticeOk, type NoticeState } from "@/components/ui/notice";
 import { Label } from "@/components/ui/label";
 
 export function CarouselGenerator({
@@ -16,7 +17,7 @@ export function CarouselGenerator({
   campaignId?: string;
   brief?: { topic: string; audience: string; tone: string; context?: string };
   onGenerated: (document: CarouselDocument) => void;
-  onNotice: (notice: string) => void;
+  onNotice: (notice: NoticeState) => void;
 }) {
   const [topic, setTopic] = useState("");
   const [slideCount, setSlideCount] = useState(6);
@@ -41,12 +42,19 @@ export function CarouselGenerator({
     if (tone.trim()) body.tone = tone.trim();
     if (context.trim()) body.context = context.trim();
     if (campaignId) body.campaignId = campaignId;
-    const response = await fetch("/api/carousels/generate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    const payload = await response.json();
-    setLoading(false);
-    if (!response.ok) return onNotice(payload.error ?? "No se pudo generar el carrusel.");
-    onGenerated(payload.document);
-    onNotice(campaignId ? "Carrusel generado con la marca de la campaña. Revísalo y guárdalo." : "Carrusel generado. Revísalo y guárdalo en la biblioteca.");
+    try {
+      const response = await fetch("/api/carousels/generate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const payload = await response.json();
+      if (!response.ok) return onNotice(noticeError(typeof payload.error === "string" ? payload.error : "No se pudo generar el carrusel."));
+      onGenerated(payload.document);
+      onNotice(noticeOk(campaignId ? "Carrusel generado con la marca de la campaña. Revísalo y guárdalo." : "Carrusel generado. Revísalo y guárdalo en la biblioteca."));
+    } catch {
+      // Sin esto, una caída de red dejaba el botón en «Generando…» para siempre: el `finally`
+      // es lo que garantiza que el formulario vuelve a estar disponible pase lo que pase.
+      onNotice(noticeError("No se pudo contactar con el servidor. Comprueba que sigue en marcha y vuelve a intentarlo."));
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
