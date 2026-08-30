@@ -18,6 +18,15 @@ export const radarScanInputSchema = z.object({
   /** Subconjunto de verticales; vacío significa todos los activos. */
   verticals: z.array(z.string().min(1)).default([]),
   /**
+   * Tema concreto sobre el que buscar dentro del vertical. Vacío es el barrido de siempre.
+   *
+   * Existe porque el vertical solo acota el terreno: «Ciberseguridad» devuelve lo que hubo esa
+   * semana en ciberseguridad, que muchas veces no es lo que interesa contar. Escribir el tema es
+   * la única forma de dirigir la búsqueda sin tener que crear un vertical falso para cada idea,
+   * que además ensuciaría la clasificación de todos los temas anteriores.
+   */
+  focus: z.string().trim().max(300).nullable().default(null).transform((value) => value || null),
+  /**
    * Tope de búsquedas por vertical. Es la palanca de costo que más pesa: lo caro no son las
    * llamadas de búsqueda, son los tokens del contenido que devuelven, y esos se facturan al
    * precio del modelo. Sin tope, una corrida gastó 119.000 tokens de entrada en un solo vertical.
@@ -74,7 +83,7 @@ const STRUCTURE_SYSTEM = [
 /** Perfil del negocio para el que se busca. Sin él, el vertical se describe a sí mismo. */
 export type ResearchBrand = { name: string; business: { sector: string; offering: string; audience: string; valueProposition: string } };
 
-export function buildResearchPrompt(entry: RadarWatchlistEntry, { windowDays, today, recentTitles = [], brand = null, maxSearches = 8, minSources = 2 }: { windowDays: number; today: string; recentTitles?: string[]; brand?: ResearchBrand | null; maxSearches?: number; minSources?: number }) {
+export function buildResearchPrompt(entry: RadarWatchlistEntry, { windowDays, today, recentTitles = [], brand = null, maxSearches = 8, minSources = 2, focus = null }: { windowDays: number; today: string; recentTitles?: string[]; brand?: ResearchBrand | null; maxSearches?: number; minSources?: number; focus?: string | null }) {
   return [
     brand ? `Negocio para el que buscas: ${brand.name}.` : "",
     brand?.business.sector ? `Giro: ${brand.business.sector}.` : "",
@@ -82,6 +91,11 @@ export function buildResearchPrompt(entry: RadarWatchlistEntry, { windowDays, to
     `Vertical a vigilar: ${entry.vertical}.`,
     `Lo que vende la agencia aquí: ${entry.offering}.`,
     `A quién se lo vende: ${entry.audience || brand?.business.audience || "PyMEs de Latinoamérica"}.`,
+    // El enfoque va **antes** de las reglas de búsqueda: es lo que decide qué se busca, y ponerlo
+    // al final lo dejaría compitiendo con el resto de instrucciones en vez de mandando sobre ellas.
+    focus ? `Tema concreto que se te pide investigar dentro de ese vertical: ${focus}.` : "",
+    focus ? "Busca únicamente sobre ese tema. Lo demás del vertical, por relevante que sea esta semana, no es lo que se te pidió: no lo reportes." : "",
+    focus ? "Si sobre ese tema no hay nada en la ventana pedida, dilo y no rellenes con lo que sí encontraste: un vacío informado vale más que un cambiazo." : "",
     `Hoy es ${today}. Busca solo hechos publicados en los últimos ${windowDays} días.`,
     "Descarta lo que sea contexto general o intemporal: interesa lo que ha cambiado en esa ventana.",
     "Busca en inglés y en español: buena parte de las fuentes primarias de este ámbito no están en español.",
@@ -100,10 +114,10 @@ export function buildResearchPrompt(entry: RadarWatchlistEntry, { windowDays, to
 }
 
 /** Paso 1: buscar. Es la llamada cara —paga tokens y búsquedas— y va una vez por vertical. */
-export async function researchVertical(entry: RadarWatchlistEntry, { windowDays, today, recentTitles = [], brand = null, maxSearches = 8, minSources = 2, searchContextSize = "low", model: requestedModel = null, request = fetch }: { windowDays: number; today: string; recentTitles?: string[]; brand?: ResearchBrand | null; maxSearches?: number; minSources?: number; searchContextSize?: SearchContextSize; model?: string | null; request?: typeof fetch }) {
+export async function researchVertical(entry: RadarWatchlistEntry, { windowDays, today, recentTitles = [], brand = null, maxSearches = 8, minSources = 2, searchContextSize = "low", focus = null, model: requestedModel = null, request = fetch }: { windowDays: number; today: string; recentTitles?: string[]; brand?: ResearchBrand | null; maxSearches?: number; minSources?: number; searchContextSize?: SearchContextSize; focus?: string | null; model?: string | null; request?: typeof fetch }) {
   const { text, sources, usage, model } = await generateOpenAiText({
     system: RESEARCH_SYSTEM,
-    prompt: buildResearchPrompt(entry, { windowDays, today, recentTitles, brand, maxSearches, minSources }),
+    prompt: buildResearchPrompt(entry, { windowDays, today, recentTitles, brand, maxSearches, minSources, focus }),
     purpose: "research",
     model: requestedModel,
     tools: [webSearchTool({ contextSize: searchContextSize })],
@@ -115,7 +129,7 @@ export async function researchVertical(entry: RadarWatchlistEntry, { windowDays,
 
 export type VerticalResearch = Awaited<ReturnType<typeof researchVertical>>;
 
-export function buildStructurePrompt(research: VerticalResearch[], { maxTopics, recentTitles = [], minSources = 2 }: { maxTopics: number; recentTitles?: string[]; minSources?: number }) {
+export function buildStructurePrompt(research: VerticalResearch[], { maxTopics, recentTitles = [], minSources = 2, focus = null }: { maxTopics: number; recentTitles?: string[]; minSources?: number; focus?: string | null }) {
   const notes = research
     .map((item) => [
       `## Vertical: ${item.vertical}`,
@@ -126,6 +140,11 @@ export function buildStructurePrompt(research: VerticalResearch[], { maxTopics, 
 
   return [
     `Convierte estas notas en como mucho ${maxTopics} temas de contenido.`,
+    // El enfoque se repite aquí porque este paso no vio la búsqueda: solo tiene las notas, y las
+    // notas de una corrida enfocada arrastran contexto de alrededor. Sin decírselo, saca temas de
+    // ese contexto y la corrida devuelve justo lo que se pidió evitar.
+    focus ? `Esta corrida buscaba un tema concreto: ${focus}. Solo valen los temas que traten de eso; lo que las notas mencionen de pasada no es materia para un tema aparte.` : "",
+    focus ? "Si las notas no dan para ningún tema sobre ese asunto, devuelve la lista vacía: es un resultado legítimo y más útil que un tema de relleno." : "",
     `Incluye en "evidence" todas las fuentes que respalden cada tema. Los temas con menos de ${minSources} dominios distintos se filtran al guardarlos, pero propónlos igual: es el sistema quien cuenta, no tú.`,
     "Prioriza lo que tenga fuente fechada y encaje con lo que vende la agencia; si un vertical no dio nada sólido, devuelve menos temas antes que rellenar.",
     recentTitles.length
@@ -153,10 +172,10 @@ const structuredSchema = z.object({ topics: z.array(z.unknown()).default([]) });
  * Paso 2: ordenar. Sin herramientas y con el modelo barato: aquí no se busca nada, solo se le da
  * forma a lo que ya se investigó.
  */
-export async function structureTopics(research: VerticalResearch[], { maxTopics, recentTitles = [], minSources = 2, model: requestedModel = null, request = fetch }: { maxTopics: number; recentTitles?: string[]; minSources?: number; model?: string | null; request?: typeof fetch }) {
+export async function structureTopics(research: VerticalResearch[], { maxTopics, recentTitles = [], minSources = 2, focus = null, model: requestedModel = null, request = fetch }: { maxTopics: number; recentTitles?: string[]; minSources?: number; focus?: string | null; model?: string | null; request?: typeof fetch }) {
   const { value, usage, model } = await generateOpenAiJson({
     system: STRUCTURE_SYSTEM,
-    prompt: buildStructurePrompt(research, { maxTopics, recentTitles, minSources }),
+    prompt: buildStructurePrompt(research, { maxTopics, recentTitles, minSources, focus }),
     purpose: "structuring",
     model: requestedModel,
     timeoutMs: 120_000,

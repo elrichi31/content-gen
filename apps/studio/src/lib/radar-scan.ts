@@ -30,7 +30,7 @@ export type RadarProgress =
 export async function scanRadar(input: unknown = {}, { request = fetch, now = new Date(), onProgress }: { request?: typeof fetch; now?: Date; onProgress?: (event: RadarProgress) => void } = {}) {
   const parsed = radarScanInputSchema.safeParse(input);
   if (!parsed.success) throw new RadarError(`La solicitud de corrida no es válida: ${parsed.error.issues[0]?.message}`, 400);
-  const { windowDays, maxTopics, maxSearches, minSources, searchContextSize, verifySources, automatic, verticals: requested } = parsed.data;
+  const { windowDays, maxTopics, maxSearches, minSources, searchContextSize, verifySources, automatic, focus, verticals: requested } = parsed.data;
   // Se resuelven una sola vez: el registro del gasto y el cálculo del importe tienen que usar el
   // mismo modelo que la llamada, o el histórico diría que costó lo que no costó.
   const researchModel = parsed.data.researchModel ?? openAiModel("research");
@@ -66,10 +66,17 @@ export async function scanRadar(input: unknown = {}, { request = fetch, now = ne
     );
   }
 
+  // Un tema concreto pertenece a un vertical concreto. Mandarlo a todos los activos sería pagar
+  // una búsqueda por cada uno para preguntar lo mismo, y los verticales a los que no les toca
+  // devolverían o nada o algo forzado. Se exige elegir en vez de repartir el enfoque.
+  if (focus && watchlist.length > 1) {
+    throw new RadarError(`Un tema concreto se busca en un vertical concreto: «${focus}» iría a ${watchlist.length} verticales y se pagaría una búsqueda en cada uno. Elige en cuál buscarlo.`, 400);
+  }
+
   const memory = await recentMemory({ now });
   const today = todayLocal(now);
   const brands = await brandProfiles(watchlist.map((entry) => entry.brandKitId));
-  const run = await beginRadarRun({ verticals: watchlist.map((entry) => entry.vertical), windowDays });
+  const run = await beginRadarRun({ verticals: watchlist.map((entry) => entry.vertical), windowDays, focus });
 
   // Un paso por vertical, más estructurar, más guardar.
   const steps = watchlist.length + 2;
@@ -87,7 +94,7 @@ export async function scanRadar(input: unknown = {}, { request = fetch, now = ne
       try {
         const done = await trackGeneration({ operation: "radar-research", model: researchModel }, async () => {
           const brand = entry.brandKitId ? brands.get(entry.brandKitId) ?? null : null;
-          const result = await researchVertical(entry, { windowDays, today, recentTitles: memory.titles, brand, maxSearches, minSources, searchContextSize, model: researchModel, request });
+          const result = await researchVertical(entry, { windowDays, today, recentTitles: memory.titles, brand, maxSearches, minSources, searchContextSize, focus, model: researchModel, request });
           return { value: result, usage: result.usage };
         });
         research.push(done);
@@ -109,7 +116,7 @@ export async function scanRadar(input: unknown = {}, { request = fetch, now = ne
     step += 1;
     report({ type: "structure", step, steps });
     const structured = await trackGeneration({ operation: "radar-structure", model: structuringModel }, async () => {
-      const done = await structureTopics(research, { maxTopics, recentTitles: memory.titles, minSources, model: structuringModel, request });
+      const done = await structureTopics(research, { maxTopics, recentTitles: memory.titles, minSources, focus, model: structuringModel, request });
       return { value: done, usage: done.usage };
     });
 
@@ -307,8 +314,11 @@ export async function restructureRun(runId: string, input: unknown = {}, { reque
   const memory = await recentMemory({ now });
   const research = run.research.map((item) => ({ ...item, usage: emptyUsage(), model: item.model ?? null })) as unknown as VerticalResearch[];
 
+  // El enfoque sale de la corrida, no de la petición: reinterpretar es releer **esas** notas, y
+  // las notas de una corrida enfocada solo hablan de ese tema. Dejar cambiarlo aquí invitaría a
+  // pedirle a unas notas algo que nunca se buscó, que es la forma más limpia de inventar.
   const structured = await trackGeneration({ operation: "radar-restructure", model: structuringModel }, async () => {
-    const done = await structureTopics(research, { maxTopics, recentTitles: memory.titles, minSources, model: structuringModel, request });
+    const done = await structureTopics(research, { maxTopics, recentTitles: memory.titles, minSources, focus: run.focus, model: structuringModel, request });
     return { value: done, usage: done.usage };
   });
 

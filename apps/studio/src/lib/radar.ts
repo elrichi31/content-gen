@@ -102,9 +102,9 @@ export async function updateWatchlistEntry(id: string, patch: Record<string, unk
 
 /* -------------------------------- Corridas -------------------------------- */
 
-export async function beginRadarRun({ verticals, windowDays }: { verticals: string[]; windowDays: number }) {
+export async function beginRadarRun({ verticals, windowDays, focus = null }: { verticals: string[]; windowDays: number; focus?: string | null }) {
   const now = new Date().toISOString();
-  const run = radarRunSchema.parse({ id: randomUUID(), schemaVersion: 1, status: "running", startedAt: now, verticals, windowDays });
+  const run = radarRunSchema.parse({ id: randomUUID(), schemaVersion: 1, status: "running", startedAt: now, verticals, windowDays, focus });
   await withDatabase((database) => database
     .prepare("INSERT INTO radar_runs (id, schema_version, status, started_at, completed_at, cost_amount, data_json, created_at) VALUES (?, ?, ?, ?, NULL, NULL, ?, ?)")
     .run(run.id, 1, run.status, now, JSON.stringify(run), now));

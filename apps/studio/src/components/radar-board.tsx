@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { RadarWatchlist } from "@/components/radar-watchlist";
 
 type Brand = { id: string; name: string };
@@ -158,6 +159,14 @@ export function RadarBoard() {
   const [maxSearches, setMaxSearches] = useState(8);
   const [minSources, setMinSources] = useState(2);
   const [contextSize, setContextSize] = useState<"low" | "medium" | "high">("low");
+  // Qué se le pide a esta corrida. Vacío es el barrido de siempre; con tema escrito, la búsqueda
+  // va dirigida y necesita saber en qué vertical mirar.
+  const [focus, setFocus] = useState("");
+  const [scanVertical, setScanVertical] = useState("");
+  // La ventana la decide quien busca: siete días sirven para el barrido semanal, pero un tema
+  // concreto pedido a mano rara vez tuvo novedades justo esta semana, y con la ventana corta la
+  // corrida vuelve vacía por el recorte, no por falta de tema.
+  const [windowDays, setWindowDays] = useState(7);
   // Encendida por defecto: una fuente inventada es peor que ninguna. Se puede apagar para ver qué
   // está tirando el filtro, que es la única forma de saber si se está pasando de estricto.
   const [verifySources, setVerifySources] = useState(true);
@@ -206,7 +215,7 @@ export function RadarBoard() {
     setNotice(null);
     setProgress(null);
     try {
-      const response = await fetch("/api/radar/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ maxSearches, minSources, searchContextSize: contextSize, verifySources, researchModel, structuringModel }) });
+      const response = await fetch("/api/radar/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ maxSearches, minSources, searchContextSize: contextSize, verifySources, researchModel, structuringModel, windowDays, focus: focus.trim() || null, verticals: scanVertical ? [scanVertical] : [] }) });
       if (!response.body) { setNotice("El servidor no devolvió progreso."); return; }
 
       // La respuesta llega como server-sent events: cada evento es una línea `data: {...}`.
@@ -244,6 +253,9 @@ export function RadarBoard() {
       // es más útil que dar por fallido algo que quizá terminó bien.
       if (!finished) setNotice("La conexión se cortó antes de terminar. La corrida puede haber seguido en el servidor: actualiza para comprobarlo.");
       setStatus("nuevo");
+      // Buscar en un vertical concreto y quedarse mirando el filtro de otro es no ver lo que se
+      // acaba de pagar: la revisión se lleva a donde cayeron los temas.
+      if (scanVertical) setVertical(scanVertical);
       await load();
     } catch {
       setNotice("No se pudo completar la corrida.");
@@ -251,7 +263,7 @@ export function RadarBoard() {
       setScanning(false);
       setProgress(null);
     }
-  }, [load, maxSearches, minSources, contextSize, verifySources, researchModel, structuringModel]);
+  }, [load, maxSearches, minSources, contextSize, verifySources, researchModel, structuringModel, windowDays, focus, scanVertical]);
 
   /**
    * Vuelve a interpretar las notas de la última corrida con los ajustes actuales. Buscar es el
@@ -304,15 +316,83 @@ export function RadarBoard() {
   const activeVerticals = data.watchlist.filter((entry) => entry.active);
   const lastRun = data.runs[0];
   const overBudget = Boolean(data.spend?.budget && data.spend.amount >= data.spend.budget);
+  const searching = Boolean(focus.trim());
+  // Con un solo vertical activo no hay ambigüedad que resolver: «todos» y «ese» son lo mismo.
+  const focusNeedsVertical = searching && !scanVertical && activeVerticals.length > 1;
 
   return (
     <div className="space-y-6">
+      {/* Lo que se le pide a la corrida va antes del botón: primero se decide qué se busca y
+          dónde, y solo después se paga por ello. */}
+      <Card>
+        <CardContent className="space-y-3 py-4">
+          <div>
+            <h2 className="text-sm font-semibold">Qué buscar</h2>
+            <p className="text-xs text-muted-foreground">
+              Sin tema, el radar barre el vertical entero a ver qué salió esta semana. Con un tema escrito busca solo eso:
+              es la diferencia entre «tráeme lo de ciberseguridad» y «tráeme lo de ransomware en clínicas».
+            </p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-[2fr_1fr_1fr]">
+            <label className="space-y-1 text-xs">
+              <span className="text-muted-foreground">Tema (opcional)</span>
+              <Input
+                value={focus}
+                onChange={(event) => setFocus(event.target.value)}
+                placeholder="Ej. ransomware en clínicas privadas"
+                maxLength={300}
+                aria-label="Tema concreto que buscar dentro del vertical"
+                disabled={scanning}
+              />
+            </label>
+            <label className="space-y-1 text-xs">
+              <span className="text-muted-foreground">Vertical</span>
+              <select
+                className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                value={scanVertical}
+                aria-label="Vertical en el que buscar"
+                disabled={scanning}
+                onChange={(event) => setScanVertical(event.target.value)}
+              >
+                <option value="">Todos los activos ({activeVerticals.length})</option>
+                {activeVerticals.map((entry) => <option key={entry.id} value={entry.vertical}>{entry.vertical}</option>)}
+              </select>
+            </label>
+            <label className="space-y-1 text-xs">
+              <span className="text-muted-foreground">Ventana</span>
+              <select
+                className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                value={windowDays}
+                aria-label="Antigüedad máxima de los hechos"
+                disabled={scanning}
+                onChange={(event) => setWindowDays(Number(event.target.value))}
+                title="Un tema pedido a mano rara vez tuvo novedades justo esta semana: si vuelve vacío, ábrela antes de dar el tema por muerto."
+              >
+                {[7, 14, 30, 60, 90].map((value) => <option key={value} value={value}>{value} días</option>)}
+              </select>
+            </label>
+          </div>
+          {focusNeedsVertical ? (
+            <p className="text-xs text-amber-600 dark:text-amber-500">
+              Elige en qué vertical buscar este tema: mandarlo a los {activeVerticals.length} activos paga una búsqueda en
+              cada uno para preguntar lo mismo.
+            </p>
+          ) : null}
+          {searching ? (
+            <p className="text-xs text-muted-foreground">
+              El tema manda sobre el vertical: lo demás que aparezca no se reporta. Si sobre eso no hubo nada en la
+              ventana, la corrida vuelve vacía en vez de traerte otra cosa.
+            </p>
+          ) : null}
+        </CardContent>
+      </Card>
+
       <div className="flex flex-wrap items-center gap-2">
-        <Button onClick={() => void scan()} disabled={scanning || !activeVerticals.length}>
-          <RadarIcon className="h-4 w-4" /> {scanning ? "Buscando…" : "Correr ahora"}
+        <Button onClick={() => void scan()} disabled={scanning || !activeVerticals.length || focusNeedsVertical}>
+          <RadarIcon className="h-4 w-4" /> {scanning ? "Buscando…" : searching ? "Buscar este tema" : "Correr ahora"}
         </Button>
         {lastRunHasNotes ? (
-          <Button variant="outline" onClick={() => void restructure()} disabled={scanning} title="Relee las notas de la última corrida con los ajustes actuales. No vuelve a buscar, así que cuesta céntimos.">
+          <Button variant="outline" onClick={() => void restructure()} disabled={scanning} title="Relee las notas de la última corrida con los ajustes actuales, y con el mismo tema que buscaba. No vuelve a buscar, así que cuesta céntimos.">
             <RotateCcw className="h-4 w-4" /> Reinterpretar la última
           </Button>
         ) : null}
@@ -371,6 +451,8 @@ export function RadarBoard() {
           <span className="text-xs text-muted-foreground">
             Última corrida: {new Date(lastRun.startedAt).toLocaleString("es")} · {lastRun.topicsKept} temas
             {lastRun.cost?.amount !== null && lastRun.cost !== null ? ` · ${lastRun.cost.amount} ${lastRun.cost.currency}` : ""}
+            {/* Una corrida enfocada que trajo dos temas no rindió poco: trajo lo que se le pidió. */}
+            {lastRun.focus ? ` · buscaba «${lastRun.focus}»` : ""}
           </span>
         ) : null}
       </div>

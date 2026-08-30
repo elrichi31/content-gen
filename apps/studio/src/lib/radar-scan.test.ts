@@ -417,5 +417,56 @@ assert.equal(mismoMedioAno.inserted, 1, "pasada la ventana, un asunto que reapar
 const dentroDeVentana = await saveTopics([{ ...yaGuardado, id: "tema-repetido" }], { now: new Date(yaGuardado.createdAt) });
 assert.equal(dentroDeVentana.inserted, 0, "dentro de la ventana sigue siendo un duplicado");
 
+/* ------------------- Buscar un tema concreto, no el vertical ------------------- */
+
+// El vertical solo acota el terreno. Poder escribir el tema es lo que separa «tráeme lo de
+// ciberseguridad» de «tráeme lo de ransomware en clínicas», sin tener que inventar un vertical
+// por cada idea —que ensuciaría la clasificación de todo lo anterior—.
+const enfocadas: { body: string; tools: boolean }[] = [];
+const busquedaEnfocada = (async (_url: string, init?: RequestInit) => {
+  const body = String(init?.body ?? "{}");
+  const parsed = JSON.parse(body) as { tools?: unknown[] };
+  enfocadas.push({ body, tools: Array.isArray(parsed.tools) && parsed.tools.length > 0 });
+  if (parsed.tools) {
+    return new Response(JSON.stringify({
+      output_text: "Notas: ejemplo.com y otro-medio.org cubrieron el caso",
+      usage: { input_tokens: 10, output_tokens: 10 },
+      output: [{ type: "web_search_call" }, { type: "message", content: [{ type: "output_text", text: "Notas", annotations: [{ type: "url_citation", url: "https://ejemplo.com/clinicas", title: "Fuente" }] }] }],
+    }));
+  }
+  return new Response(JSON.stringify({
+    output_text: JSON.stringify({ topics: [topicFor("Ransomware paraliza tres clinicas privadas del norte", "Ciberseguridad")] }),
+    usage: { input_tokens: 10, output_tokens: 10 },
+  }));
+}) as unknown as typeof fetch;
+
+const enfocada = await scanRadar(
+  { focus: "ransomware en clínicas privadas", verticals: ["Ciberseguridad"] },
+  { request: busquedaEnfocada, now: new Date("2026-08-26T10:00:00.000Z") },
+);
+assert.equal(enfocadas.filter((call) => call.tools).length, 1, "un tema concreto se busca en un vertical y solo en ese");
+assert.match(enfocadas[0].body, /ransomware en cl/, "el tema pedido viaja en el prompt de búsqueda");
+assert.match(enfocadas[0].body, /Busca únicamente sobre ese tema/, "y manda sobre el vertical: lo demás no se reporta");
+assert.match(enfocadas.at(-1)!.body, /ransomware en cl/, "el paso de estructurar también lo sabe: solo vio las notas, y las notas arrastran contexto de alrededor");
+assert.equal(enfocada.run.focus, "ransomware en clínicas privadas", "la corrida guarda qué buscaba: es lo que explica su resultado");
+assert.equal(enfocada.summary.kept, 1, "y el tema encontrado se guarda como cualquier otro");
+
+const antesDeEnfocar = enfocadas.length;
+await assert.rejects(
+  () => scanRadar({ focus: "algo muy concreto" }, { request: busquedaEnfocada, now: new Date("2026-08-26T11:00:00.000Z") }),
+  (error: unknown) => error instanceof RadarError && error.status === 400,
+  "un tema sin vertical no se reparte entre todos los activos",
+);
+assert.equal(enfocadas.length, antesDeEnfocar, "y se rechaza antes de pagar una búsqueda en cada uno para preguntar lo mismo");
+
+const antesDeReleer = enfocadas.length;
+await restructureRun(enfocada.run.id, { minSources: 1 }, { request: busquedaEnfocada, now: new Date("2026-08-26T12:00:00.000Z") });
+assert.equal(enfocadas.length, antesDeReleer + 1, "reinterpretar una corrida enfocada sigue costando una sola llamada");
+assert.match(enfocadas.at(-1)!.body, /ransomware en cl/, "y relee con el tema que se buscó: pedirle a unas notas algo que nunca se buscó es invitar a inventar");
+
+const sinTema = await scanRadar({ focus: "", verticals: ["Automatización"] }, { request: busquedaEnfocada, now: new Date("2026-08-26T13:00:00.000Z") });
+assert.equal(sinTema.run.focus, null, "un tema vacío es el barrido de siempre, no un enfoque en blanco");
+assert.equal(enfocadas.at(-2)!.body.includes("Tema concreto que se te pide"), false, "y su prompt no arrastra instrucciones de enfoque");
+
 await rm(root, { recursive: true, force: true });
-console.log("Radar (corrida): dos pasos, modelos separados, deduplicación entre semanas, costo por partes y fallos aislados validados.");
+console.log("Radar (corrida): dos pasos, modelos separados, búsqueda por tema, deduplicación entre semanas, costo por partes y fallos aislados validados.");

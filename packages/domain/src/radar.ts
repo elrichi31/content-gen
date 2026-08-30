@@ -61,6 +61,16 @@ export const radarRunSchema = z.object({
   completedAt: timestamp.nullable().default(null),
   /** Verticales que se investigaron de verdad, no los configurados. */
   verticals: z.array(z.string().min(1)).default([]),
+  /**
+   * Tema concreto que se pidió buscar, si la corrida lo llevaba. Nulo es el barrido de siempre:
+   * mirar el vertical entero a ver qué sale.
+   *
+   * Se guarda en la corrida y no solo en el prompt porque es lo que explica su resultado: una
+   * corrida enfocada que trae dos temas no rindió poco, trajo lo que se le pidió, y sin este
+   * campo el histórico no permite distinguir una cosa de la otra. Además es lo que deja
+   * reinterpretar sus notas después sin volver a escribir el enfoque a mano.
+   */
+  focus: z.string().trim().max(300).nullable().default(null),
   /** Antigüedad máxima admitida para los hechos, en días. */
   windowDays: z.number().int().min(1).max(90).default(7),
   /**

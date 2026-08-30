@@ -56,6 +56,7 @@ convierten en pieza y en qué formato. Esto es deliberado: ver D-01 y R-02.
 | D-15 | La evidencia de un tema se **comprueba contra las notas** de la investigación. Marcarla y rechazarla son cosas distintas | `ACORDADA` (2026-08-19) | El paso que escribe las fuentes no busca nada: si cita un dominio que no aparece en las notas, se lo inventó. Una cita inventada es peor que ninguna, porque aparenta corroborar justo donde el sistema mira para dejar pasar el tema. Marcar siempre y rechazar solo si se pide (`verifySources`) deja ver qué está tirando el filtro en vez de discutir con él a ciegas. |
 | D-16 | Una corrida a la vez, y las que quedan colgadas se cierran solas a los 45 minutos | `ACORDADA` (2026-08-19) | Una corrida son varios minutos sin respuesta visible: el segundo clic es fácil y costaba dos búsquedas idénticas. El barrido va antes del cerrojo porque un proceso muerto dejaba su registro en `running` para siempre, y sin barrerlo el cerrojo habría bloqueado el radar hasta tocar la base a mano. |
 | D-17 | La puntuación se **recalcula al leer**; la guardada es la del día en que entró el tema | `ACORDADA` (2026-08-19) | La nota mide en buena parte frescura, y la frescura envejece. Congelada, un perecedero de hace tres semanas seguía encabezando la revisión con la nota que sacó cuando era noticia. La columna sigue existiendo y ordenando la consulta: fija qué página se lee, y el reordenado fino ocurre encima. |
+| D-18 | La corrida admite un **tema escrito a mano** además del vertical, y con tema exige elegir un vertical | `ACORDADA` (usuario, 2026-08-24) | El vertical solo acota el terreno: «Ciberseguridad» devuelve lo que hubo esa semana en ciberseguridad, que a menudo no es lo que interesa contar. La alternativa —crear un vertical por cada idea— ensuciaría la clasificación de todo el histórico y dejaría filas muertas en la vigilancia. Se exige el vertical porque un tema mandado a los N activos paga N búsquedas para preguntar lo mismo, y los verticales a los que no les toca devuelven nada o algo forzado. |
 | D-11 | El **giro del negocio** vive en la marca (`brand_kits.business`); la lista de vigilancia lo **referencia**, no lo duplica | `ACORDADA` (usuario, 2026-08-18) | Una marca ya representa un negocio, así que es su sitio natural, y lo aprovechan también los generadores. Pero *qué vigilar* cambia por su cuenta —se añaden y quitan verticales sin que el negocio cambie—, así que la vigilancia sigue siendo su propia tabla con un `brand_kit_id` nulable. Un vertical sin marca es de la agencia. |
 
 ## 4. Estado de partida (verificado el 2026-08-17)
@@ -209,6 +210,30 @@ inventó las fuentes» son tres diagnósticos distintos y el tercero es el únic
 Verificación: suite local 49/49, integración 4/4, `typecheck` y `lint` limpios, y `/radar`
 comprobada en el navegador contra la base real (contadores por SQL, puntuación recalculada al leer
 —78 guardado, 77 servido un día después—, y la pantalla sin errores en consola).
+
+### 5.2 Búsqueda por tema · `COMPLETADA` (2026-08-24)
+
+Hasta aquí la corrida solo sabía barrer verticales enteros: se pedía «ciberseguridad» y volvía con
+lo que esa semana hubiera en ciberseguridad, que muchas veces no era lo que se quería contar.
+D-18 añade el eslabón que faltaba, un tema escrito a mano que se busca **dentro** de un vertical.
+
+| Pieza | Qué hace |
+|---|---|
+| `focus` en la entrada de corrida | Texto libre (≤300). Vacío es el barrido de siempre: la función anterior no se pierde |
+| Guardia de un solo vertical | Con tema y varios verticales activos, la corrida se rechaza con 400 **antes** de llamar a la API |
+| Prompt de investigación | El enfoque va antes de las reglas de búsqueda —manda sobre ellas—, y se le pide informar el vacío en vez de rellenar con lo que sí encontró |
+| Prompt de estructuración | Repite el enfoque: ese paso solo ve las notas, y las notas de una corrida dirigida arrastran contexto de alrededor del que sacaría temas ajenos |
+| `focus` en `radar_runs.data_json` | Una corrida enfocada que trae dos temas no rindió poco: trajo lo que se le pidió. Sin el campo, el histórico no distingue una cosa de la otra |
+| «Reinterpretar» | Reutiliza el enfoque guardado y no deja cambiarlo: pedirle a unas notas algo que nunca se buscó es invitar a inventar |
+| Ventana en la pantalla | 7 a 90 días. Un tema pedido a mano rara vez tuvo novedades justo esta semana, y con la ventana corta la corrida vuelve vacía por el recorte, no por falta de tema |
+
+De paso, el vertical de la corrida es ahora elegible desde la pantalla: ya se aceptaba por API pero
+no había forma de pedirlo sin desactivar los demás en la vigilancia.
+
+Verificación: suite local 49/49 (cinco comprobaciones nuevas en `radar-scan.test.ts`), `typecheck` y
+`lint` limpios, y `/radar` comprobada en el navegador —el botón se bloquea con tema sin vertical, el
+cuerpo enviado lleva `focus`, `verticals` y `windowDays`, y el servidor rechaza el tema repartido
+sin gastar una búsqueda—.
 
 ### F4 — Puente a los generadores · `PENDIENTE`
 
