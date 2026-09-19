@@ -6,7 +6,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const { id } = await params;
   const input = await request.json().catch(() => null);
   if (!input || typeof input !== "object" || Array.isArray(input)) return NextResponse.json({ error: "Solicitud inválida." }, { status: 400 });
-  const current = await withDatabase((database) => database.prepare("SELECT data_json FROM brand_kits WHERE id = ?").get(id) as { data_json: string } | undefined);
+  const current = await withDatabase(async (database) => await database.prepare("SELECT data_json FROM brand_kits WHERE id = ?").get(id) as { data_json: string } | undefined);
   if (!current) return NextResponse.json({ error: "Marca no encontrada." }, { status: 404 });
   const now = new Date().toISOString(); const existing = JSON.parse(current.data_json);
   const parsed = brandKitSchema.safeParse({ ...existing, ...input, id, updatedAt: now });

@@ -38,7 +38,7 @@ export async function GET(request: Request) {
       limit: Number(params.get("limit") ?? DEFAULT_LIMIT) || DEFAULT_LIMIT,
     });
     // Los contadores salen de todo el histórico, no del filtro: son para navegar entre estados y
-    // tienen que seguir visibles cuando el filtro actual no devuelve nada. Los cuenta SQLite sobre
+    // tienen que seguir visibles cuando el filtro actual no devuelve nada. Los cuenta la base sobre
     // la columna, en vez de leer y parsear quinientos documentos en cada carga de la pantalla.
     const summary = await topicSummary();
     return NextResponse.json({

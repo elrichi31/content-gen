@@ -36,7 +36,7 @@ export async function listRules({ campaignId, includeInactive = true }: { campai
   if (campaignId) { clauses.push("(campaign_id = ? OR campaign_id IS NULL)"); params.push(campaignId); }
   if (!includeInactive) clauses.push("active = 1");
   const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
-  return withDatabase((database) => parseRows<PublishingRule>(database.prepare(`SELECT data_json FROM publishing_rules ${where} ORDER BY platform ASC, created_at ASC`).all(...params)));
+  return withDatabase(async (database) => parseRows<PublishingRule>(await database.prepare(`SELECT data_json FROM publishing_rules ${where} ORDER BY platform ASC, created_at ASC`).all(...params)));
 }
 
 export async function createRule(input: unknown) {
@@ -72,14 +72,14 @@ export async function deleteRule(id: string) {
   await getRule(id);
   // En una transacción: desligar los huecos y borrar la pauta son un solo cambio. A medias
   // dejaría publicaciones apuntando a una pauta inexistente.
-  await withDatabase((database) => {
-    database.exec("BEGIN");
+  await withDatabase(async (database) => {
+    await database.exec("BEGIN");
     try {
-      database.prepare("UPDATE scheduled_posts SET rule_id = NULL WHERE rule_id = ?").run(id);
-      database.prepare("DELETE FROM publishing_rules WHERE id = ?").run(id);
-      database.exec("COMMIT");
+      await database.prepare("UPDATE scheduled_posts SET rule_id = NULL WHERE rule_id = ?").run(id);
+      await database.prepare("DELETE FROM publishing_rules WHERE id = ?").run(id);
+      await database.exec("COMMIT");
     } catch (error) {
-      database.exec("ROLLBACK");
+      await database.exec("ROLLBACK");
       throw error;
     }
   });
@@ -103,7 +103,7 @@ export async function listPosts({ startDate, endDate, campaignId }: { startDate?
   // chocaría con la clave única sin que la pantalla explicara por qué.
   if (campaignId) { clauses.push("(campaign_id = ? OR campaign_id IS NULL)"); params.push(campaignId); }
   const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
-  return withDatabase((database) => parseRows<ScheduledPost>(database.prepare(`SELECT data_json FROM scheduled_posts ${where} ORDER BY date ASC, time ASC, platform ASC`).all(...params)));
+  return withDatabase(async (database) => parseRows<ScheduledPost>(await database.prepare(`SELECT data_json FROM scheduled_posts ${where} ORDER BY date ASC, time ASC, platform ASC`).all(...params)));
 }
 
 export async function createPost(input: unknown) {
@@ -145,10 +145,11 @@ async function getPost(id: string) {
   return JSON.parse(row.data_json) as ScheduledPost;
 }
 
-/** El hueco es único por plataforma, día y hora; conviene decirlo en castellano y no como error de SQLite. */
+/** El hueco es único por plataforma, día y hora; conviene decirlo en castellano y no como error de la base. */
 function rethrowSlotConflict(error: unknown): never {
-  const message = error instanceof Error ? error.message : String(error);
-  if (message.includes("UNIQUE") && message.includes("scheduled_posts")) throw new ScheduleError("Ese hueco ya tiene una publicación planificada.", 409);
+  // 23505 es unique_violation en Postgres; `table` dice en cuál se produjo.
+  const violation = error as { code?: string; table?: string } | null;
+  if (violation?.code === "23505" && violation.table === "scheduled_posts") throw new ScheduleError("Ese hueco ya tiene una publicación planificada.", 409);
   throw error;
 }
 

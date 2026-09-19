@@ -3,10 +3,11 @@ import { Buffer } from "node:buffer";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import { createImportReport, importCarouselSnapshot, importLegacyVideos, importManualVideos, manualCompositions, renderManualComposition, scanVideoScripts } from "./legacy-import.mjs";
+import { createTestDatabase } from "./test-db.mjs";
 
 const root = await mkdtemp(join(tmpdir(), "content-gen-legacy-"));
+const testDb = await createTestDatabase();
 try {
   await mkdir(join(root, "valid"));
   await writeFile(join(root, "valid", "script.json"), JSON.stringify({ slug: "valid", displayTitle: "Válido", scenes: { intro: { title: "Hola" } } }));
@@ -26,17 +27,8 @@ try {
   ]);
   assert.deepEqual(final.summary, { total: 3, ready: 0, imported: 1, skipped: 1, error: 1 });
 
-  const databasePath = join(root, "import.sqlite");
-  const database = new DatabaseSync(databasePath);
-  database.exec(`
-    PRAGMA foreign_keys = ON;
-    CREATE TABLE brand_kits (id TEXT PRIMARY KEY, schema_version INTEGER, data_json TEXT, created_at TEXT, updated_at TEXT, archived_at TEXT);
-    CREATE TABLE campaigns (id TEXT PRIMARY KEY, schema_version INTEGER, brand_kit_id TEXT, data_json TEXT, created_at TEXT, updated_at TEXT, archived_at TEXT);
-    CREATE TABLE content_items (id TEXT PRIMARY KEY, schema_version INTEGER, campaign_id TEXT, type TEXT, document_json TEXT, revision INTEGER, created_at TEXT, updated_at TEXT, archived_at TEXT);
-    CREATE TABLE assets (id TEXT PRIMARY KEY, schema_version INTEGER, data_json TEXT, created_at TEXT);
-    CREATE TABLE exports (id TEXT PRIMARY KEY, schema_version INTEGER, content_item_id TEXT, asset_id TEXT, data_json TEXT, created_at TEXT);
-  `);
-  database.close();
+  // El esquema real (con claves foráneas) viene de las migraciones que aplica la base efímera.
+  const databaseUrl = testDb.url;
   const slide = { id: "slide-1", layout: "cover", title: "Hola", backgroundColor: "bg-black", textColor: "text-white" };
   const formData = { topic: "Tema legacy", audience: "General", tone: "Directo", slideCount: 1, visualStyle: "Minimal", withImages: false, imageSource: "unsplash" };
   const snapshotPath = join(root, "snapshot.json");
@@ -46,8 +38,8 @@ try {
     "carousel-ai:autosave": { slides: [slide], caption: null, platform: "instagram", formData },
     "carousel-session-history": [{ id: "history-1", timestamp: 1700000000000, topic: "Historial", slides: [slide], caption: null, formData }],
   }));
-  const firstImport = await importCarouselSnapshot(snapshotPath, databasePath, join(root, "media"));
-  const secondImport = await importCarouselSnapshot(snapshotPath, databasePath, join(root, "media"));
+  const firstImport = await importCarouselSnapshot(snapshotPath, databaseUrl, join(root, "media"));
+  const secondImport = await importCarouselSnapshot(snapshotPath, databaseUrl, join(root, "media"));
   assert.deepEqual(firstImport.summary, { total: 5, ready: 0, imported: 4, skipped: 1, error: 0 });
   assert.deepEqual(secondImport.summary, { total: 5, ready: 0, imported: 0, skipped: 5, error: 0 });
 
@@ -62,19 +54,20 @@ try {
   await writeFile(join(remotionRoot, "public", "legacy-video", "legacy-video-voiceover-intro.mp3"), "mp3");
   await writeFile(join(remotionRoot, "public", "legacy-video", "legacy-video-voiceover-script.json"), JSON.stringify({ voiceover: { scenes: { intro: { text: "Hola", durationSeconds: 4 } } } }));
   await writeFile(join(remotionRoot, "out", "legacy-video.mp4"), "mp4");
-  const firstVideoImport = await importLegacyVideos(remotionRoot, databasePath, join(root, "media"));
-  const secondVideoImport = await importLegacyVideos(remotionRoot, databasePath, join(root, "media"));
+  const firstVideoImport = await importLegacyVideos(remotionRoot, databaseUrl, join(root, "media"));
+  const secondVideoImport = await importLegacyVideos(remotionRoot, databaseUrl, join(root, "media"));
   assert.deepEqual(firstVideoImport.summary, { total: 6, ready: 0, imported: 6, skipped: 0, error: 0 });
   assert.deepEqual(secondVideoImport.summary, { total: 6, ready: 0, imported: 0, skipped: 6, error: 0 });
   const videoAutomRoot = join(root, "video-autom");
   await mkdir(join(videoAutomRoot, "out"), { recursive: true });
   for (const [, , outputName] of manualCompositions) await writeFile(join(videoAutomRoot, "out", outputName), outputName);
-  const firstManualImport = await importManualVideos(videoAutomRoot, databasePath, join(root, "media"));
-  const secondManualImport = await importManualVideos(videoAutomRoot, databasePath, join(root, "media"));
+  const firstManualImport = await importManualVideos(videoAutomRoot, databaseUrl, join(root, "media"));
+  const secondManualImport = await importManualVideos(videoAutomRoot, databaseUrl, join(root, "media"));
   assert.deepEqual(firstManualImport.summary, { total: 18, ready: 0, imported: 18, skipped: 0, error: 0 });
   assert.deepEqual(secondManualImport.summary, { total: 18, ready: 0, imported: 0, skipped: 18, error: 0 });
   assert.throws(() => renderManualComposition(videoAutomRoot, "NoPermitida"), /no permitida/);
   console.log("Reporte legacy y escáner de video verificados.");
 } finally {
+  await testDb.drop();
   await rm(root, { recursive: true, force: true });
 }

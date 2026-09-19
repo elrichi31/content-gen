@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 import { withDatabase } from "../../../lib/db";
 
 export async function GET() {
-  const brands = await withDatabase((database) => (database.prepare("SELECT data_json FROM brand_kits WHERE archived_at IS NULL ORDER BY updated_at DESC").all() as { data_json: string }[]).map((row) => JSON.parse(row.data_json)));
+  const brands = await withDatabase(async (database) => (await database.prepare("SELECT data_json FROM brand_kits WHERE archived_at IS NULL ORDER BY updated_at DESC").all() as { data_json: string }[]).map((row) => JSON.parse(row.data_json)));
   return NextResponse.json(brands);
 }
 

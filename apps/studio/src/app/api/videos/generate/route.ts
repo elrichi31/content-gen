@@ -19,7 +19,7 @@ function campaignQuery(body: Body) {
 export async function POST(request: Request) {
   const body = await request.json().catch(() => null) as Body | null;
   const query = body?.campaignId && typeof body.campaignId === "string" ? campaignQuery(body) : null;
-  const stored = query ? await withDatabase((db) => db.prepare(query.sql).get(...query.args) as { campaign_json: string; brand_json: string | null } | undefined) : undefined;
+  const stored = query ? await withDatabase(async (db) => await db.prepare(query.sql).get(...query.args) as { campaign_json: string; brand_json: string | null } | undefined) : undefined;
   if (query && !stored) return NextResponse.json({ error: "El video no pertenece a una campaña activa." }, { status: 400 });
   const campaign = stored ? campaignSchema.parse(JSON.parse(stored.campaign_json)) : undefined;
   const brief = campaign && typeof campaign.brief === "object" ? campaign.brief : undefined;

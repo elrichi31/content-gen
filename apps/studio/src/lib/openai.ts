@@ -162,7 +162,7 @@ export async function generateOpenAiText({ system, prompt, purpose = "text", too
   return { text: outputText(body), model, usage: usage(body), sources: webSources(body) };
 }
 
-export async function generateOpenAiJson({ system, prompt, purpose = "text", tools, timeoutMs = 60_000, model: override, request = fetch }: {
+export async function generateOpenAiJson({ system, prompt, purpose = "text", tools, timeoutMs = 120_000, model: override, request = fetch }: {
   system: string;
   prompt: string;
   purpose?: Exclude<OpenAiPurpose, "image">;

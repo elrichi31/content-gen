@@ -3,21 +3,35 @@ import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { resolve } from "node:path";
 import { performance } from "node:perf_hooks";
-import { DatabaseSync } from "node:sqlite";
+import pg from "pg";
 
-const root = resolve(".");
-const databasePath = resolve(root, "storage/content-gen.sqlite");
-process.env.DATABASE_URL = `file:${databasePath}`;
-const database = new DatabaseSync(databasePath, { readOnly: true });
+// Mide sobre la base de DATABASE_URL (la de desarrollo, con datos reales): es una línea base de
+// rendimiento, no una prueba aislada.
+if (!process.env.DATABASE_URL) throw new Error("Falta DATABASE_URL: corré con `npm run test:performance` (carga .env.local).");
+const database = new pg.Client({ connectionString: process.env.DATABASE_URL });
+await database.connect();
 const counts = {
-  content: database.prepare("SELECT COUNT(*) AS total FROM content_items").get().total,
-  assets: database.prepare("SELECT COUNT(*) AS total FROM assets").get().total,
+  content: (await database.query("SELECT COUNT(*)::int AS total FROM content_items")).rows[0].total,
+  assets: (await database.query("SELECT COUNT(*)::int AS total FROM assets")).rows[0].total,
 };
-database.close();
+await database.end();
 
 let app;
 let server;
 try {
+  // Toda la app vive detrás de login: se reusa (o crea) una cuenta de prueba en la base real
+  // y su cookie de sesión viaja en cada medición, igual que un browser real.
+  if (!process.env.BETTER_AUTH_SECRET) throw new Error("Falta BETTER_AUTH_SECRET: corré con `npm run test:performance` (carga .env.local).");
+  process.env.NODE_ENV = "production";
+  process.env.ALLOW_SIGNUP = "1";
+  const { auth } = await import("../apps/studio/src/lib/auth.ts");
+  const { closeDatabase } = await import("../apps/studio/src/lib/db.ts");
+  const signIn = await auth.api.signInEmail({ body: { email: "performance-baseline@content-gen.test", password: "performance-baseline-1234" }, asResponse: true }).catch(() => null);
+  const signUpOrIn = signIn?.status === 200 ? signIn : await auth.api.signUpEmail({ body: { email: "performance-baseline@content-gen.test", password: "performance-baseline-1234", name: "Performance Baseline" }, asResponse: true });
+  const authCookie = signUpOrIn.headers.getSetCookie().map((entry) => entry.split(";")[0]).join("; ");
+  await closeDatabase();
+  assert.ok(authCookie, "la prueba de rendimiento necesita una cookie de sesión");
+
   const next = (await import("next")).default;
   app = next({ dev: false, dir: resolve("apps/studio"), hostname: "127.0.0.1" });
   await app.prepare();
@@ -29,7 +43,7 @@ try {
 
   const measure = async (path) => {
     const startedAt = performance.now();
-    const response = await fetch(`${baseUrl}${path}`);
+    const response = await fetch(`${baseUrl}${path}`, { headers: { cookie: authCookie } });
     const bytes = (await response.arrayBuffer()).byteLength;
     assert.equal(response.status, 200, `${path}: ${response.status}`);
     return { durationMs: performance.now() - startedAt, bytes };

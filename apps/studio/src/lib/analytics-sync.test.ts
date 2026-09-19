@@ -1,14 +1,8 @@
 import assert from "node:assert/strict";
 import { generateKeyPairSync } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import { createTestDatabase } from "../../../../scripts/test-db.mjs";
 
-const root = await mkdtemp(join(tmpdir(), "content-gen-sync-")); process.env.DATABASE_URL = `file:${join(root, "sync.sqlite")}`;
-const database = new DatabaseSync(join(root, "sync.sqlite"));
-database.exec("CREATE TABLE metric_snapshots (id TEXT PRIMARY KEY, schema_version INTEGER NOT NULL, platform TEXT NOT NULL, property_id TEXT NOT NULL, dimension TEXT NOT NULL, dimension_value TEXT NOT NULL DEFAULT '', date TEXT NOT NULL, data_json TEXT NOT NULL, fetched_at TEXT NOT NULL, UNIQUE (platform, property_id, dimension, dimension_value, date));");
-database.close();
+const testDb = await createTestDatabase(); process.env.DATABASE_URL = testDb.url;
 
 const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048, privateKeyEncoding: { type: "pkcs8", format: "pem" }, publicKeyEncoding: { type: "spki", format: "pem" } });
 process.env.GOOGLE_SERVICE_ACCOUNT_JSON = JSON.stringify({ client_email: "reader@proyecto.iam.gserviceaccount.com", private_key: privateKey });
@@ -23,9 +17,11 @@ assert.throws(() => parseSyncDays("mucho"), /entre 1 y 460/, "rechaza valores no
 
 delete process.env.SEARCH_CONSOLE_SITE_URL;
 delete process.env.GA4_PROPERTY_ID;
-assert.deepEqual(configuredPlatforms(), { "search-console": false, "google-analytics": false }, "sin propiedades no hay nada configurado");
+delete process.env.TIKTOK_CLIENT_KEY;
+delete process.env.TIKTOK_CLIENT_SECRET;
+assert.deepEqual(configuredPlatforms(), { "search-console": false, "google-analytics": false, tiktok: false }, "sin propiedades no hay nada configurado");
 const none = await syncAnalytics({ days: 7, request: async () => { throw new Error("no debería llamar a la red"); } });
-assert.deepEqual(none.results.map((result) => result.status), ["skipped", "skipped"], "sin configuración no se llama a ninguna API");
+assert.deepEqual(none.results.map((result) => result.status), ["skipped", "skipped", "skipped"], "sin configuración no se llama a ninguna API");
 assert.match(none.results[0].error ?? "", /SEARCH_CONSOLE_SITE_URL/, "explica qué falta configurar");
 
 process.env.SEARCH_CONSOLE_SITE_URL = "sc-domain:ejemplo.com";
@@ -35,6 +31,7 @@ const requested: string[] = [];
 const request: typeof fetch = async (url, init) => {
   const target = String(url);
   if (target.includes("oauth2")) return new Response(JSON.stringify({ access_token: "token", expires_in: 3600 }));
+  if (target.includes("tiktokapis")) return new Response(JSON.stringify({ data: { user: { open_id: "abc-123", follower_count: 10, following_count: 2, likes_count: 300, video_count: 4 } }, error: { code: "ok" } }));
   const body = JSON.parse(String(init?.body));
   if (target.includes("searchconsole")) {
     requested.push(`gsc:${body.dimensions.join("+")}:${body.startDate}..${body.endDate}`);
@@ -48,7 +45,7 @@ const request: typeof fetch = async (url, init) => {
 
 const today = new Date("2026-08-02T00:00:00.000Z");
 const full = await syncAnalytics({ days: 7, today, request });
-assert.deepEqual(full.results.map((result) => result.status), ["ok", "ok"], "sincroniza ambas plataformas");
+assert.deepEqual(full.results.map((result) => result.status), ["ok", "ok", "skipped"], "sincroniza las plataformas configuradas");
 assert.equal(full.inserted, 10, "guarda las cinco dimensiones de cada plataforma");
 assert.equal(full.failed.length, 0, "no reporta fallos");
 
@@ -78,5 +75,17 @@ assert.deepEqual(partial.results[0].dimensions, ["date"], "conserva las dimensio
 assert.equal(partial.results[1].status, "ok", "la otra plataforma se sincroniza igual");
 assert.deepEqual(partial.failed, ["search-console"], "resume qué falló");
 
-await rm(root, { recursive: true, force: true });
+// TikTok con credenciales pero sin cuenta conectada es un paso pendiente, no un fallo.
+process.env.TIKTOK_CLIENT_KEY = "clave"; process.env.TIKTOK_CLIENT_SECRET = "secreto";
+const pending = await syncAnalytics({ days: 7, today, request });
+assert.equal(pending.results[2].status, "skipped", "sin cuenta conectada se omite");
+assert.match(pending.results[2].error ?? "", /Conectar TikTok/, "dice qué hacer");
+assert.deepEqual(pending.failed, [], "no cuenta como fallo");
+
+await testDb.query("INSERT INTO oauth_tokens (platform, data_json, updated_at) VALUES ('tiktok', $1, $2)", [JSON.stringify({ accessToken: "act.uno", refreshToken: "rft.uno", openId: "abc-123", scope: "", accessExpiresAt: today.getTime() + 3_600_000, refreshExpiresAt: today.getTime() + 86_400_000 }), today.toISOString()]);
+const connected = await syncAnalytics({ days: 7, today, request });
+assert.equal(connected.results[2].status, "ok", "con la cuenta conectada sincroniza");
+assert.equal((await listMetricSnapshots({ platform: "tiktok" }))[0].metrics.followerCount, 10, "guarda los contadores del día");
+
+await testDb.drop();
 console.log("AnalyticsSync: ventanas por plataforma, idempotencia y aislamiento de fallos validados.");

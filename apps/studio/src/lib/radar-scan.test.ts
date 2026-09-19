@@ -2,10 +2,11 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import { createTestDatabase } from "../../../../scripts/test-db.mjs";
 
 const root = await mkdtemp(join(tmpdir(), "content-gen-radar-"));
-process.env.DATABASE_URL = `file:${join(root, "radar.sqlite")}`;
+const testDb = await createTestDatabase();
+process.env.DATABASE_URL = testDb.url;
 process.env.CONTENT_GEN_AI_PROVIDER = "openai";
 process.env.OPENAI_API_KEY = "test";
 process.env.OPENAI_TEXT_MODEL = "modelo-texto";
@@ -27,30 +28,14 @@ await writeFile(pricingFile, JSON.stringify({
 }), "utf8");
 process.env.PRICING_FILE = pricingFile;
 
-const database = new DatabaseSync(join(root, "radar.sqlite"));
-database.exec(`
-  CREATE TABLE campaigns (id TEXT PRIMARY KEY);
-  CREATE TABLE content_items (id TEXT PRIMARY KEY, campaign_id TEXT NOT NULL, type TEXT NOT NULL, archived_at TEXT);
-  CREATE TABLE generation_runs (
-    id TEXT PRIMARY KEY, schema_version INTEGER NOT NULL, content_item_id TEXT, radar_topic_id TEXT,
-    operation TEXT NOT NULL, provider TEXT NOT NULL, status TEXT NOT NULL, cost_amount REAL,
-    data_json TEXT NOT NULL, created_at TEXT NOT NULL, completed_at TEXT
-  );
-  CREATE TABLE brand_kits (id TEXT PRIMARY KEY, schema_version INTEGER NOT NULL, data_json TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, archived_at TEXT);
-  CREATE TABLE radar_watchlist (id TEXT PRIMARY KEY, schema_version INTEGER NOT NULL, vertical TEXT NOT NULL UNIQUE, active INTEGER NOT NULL DEFAULT 1, priority INTEGER NOT NULL DEFAULT 5, brand_kit_id TEXT, data_json TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, FOREIGN KEY (brand_kit_id) REFERENCES brand_kits(id));
-  CREATE TABLE radar_runs (id TEXT PRIMARY KEY, schema_version INTEGER NOT NULL, status TEXT NOT NULL, started_at TEXT NOT NULL, completed_at TEXT, cost_amount REAL, data_json TEXT NOT NULL, created_at TEXT NOT NULL);
-  CREATE TABLE radar_topics (id TEXT PRIMARY KEY, schema_version INTEGER NOT NULL, run_id TEXT NOT NULL, vertical TEXT NOT NULL, status TEXT NOT NULL, score INTEGER NOT NULL, fingerprint TEXT NOT NULL, origin TEXT NOT NULL, data_json TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, FOREIGN KEY (run_id) REFERENCES radar_runs(id));
-  CREATE TABLE radar_topic_items (topic_id TEXT NOT NULL, content_item_id TEXT NOT NULL, format TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY (topic_id, content_item_id), FOREIGN KEY (topic_id) REFERENCES radar_topics(id), FOREIGN KEY (content_item_id) REFERENCES content_items(id));
-`);
-database.prepare("INSERT INTO campaigns VALUES (?)").run("campaign");
-database.prepare("INSERT INTO content_items VALUES (?, ?, ?, ?)").run("pieza", "campaign", "carousel", null);
-database.prepare("INSERT INTO brand_kits VALUES (?, 1, ?, ?, ?, NULL)").run(
+const seededAt = "2026-08-01T00:00:00.000Z";
+await testDb.query("INSERT INTO campaigns (id, schema_version, data_json, created_at, updated_at) VALUES ('campaign', 1, '{}', $1, $1)", [seededAt]);
+await testDb.query("INSERT INTO content_items (id, schema_version, campaign_id, type, document_json, created_at, updated_at) VALUES ('pieza', 1, 'campaign', 'carousel', '{}', $1, $1)", [seededAt]);
+await testDb.query("INSERT INTO brand_kits (id, schema_version, data_json, created_at, updated_at) VALUES ($1, 1, $2, $3, $3)", [
   "marca-1",
-  JSON.stringify({ id: "marca-1", schemaVersion: 1, name: "Zenlor Labs", primaryColor: "#2f7d40", logoAssetId: null, business: { sector: "Consultora de ciberseguridad", offering: "Auditorías y automatización", audience: "PyMEs", valueProposition: "Implementamos, no solo diagnosticamos" }, createdAt: "2026-08-01T00:00:00.000Z", updatedAt: "2026-08-01T00:00:00.000Z", archivedAt: null }),
-  "2026-08-01T00:00:00.000Z",
-  "2026-08-01T00:00:00.000Z",
-);
-database.close();
+  JSON.stringify({ id: "marca-1", schemaVersion: 1, name: "Zenlor Labs", primaryColor: "#2f7d40", logoAssetId: null, business: { sector: "Consultora de ciberseguridad", offering: "Auditorías y automatización", audience: "PyMEs", valueProposition: "Implementamos, no solo diagnosticamos" }, createdAt: seededAt, updatedAt: seededAt, archivedAt: null }),
+  seededAt,
+]);
 
 const { beginRadarRun, createWatchlistEntry, listTopics, listRadarRuns, saveTopics, setTopicStatus, linkTopicToContent, topicContentItems, recentMemory, RadarError } = await import("./radar.ts");
 const { scanRadar } = await import("./radar-scan.ts");
@@ -468,5 +453,6 @@ const sinTema = await scanRadar({ focus: "", verticals: ["Automatización"] }, {
 assert.equal(sinTema.run.focus, null, "un tema vacío es el barrido de siempre, no un enfoque en blanco");
 assert.equal(enfocadas.at(-2)!.body.includes("Tema concreto que se te pide"), false, "y su prompt no arrastra instrucciones de enfoque");
 
+await testDb.drop();
 await rm(root, { recursive: true, force: true });
 console.log("Radar (corrida): dos pasos, modelos separados, búsqueda por tema, deduplicación entre semanas, costo por partes y fallos aislados validados.");

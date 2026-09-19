@@ -8,13 +8,13 @@ import { withDatabase } from "../../../../lib/db";
 
 export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const result = await withDatabase((database) => {
-    const content = database.prepare("SELECT document_json, revision, created_at, updated_at, archived_at FROM content_items WHERE id = ?").get(id) as { document_json: string; revision: number; created_at: string; updated_at: string; archived_at: string | null } | undefined;
+  const result = await withDatabase(async (database) => {
+    const content = await database.prepare("SELECT document_json, revision, created_at, updated_at, archived_at FROM content_items WHERE id = ?").get(id) as { document_json: string; revision: number; created_at: string; updated_at: string; archived_at: string | null } | undefined;
     if (!content) return null;
-    const generationRuns = database.prepare("SELECT data_json FROM generation_runs WHERE content_item_id = ? ORDER BY created_at DESC LIMIT 10").all(id) as { data_json: string }[];
+    const generationRuns = await database.prepare("SELECT data_json FROM generation_runs WHERE content_item_id = ? ORDER BY created_at DESC LIMIT 10").all(id) as { data_json: string }[];
     const stored = JSON.parse(content.document_json) as { campaignId?: string };
-    const campaign = stored.campaignId ? database.prepare("SELECT data_json FROM campaigns WHERE id = ?").get(stored.campaignId) as { data_json: string } | undefined : undefined;
-    const exports = database.prepare("SELECT export.data_json AS export_json, asset.data_json AS asset_json FROM exports export JOIN assets asset ON asset.id = export.asset_id WHERE export.content_item_id = ? ORDER BY export.created_at DESC").all(id) as { export_json: string; asset_json: string }[];
+    const campaign = stored.campaignId ? await database.prepare("SELECT data_json FROM campaigns WHERE id = ?").get(stored.campaignId) as { data_json: string } | undefined : undefined;
+    const exports = await database.prepare("SELECT export.data_json AS export_json, asset.data_json AS asset_json FROM exports export JOIN assets asset ON asset.id = export.asset_id WHERE export.content_item_id = ? ORDER BY export.created_at DESC").all(id) as { export_json: string; asset_json: string }[];
     return {
       ...stored, revision: content.revision, createdAt: content.created_at, updatedAt: content.updated_at, archivedAt: content.archived_at,
       campaign: campaign ? { id: (JSON.parse(campaign.data_json) as { id: string }).id, name: (JSON.parse(campaign.data_json) as { name: string }).name } : null,
@@ -29,7 +29,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const { id } = await params; const input = await request.json().catch(() => null);
   if (!input || typeof input !== "object" || Array.isArray(input)) return NextResponse.json({ error: "Solicitud inválida." }, { status: 400 });
   if (!Number.isInteger(input.revision) || input.revision < 0) return NextResponse.json({ error: "Debes indicar la revisión actual." }, { status: 400 });
-  const current = await withDatabase((database) => database.prepare("SELECT document_json, revision FROM content_items WHERE id = ?").get(id) as { document_json: string; revision: number } | undefined);
+  const current = await withDatabase(async (database) => await database.prepare("SELECT document_json, revision FROM content_items WHERE id = ?").get(id) as { document_json: string; revision: number } | undefined);
   if (!current) return NextResponse.json({ error: "Contenido no encontrado." }, { status: 404 });
   if (current.revision !== input.revision) return NextResponse.json({ error: "El contenido cambió en otra edición.", revision: current.revision }, { status: 409 });
   const existing = JSON.parse(current.document_json);
@@ -47,7 +47,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (!data.archivedAt && !await withDatabase((database) => database.prepare("SELECT id FROM campaigns WHERE id = ? AND archived_at IS NULL").get(data.campaignId))) return NextResponse.json({ error: "No puedes restaurar contenido en una campaña archivada." }, { status: 409 });
   try { if (ad?.success) await validateAdImageAsset(ad.data, data.campaignId); if (video?.success) await validateVideoAssets(video.data, data.campaignId); }
   catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Los assets del contenido no son válidos." }, { status: 400 }); }
-  const result = await withDatabase((database) => database.prepare("UPDATE content_items SET campaign_id = ?, type = ?, document_json = ?, revision = ?, updated_at = ?, archived_at = ? WHERE id = ? AND revision = ?").run(data.campaignId, data.type, JSON.stringify(data), data.revision, data.updatedAt, data.archivedAt, id, current.revision) as { changes: number });
+  const result = await withDatabase(async (database) => await database.prepare("UPDATE content_items SET campaign_id = ?, type = ?, document_json = ?, revision = ?, updated_at = ?, archived_at = ? WHERE id = ? AND revision = ?").run(data.campaignId, data.type, JSON.stringify(data), data.revision, data.updatedAt, data.archivedAt, id, current.revision) as { changes: number });
   if (!result.changes) return NextResponse.json({ error: "El contenido cambió en otra edición." }, { status: 409 });
   return NextResponse.json(data);
 }

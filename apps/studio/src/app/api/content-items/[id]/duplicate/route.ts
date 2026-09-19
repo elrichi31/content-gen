@@ -5,7 +5,7 @@ import { withDatabase } from "../../../../../lib/db";
 
 export async function POST(_: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params; const now = new Date().toISOString();
-  const current = await withDatabase((database) => database.prepare("SELECT document_json FROM content_items WHERE id = ? AND archived_at IS NULL").get(id) as { document_json: string } | undefined);
+  const current = await withDatabase(async (database) => await database.prepare("SELECT document_json FROM content_items WHERE id = ? AND archived_at IS NULL").get(id) as { document_json: string } | undefined);
   if (!current) return NextResponse.json({ error: "Contenido no encontrado." }, { status: 404 });
   const parsed = contentItemSchema.safeParse({ ...JSON.parse(current.document_json), id: randomUUID(), revision: 0, createdAt: now, updatedAt: now, archivedAt: null });
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });

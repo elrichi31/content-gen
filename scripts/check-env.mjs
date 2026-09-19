@@ -17,6 +17,18 @@ if (provider === "openai" && !process.env.OPENAI_API_KEY) {
   );
 }
 
+if (!/^postgres(ql)?:\/\//.test(process.env.DATABASE_URL ?? "")) {
+  throw new Error(
+    "DATABASE_URL debe ser una URL de Postgres (postgres://usuario:clave@host:puerto/base). En local: `docker compose -f docker-compose.dev.yml up -d`.",
+  );
+}
+
+if (!process.env.BETTER_AUTH_SECRET) {
+  throw new Error(
+    "Falta BETTER_AUTH_SECRET: sin él el login no puede firmar sesiones de forma segura. Generalo con node -e \"console.log(require('crypto').randomBytes(32).toString('base64'))\".",
+  );
+}
+
 if (renderLimit && (!/^\d+$/.test(renderLimit) || Number(renderLimit) < 1 || Number(renderLimit) > 10)) {
   throw new Error("MAX_ACTIVE_RENDER_JOBS debe ser un entero entre 1 y 10.");
 }

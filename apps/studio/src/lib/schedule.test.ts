@@ -1,26 +1,21 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import { createTestDatabase } from "../../../../scripts/test-db.mjs";
 
-const root = await mkdtemp(join(tmpdir(), "content-gen-schedule-"));
-const databasePath = join(root, "schedule.sqlite");
-process.env.DATABASE_URL = `file:${databasePath}`;
+const testDb = await createTestDatabase();
+process.env.DATABASE_URL = testDb.url;
 
-const database = new DatabaseSync(databasePath);
-database.exec(`
-  CREATE TABLE campaigns (id TEXT PRIMARY KEY, data_json TEXT NOT NULL, archived_at TEXT);
-  CREATE TABLE content_items (id TEXT PRIMARY KEY, campaign_id TEXT NOT NULL, type TEXT NOT NULL, document_json TEXT NOT NULL, archived_at TEXT);
-  CREATE TABLE publishing_rules (id TEXT PRIMARY KEY, schema_version INTEGER NOT NULL, campaign_id TEXT, platform TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1, data_json TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
-  CREATE TABLE scheduled_posts (id TEXT PRIMARY KEY, schema_version INTEGER NOT NULL, platform TEXT NOT NULL, date TEXT NOT NULL, time TEXT NOT NULL, status TEXT NOT NULL, content_item_id TEXT, campaign_id TEXT, rule_id TEXT, data_json TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE (platform, date, time));
-  INSERT INTO campaigns (id, data_json, archived_at) VALUES ('camp1', '{"name":"Lanzamiento"}', NULL), ('camp2', '{"name":"Archivada"}', '2026-07-01T00:00:00.000Z');
-  INSERT INTO content_items (id, campaign_id, type, document_json, archived_at) VALUES
-    ('item1', 'camp1', 'carousel', '{"document":{"data":{"title":"Guía de lanzamiento"}}}', NULL),
-    ('item2', 'camp1', 'video', '{"document":{"data":{}}}', '2026-07-01T00:00:00.000Z'),
-    ('item3', 'camp1', 'carousel', '{"document":{"data":{}}}', NULL);
-`);
-database.close();
+const seededAt = "2026-07-01T00:00:00.000Z";
+await testDb.query(`
+  INSERT INTO campaigns (id, schema_version, data_json, created_at, updated_at, archived_at) VALUES
+    ('camp1', 1, '{"name":"Lanzamiento"}', $1, $1, NULL),
+    ('camp2', 1, '{"name":"Archivada"}', $1, $1, $1);
+`, [seededAt]);
+await testDb.query(`
+  INSERT INTO content_items (id, schema_version, campaign_id, type, document_json, created_at, updated_at, archived_at) VALUES
+    ('item1', 1, 'camp1', 'carousel', '{"document":{"data":{"title":"Guía de lanzamiento"}}}', $1, $1, NULL),
+    ('item2', 1, 'camp1', 'video', '{"document":{"data":{}}}', $1, $1, $1),
+    ('item3', 1, 'camp1', 'carousel', '{"document":{"data":{}}}', $1, $1, NULL);
+`, [seededAt]);
 
 const { createPost, createRule, deletePost, deleteRule, listPosts, listRules, monthCalendar, ScheduleError, updatePost, updateRule } = await import("./schedule.ts");
 
@@ -102,5 +97,5 @@ try {
 
   console.log("Cronograma (persistencia): pautas, huecos únicos, herencia de campaña y calendario del mes validados.");
 } finally {
-  await rm(root, { recursive: true, force: true });
+  await testDb.drop();
 }

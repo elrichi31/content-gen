@@ -8,7 +8,7 @@ import { openAiModel } from "../../../../lib/openai";
 export async function POST(request: Request) {
   const parsed = carouselGenerationInputSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "La solicitud de generación no es válida." }, { status: 400 });
-  const stored = parsed.data.campaignId ? await withDatabase((db) => db.prepare("SELECT campaign.data_json AS campaign_json, brand.data_json AS brand_json FROM campaigns campaign LEFT JOIN brand_kits brand ON brand.id = campaign.brand_kit_id AND brand.archived_at IS NULL WHERE campaign.id = ? AND campaign.archived_at IS NULL").get(parsed.data.campaignId) as { campaign_json: string; brand_json: string | null } | undefined) : undefined;
+  const stored = parsed.data.campaignId ? await withDatabase(async (db) => await db.prepare("SELECT campaign.data_json AS campaign_json, brand.data_json AS brand_json FROM campaigns campaign LEFT JOIN brand_kits brand ON brand.id = campaign.brand_kit_id AND brand.archived_at IS NULL WHERE campaign.id = ? AND campaign.archived_at IS NULL").get(parsed.data.campaignId) as { campaign_json: string; brand_json: string | null } | undefined) : undefined;
   if (parsed.data.campaignId && !stored) return NextResponse.json({ error: "La campaña no existe o está archivada." }, { status: 400 });
   const campaign = stored ? campaignSchema.parse(JSON.parse(stored.campaign_json)) : undefined;
   const brief = campaign && typeof campaign.brief === "object" ? campaign.brief : undefined;

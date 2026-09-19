@@ -12,7 +12,7 @@ export function assertAssetReference(asset: StoredAsset | undefined, kind: Asset
 }
 
 async function validateReference(id: string, kind: AssetKind, campaignId: string) {
-  const row = await withDatabase((database) => database.prepare("SELECT data_json FROM assets WHERE id = ?").get(id) as { data_json: string } | undefined);
+  const row = await withDatabase(async (database) => await database.prepare("SELECT data_json FROM assets WHERE id = ?").get(id) as { data_json: string } | undefined);
   assertAssetReference(row ? JSON.parse(row.data_json) as StoredAsset : undefined, kind, campaignId);
 }
 

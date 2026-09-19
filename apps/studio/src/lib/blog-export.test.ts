@@ -3,12 +3,12 @@ import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import { createTestDatabase } from "../../../../scripts/test-db.mjs";
 
 const root = await mkdtemp(join(tmpdir(), "content-gen-blog-"));
 const site = join(root, "sitio");
 const storage = join(root, "storage");
-const databasePath = join(storage, "content-gen.sqlite");
+const testDb = await createTestDatabase();
 
 await mkdir(join(site, "content", "blog"), { recursive: true });
 await mkdir(join(storage, "media", "assets"), { recursive: true });
@@ -19,19 +19,16 @@ const png = Buffer.from("89504e470d0a1a0a0000000d49484452", "hex");
 const storageKey = `assets/${createHash("sha256").update(png).digest("hex")}.png`;
 await writeFile(join(storage, "media", storageKey), png);
 
-// `mediaRoot` sale de la carpeta de la base de datos, así que basta con situarla en el temporal.
-process.env.DATABASE_URL = `file:${databasePath}`;
+// `mediaRoot` sale de STORAGE_ROOT (antes, de la carpeta de la base): se sitúa en el temporal.
+process.env.STORAGE_ROOT = storage;
+process.env.DATABASE_URL = testDb.url;
 process.env.BLOG_SITE_PATH = site;
 
-const database = new DatabaseSync(databasePath);
-database.exec(`
-  CREATE TABLE assets (id TEXT PRIMARY KEY, data_json TEXT NOT NULL);
-  INSERT INTO assets (id, data_json) VALUES
-    ('portada', '${JSON.stringify({ storageKey, mimeType: "image/png" }).replace(/'/g, "''")}'),
-    ('portada-jpg', '${JSON.stringify({ storageKey, mimeType: "image/jpeg" }).replace(/'/g, "''")}'),
-    ('portada-perdida', '${JSON.stringify({ storageKey: `assets/${"a".repeat(64)}.png`, mimeType: "image/png" }).replace(/'/g, "''")}');
-`);
-database.close();
+const seededAt = "2026-08-01T00:00:00.000Z";
+const seedAsset = (id: string, data: { storageKey: string; mimeType: string }) => testDb.query("INSERT INTO assets (id, schema_version, data_json, created_at) VALUES ($1, 1, $2, $3)", [id, JSON.stringify(data), seededAt]);
+await seedAsset("portada", { storageKey, mimeType: "image/png" });
+await seedAsset("portada-jpg", { storageKey, mimeType: "image/jpeg" });
+await seedAsset("portada-perdida", { storageKey: `assets/${"a".repeat(64)}.png`, mimeType: "image/png" });
 
 const { BlogExportError, exportArticle, previewExport, publishedSlugs } = await import("./blog-export.ts");
 
@@ -102,5 +99,6 @@ try {
 
   console.log("Exportador de blog: contrato del sitio, colisiones, portada y rutas validados.");
 } finally {
+  await testDb.drop();
   await rm(root, { recursive: true, force: true });
 }

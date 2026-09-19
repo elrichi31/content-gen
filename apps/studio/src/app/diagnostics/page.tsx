@@ -26,20 +26,21 @@ const toneClass: Record<Tone, string> = {
 
 async function databaseCheck(): Promise<Check> {
   try {
-    const result = await withDatabase((database) => ({
-      integrity: database.prepare("PRAGMA integrity_check").get() as { integrity_check?: string },
-      tables: database.prepare("SELECT COUNT(*) AS total FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").get() as { total?: number },
+    const result = await withDatabase(async (database) => ({
+      version: await database.prepare("SHOW server_version").get() as { server_version?: string },
+      tables: await database.prepare("SELECT COUNT(*) AS total FROM information_schema.tables WHERE table_schema = 'public'").get() as { total?: number },
     }));
-    const healthy = result.integrity.integrity_check === "ok";
+    // Postgres no tiene un `integrity_check` equivalente: que responda y tenga el esquema es la señal útil.
+    const healthy = Boolean(result.version.server_version) && Boolean(result.tables.total);
     return {
       label: "Base de datos",
       icon: Database,
       status: healthy ? "Operativa" : "Revisar",
       tone: healthy ? "ok" : "error",
-      detail: healthy ? `SQLite respondió correctamente · ${result.tables.total ?? 0} tablas.` : "SQLite respondió, pero falló la comprobación de integridad.",
+      detail: healthy ? `Postgres ${result.version.server_version} respondió correctamente · ${result.tables.total} tablas.` : "Postgres respondió, pero no tiene tablas: aplica las migraciones con npm run db:migrate.",
     };
   } catch {
-    return { label: "Base de datos", icon: Database, status: "No disponible", tone: "error", detail: "Inicialízala con npm run db:init." };
+    return { label: "Base de datos", icon: Database, status: "No disponible", tone: "error", detail: "Revisa DATABASE_URL y aplica las migraciones con npm run db:migrate." };
   }
 }
 

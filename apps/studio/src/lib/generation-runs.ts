@@ -18,12 +18,12 @@ type Provider = "openai" | "unsplash" | "elevenlabs" | "local";
 export async function beginGenerationRun({ contentItemId = null, radarTopicId = null, operation, model, provider = "openai" }: { contentItemId?: string | null; radarTopicId?: string | null; operation: string; model: string | null; provider?: Provider }) {
   const now = new Date().toISOString();
   const run = generationRunSchema.parse({ id: randomUUID(), schemaVersion: 1, contentItemId, radarTopicId, provider, status: "running", createdAt: now, completedAt: null, error: null, operation, model, durationMs: null, usage: null, cost: null });
-  await withDatabase((database) => {
+  await withDatabase(async (database) => {
     if (run.contentItemId) {
-      const content = database.prepare("SELECT id FROM content_items WHERE id = ? AND archived_at IS NULL").get(run.contentItemId);
+      const content = await database.prepare("SELECT id FROM content_items WHERE id = ? AND archived_at IS NULL").get(run.contentItemId);
       if (!content) throw new GenerationRunError("La pieza para registrar la generación no existe o está archivada.", 404);
     }
-    database
+    await database
       .prepare("INSERT INTO generation_runs (id, schema_version, content_item_id, radar_topic_id, operation, provider, status, cost_amount, data_json, created_at, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL)")
       .run(run.id, run.schemaVersion, run.contentItemId, run.radarTopicId, run.operation, run.provider, run.status, JSON.stringify(run), now);
   });
@@ -35,7 +35,7 @@ export async function beginGenerationRun({ contentItemId = null, radarTopicId = 
  * precios cambian y un histórico que se reescribe solo deja de servir para auditar (D-03).
  */
 export async function finishGenerationRun(id: string, { durationMs, error = null, usage = null }: { durationMs: number; error?: string | null; usage?: Usage | null }) {
-  const row = await withDatabase((database) => database.prepare("SELECT data_json FROM generation_runs WHERE id = ?").get(id) as { data_json: string } | undefined);
+  const row = await withDatabase(async (database) => await database.prepare("SELECT data_json FROM generation_runs WHERE id = ?").get(id) as { data_json: string } | undefined);
   if (!row) throw new GenerationRunError("Registro de generación no encontrado.", 404);
   const previous = JSON.parse(row.data_json) as { model: string | null };
   const completedAt = new Date().toISOString();

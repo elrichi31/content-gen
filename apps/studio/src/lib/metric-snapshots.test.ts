@@ -1,13 +1,7 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import { createTestDatabase } from "../../../../scripts/test-db.mjs";
 
-const root = await mkdtemp(join(tmpdir(), "content-gen-metrics-")); process.env.DATABASE_URL = `file:${join(root, "metrics.sqlite")}`;
-const database = new DatabaseSync(join(root, "metrics.sqlite"));
-database.exec("CREATE TABLE metric_snapshots (id TEXT PRIMARY KEY, schema_version INTEGER NOT NULL, platform TEXT NOT NULL, property_id TEXT NOT NULL, dimension TEXT NOT NULL, dimension_value TEXT NOT NULL DEFAULT '', date TEXT NOT NULL, data_json TEXT NOT NULL, fetched_at TEXT NOT NULL, UNIQUE (platform, property_id, dimension, dimension_value, date));");
-database.close();
+const testDb = await createTestDatabase(); process.env.DATABASE_URL = testDb.url;
 
 const { latestMetricDates, listMetricSnapshots, saveMetricSnapshots, totalMetrics } = await import("./metric-snapshots.ts");
 const gsc = (date: string, metrics: Record<string, number>) => ({ platform: "search-console" as const, propertyId: "sc-domain:ejemplo.com", dimension: "date", dimensionValue: "", date, metrics });
@@ -54,5 +48,10 @@ assert.deepEqual(totalMetrics(ga4), { sessions: 1000, engagementRate: 0.75 }, "p
 assert.deepEqual(totalMetrics([{ ...ga4[0], metrics: { position: 4 } }]), { position: 4 }, "sin métrica de peso usa la media simple en vez de descartar el dato");
 assert.deepEqual(await latestMetricDates(), { "search-console": { lastDate: "2026-07-02", lastSync: "2026-07-05T00:00:00.000Z" } }, "reporta el último día y la última sincronización");
 
-await rm(root, { recursive: true, force: true });
+// Los seguidores son un contador acumulado: el «total» del periodo es el último valor, no la suma de días.
+const tiktok = (date: string, followerCount: number) => ({ platform: "tiktok" as const, propertyId: "abc-123", dimension: "date", dimensionValue: "", date, metrics: { followerCount } });
+await saveMetricSnapshots([tiktok("2026-07-01", 100), tiktok("2026-07-03", 130), tiktok("2026-07-02", 120)]);
+assert.equal(totalMetrics(await listMetricSnapshots({ platform: "tiktok" })).followerCount, 130, "los contadores usan el valor más reciente y no se suman");
+
+await testDb.drop();
 console.log("MetricSnapshots: idempotencia, filtros, totales y frescura validados.");

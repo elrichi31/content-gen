@@ -2,10 +2,11 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import { createTestDatabase } from "../../../../scripts/test-db.mjs";
 
 const root = await mkdtemp(join(tmpdir(), "content-gen-runs-"));
-process.env.DATABASE_URL = `file:${join(root, "runs.sqlite")}`;
+const testDb = await createTestDatabase();
+process.env.DATABASE_URL = testDb.url;
 
 const pricingFile = join(root, "pricing.json");
 await writeFile(pricingFile, JSON.stringify({
@@ -17,23 +18,12 @@ await writeFile(pricingFile, JSON.stringify({
 }), "utf8");
 process.env.PRICING_FILE = pricingFile;
 
-const database = new DatabaseSync(join(root, "runs.sqlite"));
-database.exec(`
-  CREATE TABLE campaigns (id TEXT PRIMARY KEY);
-  CREATE TABLE content_items (id TEXT PRIMARY KEY, campaign_id TEXT NOT NULL, type TEXT NOT NULL, archived_at TEXT, FOREIGN KEY (campaign_id) REFERENCES campaigns(id));
-  CREATE TABLE generation_runs (
-    id TEXT PRIMARY KEY, schema_version INTEGER NOT NULL, content_item_id TEXT, radar_topic_id TEXT,
-    operation TEXT NOT NULL DEFAULT 'generation', provider TEXT NOT NULL DEFAULT 'openai',
-    status TEXT NOT NULL DEFAULT 'completed', cost_amount REAL, data_json TEXT NOT NULL,
-    created_at TEXT NOT NULL, completed_at TEXT,
-    FOREIGN KEY (content_item_id) REFERENCES content_items(id)
-  );
-`);
-database.prepare("INSERT INTO campaigns VALUES (?)").run("campaign");
-database.prepare("INSERT INTO content_items VALUES (?, ?, ?, ?)").run("video", "campaign", "video", null);
-database.prepare("INSERT INTO content_items VALUES (?, ?, ?, ?)").run("carrusel", "campaign", "carousel", null);
-database.prepare("INSERT INTO content_items VALUES (?, ?, ?, ?)").run("archivado", "campaign", "carousel", "2026-08-01T00:00:00.000Z");
-database.close();
+const seededAt = "2026-08-01T00:00:00.000Z";
+await testDb.query("INSERT INTO campaigns (id, schema_version, data_json, created_at, updated_at) VALUES ('campaign', 1, '{}', $1, $1)", [seededAt]);
+const addItem = (id: string, type: string, archivedAt: string | null) => testDb.query("INSERT INTO content_items (id, schema_version, campaign_id, type, document_json, created_at, updated_at, archived_at) VALUES ($1, 1, 'campaign', $2, '{}', $3, $3, $4)", [id, type, seededAt, archivedAt]);
+await addItem("video", "video", null);
+await addItem("carrusel", "carousel", null);
+await addItem("archivado", "carousel", seededAt);
 
 const { beginGenerationRun, finishGenerationRun, GenerationRunError } = await import("./generation-runs.ts");
 
@@ -65,14 +55,12 @@ await assert.rejects(
 
 /* --------- Las columnas permiten informar sin abrir el data_json --------- */
 
-const report = new DatabaseSync(join(root, "runs.sqlite"));
-const rows = report.prepare("SELECT operation, provider, status, cost_amount, completed_at FROM generation_runs ORDER BY operation").all() as { operation: string; provider: string; status: string; cost_amount: number | null; completed_at: string | null }[];
+const rows = await testDb.query("SELECT operation, provider, status, cost_amount, completed_at FROM generation_runs ORDER BY operation") as { operation: string; provider: string; status: string; cost_amount: number | null; completed_at: string | null }[];
 assert.deepEqual(rows.map((row) => row.operation), ["carousel-generate", "radar-research", "video-script"], "la operación se consulta como columna");
-const totals = report.prepare("SELECT SUM(cost_amount) AS total FROM generation_runs WHERE status = 'completed'").get() as { total: number };
+const [totals] = await testDb.query("SELECT SUM(cost_amount) AS total FROM generation_runs WHERE status = 'completed'") as { total: number }[];
 assert.equal(Number(totals.total.toFixed(6)), 0.0456, "el gasto se suma en SQL sin recorrer los JSON");
 assert.equal(rows.find((row) => row.operation === "carousel-generate")?.cost_amount, null, "una operación en curso no tiene importe todavía");
 assert.equal(rows.find((row) => row.operation === "video-script")?.completed_at !== null, true, "el cierre queda fechado en columna");
-report.close();
 
 /* ---------- Sin tarifa cargada se registra igual, sin importe ---------- */
 
@@ -82,5 +70,6 @@ const untariffed = await beginGenerationRun({ contentItemId: "video", operation:
 const untariffedDone = await finishGenerationRun(untariffed.id, { durationMs: 10, usage: { inputTokens: 10, cachedInputTokens: 0, outputTokens: 5, webSearchCalls: 0, images: 0, characters: 0 } });
 assert.equal(untariffedDone.cost, null, "una tarifa ilegible no tumba la generación: se registra sin importe");
 
+await testDb.drop();
 await rm(root, { recursive: true, force: true });
 console.log("GenerationRun: piezas de cualquier tipo, runs sin pieza, importe congelado y columnas de informe validados.");

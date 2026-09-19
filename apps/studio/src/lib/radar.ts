@@ -32,7 +32,7 @@ function invalid(subject: string, error: { issues: { path: (string | number)[]; 
 
 export async function listWatchlist({ onlyActive = false }: { onlyActive?: boolean } = {}) {
   const where = onlyActive ? "WHERE active = 1" : "";
-  return withDatabase((database) => parseRows<RadarWatchlistEntry>(database
+  return withDatabase(async (database) => parseRows<RadarWatchlistEntry>(await database
     .prepare(`SELECT data_json FROM radar_watchlist ${where} ORDER BY priority ASC, vertical ASC`)
     .all()));
 }
@@ -44,7 +44,7 @@ export async function listWatchlist({ onlyActive = false }: { onlyActive?: boole
 export async function brandProfiles(ids: (string | null)[]) {
   const unique = [...new Set(ids.filter((value): value is string => Boolean(value)))];
   if (!unique.length) return new Map<string, BrandKit>();
-  const rows = await withDatabase((database) => database
+  const rows = await withDatabase(async (database) => await database
     .prepare(`SELECT data_json FROM brand_kits WHERE archived_at IS NULL AND id IN (${unique.map(() => "?").join(", ")})`)
     .all(...unique) as Row[]);
   return new Map(rows.map((row) => {
@@ -53,7 +53,7 @@ export async function brandProfiles(ids: (string | null)[]) {
   }));
 }
 
-/** La marca se valida en código: `ALTER TABLE` no sabe añadir claves foráneas en SQLite. */
+/** La marca se valida en código para poder dar un mensaje claro antes de que la clave foránea rechace el alta. */
 async function assertBrandKit(brandKitId: string | null) {
   if (!brandKitId) return;
   const brand = await withDatabase((database) => database.prepare("SELECT id FROM brand_kits WHERE id = ? AND archived_at IS NULL").get(brandKitId));
@@ -66,11 +66,11 @@ export async function createWatchlistEntry(input: unknown) {
   if (!parsed.success) throw invalid("El vertical", parsed.error);
   const entry = parsed.data;
   await assertBrandKit(entry.brandKitId);
-  await withDatabase((database) => {
+  await withDatabase(async (database) => {
     // El vertical es único: dos filas iguales significarían pagar dos veces la misma búsqueda.
-    const existing = database.prepare("SELECT id FROM radar_watchlist WHERE vertical = ?").get(entry.vertical);
+    const existing = await database.prepare("SELECT id FROM radar_watchlist WHERE vertical = ?").get(entry.vertical);
     if (existing) throw new RadarError(`El vertical «${entry.vertical}» ya está en la lista de vigilancia.`, 409);
-    database
+    await database
       .prepare("INSERT INTO radar_watchlist (id, schema_version, vertical, active, priority, brand_kit_id, data_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
       .run(entry.id, 1, entry.vertical, entry.active ? 1 : 0, entry.priority, entry.brandKitId, JSON.stringify(entry), now, now);
   });
@@ -79,7 +79,7 @@ export async function createWatchlistEntry(input: unknown) {
 
 /** Quitar un vertical de la vigilancia no borra los temas que ya trajo (D-09). */
 export async function deleteWatchlistEntry(id: string) {
-  const removed = await withDatabase((database) => (database.prepare("DELETE FROM radar_watchlist WHERE id = ?").run(id) as { changes: number }).changes);
+  const removed = await withDatabase(async (database) => (await database.prepare("DELETE FROM radar_watchlist WHERE id = ?").run(id) as { changes: number }).changes);
   if (!removed) throw new RadarError("El vertical no existe.", 404);
   return { id };
 }
@@ -112,7 +112,7 @@ export async function beginRadarRun({ verticals, windowDays, focus = null }: { v
 }
 
 export async function finishRadarRun(id: string, patch: Partial<Pick<RadarRun, "status" | "error" | "usage" | "cost" | "topicsFound" | "topicsKept" | "research">>) {
-  const row = await withDatabase((database) => database.prepare("SELECT data_json FROM radar_runs WHERE id = ?").get(id) as Row | undefined);
+  const row = await withDatabase(async (database) => await database.prepare("SELECT data_json FROM radar_runs WHERE id = ?").get(id) as Row | undefined);
   if (!row) throw new RadarError("La corrida no existe.", 404);
   const completedAt = new Date().toISOString();
   const run = radarRunSchema.parse({ ...JSON.parse(row.data_json), ...patch, completedAt });
@@ -130,7 +130,7 @@ export async function finishRadarRun(id: string, patch: Partial<Pick<RadarRun, "
  * que se inventó «Reinterpretar».
  */
 export async function saveRunResearch(id: string, research: RadarRun["research"]) {
-  const row = await withDatabase((database) => database.prepare("SELECT data_json FROM radar_runs WHERE id = ?").get(id) as Row | undefined);
+  const row = await withDatabase(async (database) => await database.prepare("SELECT data_json FROM radar_runs WHERE id = ?").get(id) as Row | undefined);
   if (!row) throw new RadarError("La corrida no existe.", 404);
   const run = radarRunSchema.parse({ ...JSON.parse(row.data_json), research });
   await withDatabase((database) => database.prepare("UPDATE radar_runs SET data_json = ? WHERE id = ?").run(JSON.stringify(run), id));
@@ -146,7 +146,7 @@ const STALE_RUN_MS = 45 * 60 * 1000;
 
 export async function expireStaleRuns({ now = new Date(), afterMs = STALE_RUN_MS }: { now?: Date; afterMs?: number } = {}) {
   const cutoff = new Date(now.getTime() - afterMs).toISOString();
-  const rows = await withDatabase((database) => database
+  const rows = await withDatabase(async (database) => await database
     .prepare("SELECT data_json FROM radar_runs WHERE status = 'running' AND started_at < ?")
     .all(cutoff) as Row[]);
   for (const row of rows) {
@@ -165,20 +165,20 @@ export async function expireStaleRuns({ now = new Date(), afterMs = STALE_RUN_MS
 
 /** La corrida viva, si la hay. Lo que impide que dos clics paguen dos búsquedas iguales. */
 export async function activeRadarRun() {
-  const row = await withDatabase((database) => database
+  const row = await withDatabase(async (database) => await database
     .prepare("SELECT data_json FROM radar_runs WHERE status = 'running' ORDER BY started_at DESC LIMIT 1")
     .get() as Row | undefined);
   return row ? JSON.parse(row.data_json) as RadarRun : null;
 }
 
 export async function getRadarRun(id: string) {
-  const row = await withDatabase((database) => database.prepare("SELECT data_json FROM radar_runs WHERE id = ?").get(id) as Row | undefined);
+  const row = await withDatabase(async (database) => await database.prepare("SELECT data_json FROM radar_runs WHERE id = ?").get(id) as Row | undefined);
   if (!row) throw new RadarError("La corrida no existe.", 404);
   return JSON.parse(row.data_json) as RadarRun;
 }
 
 export async function listRadarRuns({ limit = 20 }: { limit?: number } = {}) {
-  return withDatabase((database) => parseRows<RadarRun>(database
+  return withDatabase(async (database) => parseRows<RadarRun>(await database
     .prepare("SELECT data_json FROM radar_runs ORDER BY started_at DESC LIMIT ?")
     .all(Math.max(1, Math.min(200, limit)))));
 }
@@ -197,16 +197,16 @@ export async function listRadarRuns({ limit = 20 }: { limit?: number } = {}) {
 export async function saveTopics(topics: RadarTopic[], { now = new Date(), weeks = MEMORY_WEEKS }: { now?: Date; weeks?: number } = {}) {
   if (!topics.length) return { inserted: 0, skipped: 0 };
   const since = new Date(now.getTime() - weeks * 7 * DAY_MS).toISOString();
-  return withDatabase((database) => {
-    // Las huellas antiguas eran `asunto|dominios`; el `LIKE` las reconoce sin reescribir la base.
-    const exists = database.prepare("SELECT 1 FROM radar_topics WHERE created_at >= ? AND (fingerprint = ? OR fingerprint LIKE ?)");
+  return withDatabase(async (database) => {
+    // Las huellas antiguas eran `asunto|dominios`; el `ILIKE` las reconoce sin reescribir la base.
+    const exists = database.prepare("SELECT 1 FROM radar_topics WHERE created_at >= ? AND (fingerprint = ? OR fingerprint ILIKE ?)");
     const insert = database.prepare("INSERT INTO radar_topics (id, schema_version, run_id, vertical, status, score, fingerprint, origin, data_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
     let inserted = 0;
     let skipped = 0;
     for (const topic of topics) {
       const subject = fingerprintSubject(topic.fingerprint);
-      if (exists.get(since, subject, `${subject}|%`)) { skipped += 1; continue; }
-      insert.run(topic.id, 1, topic.runId, topic.vertical, topic.status, topic.score, topic.fingerprint, topic.origin, JSON.stringify(topic), topic.createdAt, topic.updatedAt);
+      if (await exists.get(since, subject, `${subject}|%`)) { skipped += 1; continue; }
+      await insert.run(topic.id, 1, topic.runId, topic.vertical, topic.status, topic.score, topic.fingerprint, topic.origin, JSON.stringify(topic), topic.createdAt, topic.updatedAt);
       inserted += 1;
     }
     return { inserted, skipped };
@@ -230,7 +230,7 @@ export async function listTopics({ status, vertical, runId, sort = "score", limi
   const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
   // El orden sale de una tabla fija, nunca del parámetro: es lo único que impide inyectar SQL.
   const order = TOPIC_SORTS[sort] ?? TOPIC_SORTS.score;
-  const topics = await withDatabase((database) => parseRows<RadarTopic>(database
+  const topics = await withDatabase(async (database) => parseRows<RadarTopic>(await database
     .prepare(`SELECT data_json FROM radar_topics ${where} ORDER BY ${order} LIMIT ?`)
     .all(...params, Math.max(1, Math.min(500, limit)))));
 
@@ -249,12 +249,12 @@ export async function listTopics({ status, vertical, runId, sort = "score", limi
 /**
  * Contadores y verticales del histórico completo. Salen de la propia base y no de leer los temas:
  * la pantalla los pide en cada carga y parsear quinientos documentos JSON para contar cuatro
- * estados es trabajo que SQLite hace con la columna que ya tiene indexada.
+ * estados es trabajo que la base hace con la columna que ya tiene indexada.
  */
 export async function topicSummary() {
-  return withDatabase((database) => {
-    const counted = database.prepare("SELECT status, COUNT(*) AS total FROM radar_topics GROUP BY status").all() as { status: string; total: number }[];
-    const verticals = database.prepare("SELECT DISTINCT vertical FROM radar_topics ORDER BY vertical ASC").all() as { vertical: string }[];
+  return withDatabase(async (database) => {
+    const counted = await database.prepare("SELECT status, COUNT(*) AS total FROM radar_topics GROUP BY status").all() as { status: string; total: number }[];
+    const verticals = await database.prepare("SELECT DISTINCT vertical FROM radar_topics ORDER BY vertical ASC").all() as { vertical: string }[];
     const byStatus = new Map(counted.map((row) => [row.status, row.total]));
     return {
       counts: Object.fromEntries(RADAR_TOPIC_STATUSES.map((status) => [status, byStatus.get(status) ?? 0])) as Record<RadarTopicStatus, number>,
@@ -264,7 +264,7 @@ export async function topicSummary() {
 }
 
 export async function getTopic(id: string) {
-  const row = await withDatabase((database) => database.prepare("SELECT data_json FROM radar_topics WHERE id = ?").get(id) as Row | undefined);
+  const row = await withDatabase(async (database) => await database.prepare("SELECT data_json FROM radar_topics WHERE id = ?").get(id) as Row | undefined);
   if (!row) throw new RadarError("El tema no existe.", 404);
   return JSON.parse(row.data_json) as RadarTopic;
 }
@@ -300,7 +300,7 @@ export const MEMORY_WEEKS = 8;
  */
 export async function recentMemory({ weeks = MEMORY_WEEKS, limit = 60, now = new Date() }: { weeks?: number; limit?: number; now?: Date } = {}) {
   const since = new Date(now.getTime() - weeks * 7 * DAY_MS).toISOString();
-  const rows = await withDatabase((database) => database
+  const rows = await withDatabase(async (database) => await database
     .prepare("SELECT fingerprint, data_json FROM radar_topics WHERE created_at >= ? ORDER BY created_at DESC LIMIT ?")
     .all(since, Math.max(1, Math.min(500, limit))) as { fingerprint: string; data_json: string }[]);
   return {
@@ -314,20 +314,21 @@ export async function recentMemory({ weeks = MEMORY_WEEKS, limit = 60, now = new
 /** Un tema puede dar varias piezas y una pieza sale de un tema: por eso tabla puente (D-02). */
 export async function linkTopicToContent({ topicId, contentItemId, format }: { topicId: string; contentItemId: string; format: string }) {
   const now = new Date().toISOString();
-  await withDatabase((database) => {
-    const topic = database.prepare("SELECT id FROM radar_topics WHERE id = ?").get(topicId);
+  await withDatabase(async (database) => {
+    const topic = await database.prepare("SELECT id FROM radar_topics WHERE id = ?").get(topicId);
     if (!topic) throw new RadarError("El tema no existe.", 404);
-    const content = database.prepare("SELECT id FROM content_items WHERE id = ? AND archived_at IS NULL").get(contentItemId);
+    const content = await database.prepare("SELECT id FROM content_items WHERE id = ? AND archived_at IS NULL").get(contentItemId);
     if (!content) throw new RadarError("La pieza no existe o está archivada.", 404);
-    database
-      .prepare("INSERT OR IGNORE INTO radar_topic_items (topic_id, content_item_id, format, created_at) VALUES (?, ?, ?, ?)")
+    await database
+      .prepare("INSERT INTO radar_topic_items (topic_id, content_item_id, format, created_at) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING")
       .run(topicId, contentItemId, format, now);
   });
   return { topicId, contentItemId, format, createdAt: now };
 }
 
 export async function topicContentItems(topicId: string) {
-  return withDatabase((database) => database
-    .prepare("SELECT content_item_id AS contentItemId, format, created_at AS createdAt FROM radar_topic_items WHERE topic_id = ? ORDER BY created_at ASC")
+  return withDatabase(async (database) => await database
+    // Postgres pasa a minúsculas los alias sin comillas: sin ellas llegaría `contentitemid`.
+    .prepare('SELECT content_item_id AS "contentItemId", format, created_at AS "createdAt" FROM radar_topic_items WHERE topic_id = ? ORDER BY created_at ASC')
     .all(topicId) as { contentItemId: string; format: string; createdAt: string }[]);
 }

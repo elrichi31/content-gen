@@ -22,7 +22,7 @@ export async function saveMetricSnapshots(incoming: IncomingSnapshot[], { fetche
   });
   if (!snapshots.length) return { inserted: 0, updated: 0 };
 
-  return withDatabase((database) => {
+  return withDatabase(async (database) => {
     const exists = database.prepare("SELECT id FROM metric_snapshots WHERE platform = ? AND property_id = ? AND dimension = ? AND dimension_value = ? AND date = ?");
     const upsert = database.prepare(`
       INSERT INTO metric_snapshots (id, schema_version, platform, property_id, dimension, dimension_value, date, data_json, fetched_at)
@@ -32,16 +32,16 @@ export async function saveMetricSnapshots(incoming: IncomingSnapshot[], { fetche
     `);
     let inserted = 0;
     let updated = 0;
-    database.exec("BEGIN");
+    await database.exec("BEGIN");
     try {
       for (const snapshot of snapshots) {
-        const previous = exists.get(snapshot.platform, snapshot.propertyId, snapshot.dimension, snapshot.dimensionValue, snapshot.date) as { id: string } | undefined;
-        upsert.run(previous?.id ?? snapshot.id, snapshot.schemaVersion, snapshot.platform, snapshot.propertyId, snapshot.dimension, snapshot.dimensionValue, snapshot.date, JSON.stringify({ ...snapshot, id: previous?.id ?? snapshot.id }), snapshot.fetchedAt);
+        const previous = await exists.get(snapshot.platform, snapshot.propertyId, snapshot.dimension, snapshot.dimensionValue, snapshot.date) as { id: string } | undefined;
+        await upsert.run(previous?.id ?? snapshot.id, snapshot.schemaVersion, snapshot.platform, snapshot.propertyId, snapshot.dimension, snapshot.dimensionValue, snapshot.date, JSON.stringify({ ...snapshot, id: previous?.id ?? snapshot.id }), snapshot.fetchedAt);
         if (previous) updated += 1; else inserted += 1;
       }
-      database.exec("COMMIT");
+      await database.exec("COMMIT");
     } catch (error) {
-      database.exec("ROLLBACK");
+      await database.exec("ROLLBACK");
       throw error;
     }
     return { inserted, updated };
@@ -63,7 +63,7 @@ export async function listMetricSnapshots({ platform, propertyId, dimension = "d
   if (endDate) { clauses.push("date <= ?"); params.push(endDate); }
   params.push(Math.min(Math.max(Math.trunc(limit), 1), 5000));
 
-  return withDatabase((database) => (database
+  return withDatabase(async (database) => (await database
     .prepare(`SELECT data_json FROM metric_snapshots WHERE ${clauses.join(" AND ")} ORDER BY date DESC, platform ASC, dimension_value ASC LIMIT ?`)
     .all(...params) as { data_json: string }[]).map((row) => JSON.parse(row.data_json) as MetricSnapshot));
 }
@@ -87,6 +87,9 @@ const WEIGHTED: Record<string, string> = {
   averageSessionDuration: "sessions",
 };
 
+/** Contadores acumulados de TikTok: sumar los días daría un número sin sentido, vale el último. */
+const GAUGES = new Set(["followerCount", "followingCount", "likesCount", "videoCount"]);
+
 /**
  * Totales de un conjunto de filas para las tarjetas de la UI. Los volúmenes se suman; las tasas
  * se recalculan y las medias se ponderan. Si falta el peso, se cae a la media simple: es peor
@@ -97,9 +100,14 @@ export function totalMetrics(snapshots: MetricSnapshot[]) {
   const counts: Record<string, number> = Object.create(null);
   const weighted: Record<string, number> = Object.create(null);
   const weights: Record<string, number> = Object.create(null);
+  const latest: Record<string, { date: string; value: number }> = Object.create(null);
 
   for (const snapshot of snapshots) {
     for (const [name, value] of Object.entries(snapshot.metrics)) {
+      if (GAUGES.has(name)) {
+        if (!latest[name] || snapshot.date >= latest[name].date) latest[name] = { date: snapshot.date, value };
+        continue;
+      }
       sums[name] = (sums[name] ?? 0) + value;
       counts[name] = (counts[name] ?? 0) + 1;
       const weight = WEIGHTED[name] === undefined ? 0 : snapshot.metrics[WEIGHTED[name]] ?? 0;
@@ -110,7 +118,7 @@ export function totalMetrics(snapshots: MetricSnapshot[]) {
     }
   }
 
-  return Object.fromEntries(Object.keys(sums).map((name) => {
+  return Object.fromEntries([...Object.keys(sums).map((name) => {
     const ratio = RATIOS[name];
     if (ratio && sums[ratio.denominator]) {
       return [name, Number(((sums[ratio.numerator] ?? 0) / sums[ratio.denominator] * ratio.scale).toFixed(2))];
@@ -121,12 +129,12 @@ export function totalMetrics(snapshots: MetricSnapshot[]) {
     }
     if (ratio) return [name, Number((sums[name] / (counts[name] || 1)).toFixed(2))];
     return [name, Math.round(sums[name])];
-  }));
+  }), ...Object.entries(latest).map(([name, { value }]) => [name, Math.round(value)])]);
 }
 
 /** Última fecha con datos por plataforma; la UI la usa para avisar si la sincronización se atrasó. */
 export async function latestMetricDates() {
-  return withDatabase((database) => Object.fromEntries((database
+  return withDatabase(async (database) => Object.fromEntries((await database
     .prepare("SELECT platform, MAX(date) AS last_date, MAX(fetched_at) AS last_sync FROM metric_snapshots GROUP BY platform")
     .all() as { platform: string; last_date: string; last_sync: string }[]).map((row) => [row.platform, { lastDate: row.last_date, lastSync: row.last_sync }])));
 }

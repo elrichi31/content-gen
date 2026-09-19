@@ -1,47 +1,35 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import { createTestDatabase } from "../../../../scripts/test-db.mjs";
 
-const root = await mkdtemp(join(tmpdir(), "content-gen-costs-"));
-process.env.DATABASE_URL = `file:${join(root, "costs.sqlite")}`;
+const testDb = await createTestDatabase();
+process.env.DATABASE_URL = testDb.url;
 process.env.COST_BUDGET_MONTHLY = "10";
 
-const database = new DatabaseSync(join(root, "costs.sqlite"));
-database.exec(`
-  CREATE TABLE campaigns (id TEXT PRIMARY KEY);
-  CREATE TABLE content_items (id TEXT PRIMARY KEY, campaign_id TEXT NOT NULL, type TEXT NOT NULL, document_json TEXT NOT NULL, archived_at TEXT);
-  CREATE TABLE generation_runs (
-    id TEXT PRIMARY KEY, schema_version INTEGER NOT NULL, content_item_id TEXT, radar_topic_id TEXT,
-    operation TEXT NOT NULL, provider TEXT NOT NULL, status TEXT NOT NULL, cost_amount REAL,
-    data_json TEXT NOT NULL, created_at TEXT NOT NULL, completed_at TEXT
-  );
-`);
-database.prepare("INSERT INTO campaigns VALUES (?)").run("campaign");
-database.prepare("INSERT INTO content_items VALUES (?, ?, ?, ?, ?)").run("video-1", "campaign", "video", JSON.stringify({ document: { data: { title: "Video caro" } } }), null);
-database.prepare("INSERT INTO content_items VALUES (?, ?, ?, ?, ?)").run("carrusel-1", "campaign", "carousel", JSON.stringify({ document: { data: { title: "Carrusel barato" } } }), null);
+const seededAt = "2026-08-01T00:00:00.000Z";
+await testDb.query("INSERT INTO campaigns (id, schema_version, data_json, created_at, updated_at) VALUES ('campaign', 1, '{}', $1, $1)", [seededAt]);
+const addItem = (id: string, type: string, title: string) => testDb.query("INSERT INTO content_items (id, schema_version, campaign_id, type, document_json, created_at, updated_at) VALUES ($1, 1, 'campaign', $2, $3, $4, $4)", [id, type, JSON.stringify({ document: { data: { title } } }), seededAt]);
+await addItem("video-1", "video", "Video caro");
+await addItem("carrusel-1", "carousel", "Carrusel barato");
 
 let counter = 0;
-const addRun = (run: { operation: string; provider?: string; status?: string; cost: number | null; durationMs?: number; contentItemId?: string | null; createdAt?: string }) => {
+const addRun = async (run: { operation: string; provider?: string; status?: string; cost: number | null; durationMs?: number; contentItemId?: string | null; createdAt?: string }) => {
   counter += 1;
   const data = { durationMs: run.durationMs ?? 1000 };
-  database.prepare("INSERT INTO generation_runs (id, schema_version, content_item_id, radar_topic_id, operation, provider, status, cost_amount, data_json, created_at, completed_at) VALUES (?, 1, ?, NULL, ?, ?, ?, ?, ?, ?, ?)")
-    .run(`run-${counter}`, run.contentItemId ?? null, run.operation, run.provider ?? "openai", run.status ?? "completed", run.cost, JSON.stringify(data), run.createdAt ?? "2026-08-10T12:00:00.000Z", "2026-08-10T12:00:05.000Z");
+  await testDb.query("INSERT INTO generation_runs (id, schema_version, content_item_id, radar_topic_id, operation, provider, status, cost_amount, data_json, created_at, completed_at) VALUES ($1, 1, $2, NULL, $3, $4, $5, $6, $7, $8, $9)",
+    [`run-${counter}`, run.contentItemId ?? null, run.operation, run.provider ?? "openai", run.status ?? "completed", run.cost, JSON.stringify(data), run.createdAt ?? "2026-08-10T12:00:00.000Z", "2026-08-10T12:00:05.000Z"]);
 };
 
-addRun({ operation: "article-research", cost: 0.05, durationMs: 30000 });
-addRun({ operation: "article-write", cost: 0.02, durationMs: 8000 });
-addRun({ operation: "video-scene-image", cost: 0.005, contentItemId: "video-1", durationMs: 4000 });
-addRun({ operation: "video-scene-image", cost: 0.005, contentItemId: "video-1", durationMs: 6000 });
-addRun({ operation: "carousel-generate", cost: 0.01, contentItemId: "carrusel-1" });
+await addRun({ operation: "article-research", cost: 0.05, durationMs: 30000 });
+await addRun({ operation: "article-write", cost: 0.02, durationMs: 8000 });
+await addRun({ operation: "video-scene-image", cost: 0.005, contentItemId: "video-1", durationMs: 4000 });
+await addRun({ operation: "video-scene-image", cost: 0.005, contentItemId: "video-1", durationMs: 6000 });
+await addRun({ operation: "carousel-generate", cost: 0.01, contentItemId: "carrusel-1" });
 // Cerrado sin importe: hueco contable. Distinto de uno en curso, que todavía no lo es.
-addRun({ operation: "video-scene-audio", provider: "elevenlabs", cost: null, contentItemId: "video-1" });
-addRun({ operation: "carousel-generate", status: "running", cost: null, contentItemId: "carrusel-1" });
-addRun({ operation: "carousel-generate", status: "failed", cost: 0, contentItemId: "carrusel-1" });
+await addRun({ operation: "video-scene-audio", provider: "elevenlabs", cost: null, contentItemId: "video-1" });
+await addRun({ operation: "carousel-generate", status: "running", cost: null, contentItemId: "carrusel-1" });
+await addRun({ operation: "carousel-generate", status: "failed", cost: 0, contentItemId: "carrusel-1" });
 // Fuera del mes consultado: no debe contarse.
-addRun({ operation: "article-write", cost: 99, createdAt: "2026-07-10T12:00:00.000Z" });
-database.close();
+await addRun({ operation: "article-write", cost: 99, createdAt: "2026-07-10T12:00:00.000Z" });
 
 const { costReport, currentMonth, monthRange, CostReportError } = await import("./generation-costs.ts");
 
@@ -84,5 +72,5 @@ assert.equal(currentMonth(new Date(2026, 7, 18)), "2026-08", "el mes actual usa 
 process.env.COST_BUDGET_MONTHLY = "-5";
 await assert.rejects(() => costReport({ month: "2026-08" }), /positivo/, "un presupuesto inválido se detecta en vez de ignorarse");
 
-await rm(root, { recursive: true, force: true });
+await testDb.drop();
 console.log("Costos (informe): totales del mes, presupuesto, promedios por operación, proveedores y piezas caras validados.");

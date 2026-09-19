@@ -1,9 +1,6 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import { repairDatabaseEncoding, repairText } from "./repair-text-encoding.mjs";
+import { createTestDatabase } from "./test-db.mjs";
 
 const BROKEN = "Campa�a integraci�n";
 
@@ -11,30 +8,28 @@ assert.deepEqual(repairText(BROKEN), { repaired: "Campaña integración", unknow
 assert.deepEqual(repairText("Zzz�zz"), { repaired: "Zzz�zz", unknown: ["Zzz�zz"] }, "no adivina palabras fuera del diccionario");
 assert.deepEqual(repairText("Campaña sana"), { repaired: "Campaña sana", unknown: [] }, "deja intacto el texto correcto");
 
-const root = await mkdtemp(join(tmpdir(), "content-gen-encoding-"));
+// Base sin las migraciones de la app: solo las dos tablas que la reparación tiene que distinguir.
+const testDb = await createTestDatabase({ migrated: false });
 try {
-  const path = join(root, "test.sqlite");
-  const database = new DatabaseSync(path);
-  database.exec("CREATE TABLE campaigns (id TEXT PRIMARY KEY, data_json TEXT, created_at TEXT); CREATE TABLE numbers (id INTEGER PRIMARY KEY, total INTEGER);");
-  database.prepare("INSERT INTO campaigns VALUES (?, ?, ?)").run("uno", JSON.stringify({ name: BROKEN }), "2026-08-02");
-  database.prepare("INSERT INTO campaigns VALUES (?, ?, ?)").run("dos", JSON.stringify({ name: "Sin problemas" }), "2026-08-02");
-  database.prepare("INSERT INTO campaigns VALUES (?, ?, ?)").run("tres", JSON.stringify({ name: "Otro�caso" }), "2026-08-02");
-  database.prepare("INSERT INTO numbers VALUES (?, ?)").run(1, 42);
-  database.close();
+  await testDb.query("CREATE TABLE campaigns (id TEXT PRIMARY KEY, data_json TEXT, created_at TEXT); CREATE TABLE numbers (id INTEGER PRIMARY KEY, total INTEGER);");
+  const insert = (id, name) => testDb.query("INSERT INTO campaigns VALUES ($1, $2, $3)", [id, JSON.stringify({ name }), "2026-08-02"]);
+  await insert("uno", BROKEN);
+  await insert("dos", "Sin problemas");
+  await insert("tres", "Otro�caso");
+  await testDb.query("INSERT INTO numbers VALUES (1, 42)");
 
-  const report = repairDatabaseEncoding(path);
+  const report = await repairDatabaseEncoding(testDb.url);
   assert.equal(report.repaired, 1, "solo reescribe las filas que cambian");
   assert.deepEqual(report.changes[0], { table: "campaigns", column: "data_json", id: "uno" });
   assert.deepEqual(report.unknown, { "Otro�caso": 1 }, "reporta lo que no sabe reparar sin tocarlo");
 
-  const check = new DatabaseSync(path);
-  assert.equal(JSON.parse(check.prepare("SELECT data_json FROM campaigns WHERE id = ?").get("uno").data_json).name, "Campaña integración");
-  assert.equal(JSON.parse(check.prepare("SELECT data_json FROM campaigns WHERE id = ?").get("tres").data_json).name, "Otro�caso");
-  assert.equal(check.prepare("SELECT total FROM numbers WHERE id = 1").get().total, 42, "no toca columnas que no son texto");
-  check.close();
+  const nameOf = async (id) => JSON.parse((await testDb.query("SELECT data_json FROM campaigns WHERE id = $1", [id]))[0].data_json).name;
+  assert.equal(await nameOf("uno"), "Campaña integración");
+  assert.equal(await nameOf("tres"), "Otro�caso");
+  assert.equal((await testDb.query("SELECT total FROM numbers WHERE id = 1"))[0].total, 42, "no toca columnas que no son texto");
 
-  assert.equal(repairDatabaseEncoding(path).repaired, 0, "es idempotente");
+  assert.equal((await repairDatabaseEncoding(testDb.url)).repaired, 0, "es idempotente");
   console.log("Reparación de codificación: diccionario, alcance e idempotencia validados.");
 } finally {
-  await rm(root, { recursive: true, force: true });
+  await testDb.drop();
 }

@@ -6,7 +6,7 @@ export async function GET(request: Request) {
   const query = new URL(request.url).searchParams; const campaignId = query.get("campaignId"); const kind = query.get("kind") ?? "all";
   if (!campaignId || !["all", "image", "audio", "video"].includes(kind)) return NextResponse.json({ error: "Filtro de assets inválido." }, { status: 400 });
   if (!await withDatabase((db) => db.prepare("SELECT id FROM campaigns WHERE id = ? AND archived_at IS NULL").get(campaignId))) return NextResponse.json({ error: "Campaña inválida." }, { status: 400 });
-  const rows = await withDatabase((db) => db.prepare(`SELECT data_json FROM assets WHERE json_extract(data_json, '$.campaignId') = ?${kind === "all" ? "" : " AND json_extract(data_json, '$.mimeType') LIKE ?"} ORDER BY created_at DESC LIMIT 100`).all(...(kind === "all" ? [campaignId] : [campaignId, `${kind}/%`])) as { data_json: string }[]);
+  const rows = await withDatabase(async (db) => await db.prepare(`SELECT data_json FROM assets WHERE (data_json::jsonb->>'campaignId') = ?${kind === "all" ? "" : " AND (data_json::jsonb->>'mimeType') LIKE ?"} ORDER BY created_at DESC LIMIT 100`).all(...(kind === "all" ? [campaignId] : [campaignId, `${kind}/%`])) as { data_json: string }[]);
   return NextResponse.json(rows.map(({ data_json }) => { const asset = JSON.parse(data_json); return { ...asset, url: `/api/assets/${asset.id}` }; }));
 }
 

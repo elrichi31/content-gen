@@ -4,7 +4,7 @@ import { z } from "zod";
  * Modelo único para métricas externas: cada fila es un valor diario de una plataforma
  * para una dimensión concreta. Instagram y TikTok entran aquí sin tocar el esquema.
  */
-export const METRIC_PLATFORMS = ["search-console", "google-analytics"] as const;
+export const METRIC_PLATFORMS = ["search-console", "google-analytics", "tiktok"] as const;
 export type MetricPlatform = (typeof METRIC_PLATFORMS)[number];
 
 /** Dimensión "total" para la fila agregada del día (sin desglose). */

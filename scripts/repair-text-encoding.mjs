@@ -1,5 +1,5 @@
-import { resolve } from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import pg from "pg";
+import { adaptClient } from "../apps/studio/src/lib/db.ts";
 
 /**
  * Repara los textos que quedaron con el carácter de reemplazo (U+FFFD) en lugar
@@ -34,39 +34,51 @@ export function repairText(value) {
   return { repaired, unknown };
 }
 
-const TEXT_COLUMN = /TEXT/i;
-
-export function repairDatabaseEncoding(databasePath) {
-  const database = new DatabaseSync(resolve(databasePath));
+export async function repairDatabaseEncoding(databaseUrl) {
+  const client = new pg.Client({ connectionString: databaseUrl });
+  await client.connect();
+  const database = adaptClient(client);
   const changes = [];
   const unknown = new Map();
   try {
-    const tables = database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").all().map((row) => row.name);
-    for (const table of tables) {
-      const columns = database.prepare(`PRAGMA table_info(${table})`).all();
-      const key = columns.find((column) => column.pk)?.name;
-      const texts = columns.filter((column) => TEXT_COLUMN.test(column.type ?? "") && column.name !== key).map((column) => column.name);
-      if (!key || !texts.length) continue;
-      for (const row of database.prepare(`SELECT * FROM ${table}`).all()) {
+    // Solo columnas de texto de tablas con clave primaria simple (así se sabe qué fila reescribir);
+    // el historial de migraciones no es contenido y no se toca.
+    const columns = await database.prepare(`
+      SELECT c.table_name AS "table", c.column_name AS "column",
+             (SELECT MIN(k.column_name) FROM information_schema.table_constraints t
+                JOIN information_schema.key_column_usage k ON k.constraint_name = t.constraint_name AND k.table_schema = t.table_schema
+               WHERE t.table_schema = 'public' AND t.table_name = c.table_name AND t.constraint_type = 'PRIMARY KEY'
+               GROUP BY k.constraint_name HAVING COUNT(*) = 1) AS "key"
+        FROM information_schema.columns c
+        JOIN information_schema.tables tb ON tb.table_schema = c.table_schema AND tb.table_name = c.table_name AND tb.table_type = 'BASE TABLE'
+       WHERE c.table_schema = 'public' AND c.data_type = 'text' AND c.table_name <> 'pgmigrations'
+       ORDER BY c.table_name, c.ordinal_position`).all();
+    const byTable = new Map();
+    for (const { table, column, key } of columns) {
+      if (!key || column === key) continue;
+      byTable.set(table, { key, texts: [...(byTable.get(table)?.texts ?? []), column] });
+    }
+    for (const [table, { key, texts }] of byTable) {
+      for (const row of await database.prepare(`SELECT * FROM "${table}"`).all()) {
         for (const column of texts) {
           const value = row[column];
           if (typeof value !== "string" || !value.includes("�")) continue;
           const { repaired, unknown: missing } = repairText(value);
           for (const word of missing) unknown.set(word, (unknown.get(word) ?? 0) + 1);
           if (repaired === value) continue;
-          database.prepare(`UPDATE ${table} SET ${column} = ? WHERE ${key} = ?`).run(repaired, row[key]);
+          await database.prepare(`UPDATE "${table}" SET "${column}" = ? WHERE "${key}" = ?`).run(repaired, row[key]);
           changes.push({ table, column, id: String(row[key]) });
         }
       }
     }
   } finally {
-    database.close();
+    await client.end();
   }
   return { repaired: changes.length, changes, unknown: Object.fromEntries(unknown) };
 }
 
 if (process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, "/"))) {
   const url = process.env.DATABASE_URL;
-  if (!url?.startsWith("file:")) throw new Error("DATABASE_URL debe ser una ruta local con prefijo file:.");
-  console.log(JSON.stringify(repairDatabaseEncoding(url.slice("file:".length)), null, 2));
+  if (!url || !/^postgres(ql)?:\/\//.test(url)) throw new Error("DATABASE_URL debe ser una URL de Postgres.");
+  console.log(JSON.stringify(await repairDatabaseEncoding(url), null, 2));
 }

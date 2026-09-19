@@ -1,55 +1,68 @@
-import { spawn } from "node:child_process";
+import { bundle } from "@remotion/bundler";
+import { renderMedia, selectComposition } from "@remotion/renderer";
 import { createHash, randomUUID } from "node:crypto";
-import { createReadStream, existsSync, mkdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { createReadStream, existsSync, mkdirSync, rmSync, statSync } from "node:fs";
 import { copyFile, readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import { clearInterval, setInterval } from "node:timers";
+import pg from "pg";
 
 const jobArgumentIndex = process.argv.indexOf("--job");
 const jobPath = jobArgumentIndex === -1 ? undefined : process.argv[jobArgumentIndex + 1];
 const idArgumentIndex = process.argv.indexOf("--id");
 const requestedJobId = idArgumentIndex === -1 ? undefined : process.argv[idArgumentIndex + 1];
 const now = () => new Date().toISOString();
-const update = (database, job, patch) => {
+const MAX_LOG_LINES = 60;
+const update = async (database, job, patch) => {
   const next = { ...job, ...patch, updatedAt: now() };
-  return database.prepare("UPDATE render_jobs SET data_json = ? WHERE id = ? AND json_extract(data_json, '$.status') != 'cancelled'").run(JSON.stringify(next), job.id).changes ? next : null;
+  const result = await database.query("UPDATE render_jobs SET data_json = $1 WHERE id = $2 AND (data_json::jsonb->>'status') != 'cancelled'", [JSON.stringify(next), job.id]);
+  return result.rowCount ? next : null;
 };
 
-function reportProgress(database, jobId, progress) {
+/**
+ * Progreso y "consola" del render viven en la misma fila: cada tick escribe el % y,
+ * si hay una línea nueva, la agrega al log (recortado a las últimas MAX_LOG_LINES) para
+ * que el panel de la app pueda mostrar qué está haciendo Remotion en vivo, sin abrir nada
+ * fuera del navegador.
+ */
+async function reportProgress(database, jobId, patch) {
   try {
-    const row = database.prepare("SELECT data_json FROM render_jobs WHERE id = ?").get(jobId);
+    const row = (await database.query("SELECT data_json FROM render_jobs WHERE id = $1", [jobId])).rows[0];
     if (!row) return;
     const job = JSON.parse(row.data_json);
-    if (job.status === "processing") update(database, job, progress === undefined ? {} : { progress });
+    if (job.status !== "processing") return;
+    const next = {};
+    if (patch.progress !== undefined) next.progress = patch.progress;
+    if (patch.log) next.log = [...(job.log ?? []), patch.log].slice(-MAX_LOG_LINES);
+    if (Object.keys(next).length) await update(database, job, next);
   } catch {
-    // La recuperación automática reintenta el job si SQLite falla o el worker cae.
+    // La recuperación automática reintenta el job si la base falla o el worker cae.
   }
 }
 
+/**
+ * Remotion avisa del progreso con callbacks síncronos, y cada aviso es leer-modificar-escribir sobre
+ * la misma fila. Encadenarlos evita que dos avisos solapados lean el mismo estado y uno pise al otro
+ * (con SQLite eran síncronos y esa carrera no existía). `flush()` espera a que se vacíe la cola.
+ */
+function progressQueue(database, jobId) {
+  let chain = Promise.resolve();
+  return {
+    report(patch) { chain = chain.then(() => reportProgress(database, jobId, patch)); },
+    flush: () => chain,
+  };
+}
+
 // Reclamar es atómico: si otro worker ya tomó el job, esta actualización no cambia filas.
-const claim = (database, job, patch) => {
+const claim = async (database, job, patch) => {
   const next = { ...job, ...patch };
-  return database.prepare("UPDATE render_jobs SET data_json = ? WHERE id = ? AND json_extract(data_json, '$.status') = 'queued'").run(JSON.stringify(next), job.id).changes ? next : null;
+  const result = await database.query("UPDATE render_jobs SET data_json = $1 WHERE id = $2 AND (data_json::jsonb->>'status') = 'queued'", [JSON.stringify(next), job.id]);
+  return result.rowCount ? next : null;
 };
 
 /**
- * Remotion informa "Rendered X/Y" mientras dibuja los frames y "Encoded X/Y" al
- * codificar el MP4. Se traduce a 10-95% para que la barra de la app avance de
- * verdad en vez de quedarse clavada durante todo el render.
- */
-export function parseRenderProgress(line) {
-  const ratio = (done, total) => Math.min(1, Math.max(0, Number(done) / Number(total) || 0));
-  const rendered = /Rendered (\d+)\/(\d+)/.exec(line);
-  if (rendered) return 10 + Math.round(ratio(rendered[1], rendered[2]) * 65);
-  const encoded = /Encoded (\d+)\/(\d+)/.exec(line);
-  if (encoded) return 75 + Math.round(ratio(encoded[1], encoded[2]) * 20);
-  return null;
-}
-
-/**
- * La salida de Remotion termina en un stack larguísimo con códigos ANSI: para la
- * app vale más la línea que explica el fallo que los últimos mil caracteres.
+ * Los mensajes de Remotion (CLI o SDK) pueden traer un stack larguísimo con códigos ANSI:
+ * para la app vale más la línea que explica el fallo que los últimos mil caracteres.
  */
 export function renderErrorMessage(output) {
   // eslint-disable-next-line no-control-regex
@@ -62,26 +75,37 @@ export function renderErrorMessage(output) {
   return (picked || clean).slice(0, 1000);
 }
 
-function runRemotion(job, outputPath, propsPath, onProgress) {
-  const command = process.platform === "win32" ? "npx.cmd" : "npx";
-  const args = ["remotion", "render", resolve(process.cwd(), "packages/video-engine/src/index.ts"), job.compositionId, outputPath, `--props=${propsPath}`];
-  const child = spawn(command, args, { cwd: process.cwd(), shell: process.platform === "win32" });
-  let output = "";
-  let reported = 10;
-  const read = (chunk) => {
-    const text = chunk.toString();
-    output = (output + text).slice(-4000);
-    for (const line of text.split(/[\r\n]+/)) {
-      const progress = parseRenderProgress(line);
-      if (progress !== null && progress > reported) { reported = progress; onProgress(progress); }
-    }
-  };
-  child.stdout.on("data", read);
-  child.stderr.on("data", read);
-  return new Promise((resolveRun) => {
-    child.on("error", (error) => resolveRun({ status: 1, output: error.message }));
-    child.on("close", (status) => resolveRun({ status, output }));
+/**
+ * Renderiza en el mismo proceso con el SDK de Remotion (@remotion/bundler + @remotion/renderer)
+ * en vez de invocar `npx remotion render` como subproceso: nada de ventanas de consola en
+ * Windows, y el progreso llega como números en vez de tener que parsear texto de stdout.
+ */
+async function runRemotionRender(job, outputPath, onUpdate) {
+  const entryPoint = resolve(process.cwd(), "packages/video-engine/src/index.ts");
+  onUpdate({ log: "Empaquetando la composición…" });
+  const serveUrl = await bundle({ entryPoint });
+
+  onUpdate({ log: `Resolviendo la composición "${job.compositionId}"…` });
+  const composition = await selectComposition({ serveUrl, id: job.compositionId, inputProps: job.inputProps });
+  onUpdate({ log: `Renderizando ${composition.durationInFrames} frames a ${composition.fps}fps (${composition.width}x${composition.height})…` });
+
+  let lastLoggedStep = -1;
+  await renderMedia({
+    composition,
+    serveUrl,
+    codec: "h264",
+    outputLocation: outputPath,
+    inputProps: job.inputProps,
+    onProgress: ({ progress, renderedFrames, encodedFrames }) => {
+      onUpdate({ progress: 10 + Math.round(progress * 85) });
+      const step = Math.floor(progress * 20); // una línea cada ~5% para no inundar el log
+      if (step !== lastLoggedStep) {
+        lastLoggedStep = step;
+        onUpdate({ log: `Frame ${renderedFrames}/${composition.durationInFrames} · codificado ${encodedFrames}/${composition.durationInFrames}` });
+      }
+    },
   });
+  onUpdate({ log: "Render de video completo, guardando MP4…" });
 }
 
 function hashFile(path) {
@@ -94,14 +118,22 @@ function hashFile(path) {
 async function saveExport(database, job, outputPath, mediaRoot) {
   const sizeBytes = statSync(outputPath).size;
   if (!sizeBytes) throw new Error("El MP4 renderizado está vacío.");
-  const content = database.prepare("SELECT campaign_id FROM content_items WHERE id = ? AND archived_at IS NULL").get(job.contentItemId);
+  const content = (await database.query("SELECT campaign_id FROM content_items WHERE id = $1 AND archived_at IS NULL", [job.contentItemId])).rows[0];
   if (!content) throw new Error("El contenido ya no está disponible para guardar el MP4.");
   const hash = await hashFile(outputPath); const storageKey = `assets/${hash}.mp4`; const target = resolve(mediaRoot, storageKey);
   mkdirSync(dirname(target), { recursive: true }); if (!existsSync(target)) await copyFile(outputPath, target);
   const createdAt = now(); const asset = { id: randomUUID(), schemaVersion: 1, filename: `${job.id}.mp4`, mimeType: "video/mp4", sizeBytes, storageKey, campaignId: content.campaign_id, contentItemId: job.contentItemId, createdAt };
   const exported = { id: randomUUID(), schemaVersion: 1, contentItemId: job.contentItemId, format: "mp4", assetId: asset.id, createdAt };
-  database.prepare("INSERT INTO assets (id, schema_version, data_json, created_at) VALUES (?, ?, ?, ?)").run(asset.id, 1, JSON.stringify(asset), createdAt);
-  database.prepare("INSERT INTO exports (id, schema_version, content_item_id, asset_id, data_json, created_at) VALUES (?, ?, ?, ?, ?, ?)").run(exported.id, 1, job.contentItemId, asset.id, JSON.stringify(exported), createdAt);
+  // Juntos o ninguno: un asset sin su export (o al revés) dejaría el MP4 huérfano en la biblioteca.
+  await database.query("BEGIN");
+  try {
+    await database.query("INSERT INTO assets (id, schema_version, data_json, created_at) VALUES ($1, $2, $3, $4)", [asset.id, 1, JSON.stringify(asset), createdAt]);
+    await database.query("INSERT INTO exports (id, schema_version, content_item_id, asset_id, data_json, created_at) VALUES ($1, $2, $3, $4, $5, $6)", [exported.id, 1, job.contentItemId, asset.id, JSON.stringify(exported), createdAt]);
+    await database.query("COMMIT");
+  } catch (error) {
+    await database.query("ROLLBACK");
+    throw error;
+  }
   return asset;
 }
 
@@ -114,39 +146,45 @@ async function validateFixture() {
 
 async function processNext(jobId) {
   const url = process.env.DATABASE_URL;
-  if (!url?.startsWith("file:") || url.includes("..")) throw new Error("DATABASE_URL debe ser una ruta local segura con prefijo file:.");
-  const databasePath = resolve(url.slice("file:".length)); const mediaRoot = resolve(dirname(databasePath), "media"); const database = new DatabaseSync(databasePath);
+  if (!url || !/^postgres(ql)?:\/\//.test(url)) throw new Error("DATABASE_URL debe ser una URL de Postgres (postgres://usuario:clave@host:puerto/base).");
+  // `renders/` y `media/` cuelgan de STORAGE_ROOT; el worker corre con cwd en la raíz del repo.
+  const storageRoot = resolve(process.env.STORAGE_ROOT ?? "storage"); const mediaRoot = resolve(storageRoot, "media");
+  const database = new pg.Client({ connectionString: url });
+  await database.connect();
+  const latestOf = async (id) => JSON.parse((await database.query("SELECT data_json FROM render_jobs WHERE id = $1", [id])).rows[0].data_json);
   try {
-    const row = database.prepare(`SELECT data_json FROM render_jobs WHERE json_extract(data_json, '$.status') = 'queued'${jobId ? " AND id = ?" : ""} ORDER BY created_at LIMIT 1`).get(...(jobId ? [jobId] : []));
+    const row = (await database.query(`SELECT data_json FROM render_jobs WHERE (data_json::jsonb->>'status') = 'queued'${jobId ? " AND id = $1" : ""} ORDER BY created_at LIMIT 1`, jobId ? [jobId] : [])).rows[0];
     if (!row) return console.log(JSON.stringify({ status: "idle" }));
     const job = JSON.parse(row.data_json);
-    const claimed = claim(database, job, { status: "processing", progress: 10 });
+    const claimed = await claim(database, job, { status: "processing", progress: 10, log: ["Job reclamado, arrancando el render…"] });
     if (!claimed) return console.log(JSON.stringify({ id: job.id, status: "taken" }));
-    const outputPath = resolve(dirname(databasePath), "renders", `${job.id}.mp4`);
-    const propsPath = resolve(dirname(databasePath), "renders", `${job.id}.json`);
-    const heartbeat = setInterval(() => reportProgress(database, job.id), 15_000);
+    const outputPath = resolve(storageRoot, "renders", `${job.id}.mp4`);
+    const progress = progressQueue(database, job.id);
+    const heartbeat = setInterval(() => progress.report({}), 15_000);
     heartbeat.unref();
     try {
       if (!["StandardVideo", "TimelineVideo"].includes(job.compositionId)) throw new Error("La composición de video no está registrada.");
-      mkdirSync(dirname(outputPath), { recursive: true }); writeFileSync(propsPath, JSON.stringify(job.inputProps));
-      const render = await runRemotion(job, outputPath, propsPath, (progress) => reportProgress(database, job.id, progress));
-      if (render.status !== 0) throw new Error(renderErrorMessage(render.output));
-      const latest = JSON.parse(database.prepare("SELECT data_json FROM render_jobs WHERE id = ?").get(job.id).data_json);
+      mkdirSync(dirname(outputPath), { recursive: true });
+      await runRemotionRender(job, outputPath, (patch) => progress.report(patch));
+      await progress.flush();
+      const latest = await latestOf(job.id);
       if (latest.status === "cancelled") return console.log(JSON.stringify({ id: latest.id, status: "cancelled" }));
       const asset = await saveExport(database, job, outputPath, mediaRoot);
-      const completed = update(database, claimed, { status: "completed", progress: 100, outputAssetId: asset.id, completedAt: now(), error: null });
+      const completed = await update(database, claimed, { status: "completed", progress: 100, outputAssetId: asset.id, completedAt: now(), error: null, log: [...(latest.log ?? []), "Listo."].slice(-MAX_LOG_LINES) });
       console.log(JSON.stringify({ id: job.id, status: completed?.status ?? "cancelled", assetId: asset.id }));
     } catch (error) {
-      const latest = JSON.parse(database.prepare("SELECT data_json FROM render_jobs WHERE id = ?").get(job.id).data_json);
+      await progress.flush();
+      const latest = await latestOf(job.id);
       if (latest.status === "cancelled") return console.log(JSON.stringify({ id: latest.id, status: "cancelled" }));
-      const failed = update(database, latest, { status: "failed", completedAt: now(), error: error instanceof Error ? error.message.slice(0, 1000) : "Error de render desconocido." });
+      const message = renderErrorMessage(error instanceof Error ? (error.stack ?? error.message) : String(error));
+      const failed = await update(database, latest, { status: "failed", completedAt: now(), error: message, log: [...(latest.log ?? []), `Error: ${message}`].slice(-MAX_LOG_LINES) });
       console.log(JSON.stringify({ id: job.id, status: failed?.status ?? "cancelled", error: failed?.error }));
     } finally {
       clearInterval(heartbeat);
-      if (existsSync(outputPath)) rmSync(outputPath, { force: true }); if (existsSync(propsPath)) rmSync(propsPath, { force: true });
+      if (existsSync(outputPath)) rmSync(outputPath, { force: true });
     }
   } finally {
-    database.close();
+    await database.end();
   }
 }
 

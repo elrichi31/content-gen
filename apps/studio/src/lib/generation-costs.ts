@@ -54,7 +54,7 @@ export async function costReport({ month = currentMonth() }: { month?: string } 
   const { from, to } = monthRange(month);
   const pricing = safePricing();
 
-  const rows = await withDatabase((database) => database
+  const rows = await withDatabase(async (database) => await database
     .prepare("SELECT operation, provider, status, cost_amount, data_json, content_item_id FROM generation_runs WHERE created_at >= ? AND created_at < ? ORDER BY created_at DESC")
     .all(from, to) as RunRow[]);
 
@@ -134,7 +134,7 @@ function safePricing() {
 
 async function withTitles(items: { contentItemId: string; runs: number; total: number }[]) {
   if (!items.length) return [] as (typeof items[number] & { title: string; type: string | null })[];
-  const rows = await withDatabase((database) => database
+  const rows = await withDatabase(async (database) => await database
     .prepare(`SELECT id, type, document_json FROM content_items WHERE id IN (${items.map(() => "?").join(", ")})`)
     .all(...items.map((item) => item.contentItemId)) as { id: string; type: string; document_json: string }[]);
   const found = new Map(rows.map((row) => [row.id, row]));
@@ -153,10 +153,10 @@ async function withTitles(items: { contentItemId: string; runs: number; total: n
  */
 export async function monthSpend({ month = currentMonth() }: { month?: string } = {}) {
   const { from, to } = monthRange(month);
-  const rows = await withDatabase((database) => database
+  const rows = await withDatabase(async (database) => await database
     .prepare("SELECT COALESCE(SUM(cost_amount), 0) AS total FROM generation_runs WHERE created_at >= ? AND created_at < ?")
     .get(from, to) as { total: number });
-  const radar = await withDatabase((database) => database
+  const radar = await withDatabase(async (database) => await database
     .prepare("SELECT COALESCE(SUM(cost_amount), 0) AS total FROM radar_runs WHERE created_at >= ? AND created_at < ?")
     .get(from, to) as { total: number });
   // Las operaciones del radar ya están en generation_runs; radar_runs agrega lo mismo. Se toma el

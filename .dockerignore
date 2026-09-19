@@ -1,0 +1,22 @@
+# Lo que NO entra a la imagen: dependencias (se instalan dentro), datos locales y secretos.
+**/node_modules
+**/.next
+.git
+.claude
+.codegraph
+.impeccable
+**/.impeccable
+
+# Datos y medios: en despliegue viven en un volumen, no en la imagen (en local pesan decenas de GB).
+storage
+
+# Secretos y configuración local
+.env
+.env.*
+!.env.example
+
+**/*.tsbuildinfo
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+docker-compose.dev.yml

@@ -1,11 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Ban, Download, Film, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 type Status = "queued" | "processing" | "completed" | "failed" | "cancelled";
-type RenderJob = { id: string; status: Status; progress: number; outputAssetId: string | null; error: string | null; createdAt: string };
+type RenderJob = { id: string; status: Status; progress: number; outputAssetId: string | null; error: string | null; createdAt: string; log?: string[] };
 
 const label: Record<Status, string> = { queued: "En cola", processing: "Renderizando", completed: "Listo", failed: "Falló", cancelled: "Cancelado" };
 const tone: Record<Status, string> = { queued: "text-muted-foreground", processing: "text-primary", completed: "text-primary", failed: "text-destructive", cancelled: "text-muted-foreground" };
@@ -15,6 +15,7 @@ export function VideoRenderPanel({ contentItemId, unsavedChanges }: { contentIte
   const [job, setJob] = useState<RenderJob | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const consoleRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
     if (!contentItemId) return setJob(null);
@@ -31,6 +32,10 @@ export function VideoRenderPanel({ contentItemId, unsavedChanges }: { contentIte
     const timer = setInterval(() => { void load(); }, 2000);
     return () => clearInterval(timer);
   }, [job, load]);
+
+  useEffect(() => {
+    if (consoleRef.current) consoleRef.current.scrollTop = consoleRef.current.scrollHeight;
+  }, [job?.log]);
 
   async function call(request: () => Promise<Response>) {
     setError("");
@@ -71,6 +76,19 @@ export function VideoRenderPanel({ contentItemId, unsavedChanges }: { contentIte
           </div>
           {job.status === "queued" ? (
             <p className="text-[10px] leading-relaxed text-muted-foreground">En cola. El render arranca solo y esta barra se actualiza sola.</p>
+          ) : null}
+          {job.log && job.log.length > 0 ? (
+            <div
+              ref={consoleRef}
+              className="max-h-32 overflow-y-auto rounded-md border border-border bg-surface-secondary p-2 font-mono text-[11px] leading-relaxed text-muted-foreground"
+            >
+              {job.log.map((line, index) => (
+                <p key={index} className="whitespace-pre-wrap break-words">
+                  <span className="select-none text-muted-foreground/50">$ </span>
+                  {line}
+                </p>
+              ))}
+            </div>
           ) : null}
           {job.error ? <p className="max-h-24 overflow-y-auto whitespace-pre-wrap break-words text-xs text-destructive">{job.error}</p> : null}
         </div>

@@ -1,13 +1,13 @@
 "use client";
 
 import type { MetricSnapshot } from "@content-gen/domain/analytics";
-import { AlertTriangle, RefreshCw } from "lucide-react";
+import { AlertTriangle, Link2, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 
-type Platform = "search-console" | "google-analytics";
+export type Platform = "search-console" | "google-analytics" | "tiktok";
 type Payload = {
   snapshots: MetricSnapshot[];
   totals: Record<string, number>;
@@ -25,7 +25,7 @@ const PERIODS = [
   { value: 90, label: "90 días" },
 ];
 
-const PLATFORM_LABEL: Record<Platform, string> = { "search-console": "Search Console", "google-analytics": "Google Analytics" };
+const PLATFORM_LABEL: Record<Platform, string> = { "search-console": "Search Console", "google-analytics": "Google Analytics", tiktok: "TikTok" };
 
 const DIMENSIONS: Record<Platform, { value: string; label: string }[]> = {
   "search-console": [
@@ -42,9 +42,12 @@ const DIMENSIONS: Record<Platform, { value: string; label: string }[]> = {
     { value: "country", label: "Países" },
     { value: "device", label: "Dispositivos" },
   ],
+  // TikTok solo entrega los contadores de la cuenta, sin desgloses.
+  tiktok: [{ value: "date", label: "Por día" }],
 };
 
 const METRIC_LABEL: Record<string, string> = {
+  followerCount: "Seguidores", followingCount: "Siguiendo", likesCount: "Likes", videoCount: "Videos",
   clicks: "Clics", impressions: "Impresiones", ctr: "CTR", position: "Posición media",
   sessions: "Sesiones", totalUsers: "Usuarios", newUsers: "Usuarios nuevos",
   screenPageViews: "Vistas de página", engagementRate: "Interacción", keyEvents: "Eventos clave",
@@ -58,8 +61,9 @@ function formatMetric(name: string, value: number) {
   return value.toLocaleString("es");
 }
 
-export function AnalyticsDashboard() {
-  const [platform, setPlatform] = useState<Platform>("search-console");
+/** `flash` es el resultado de volver del OAuth de TikTok; la página lo lee de la URL en el servidor. */
+export function AnalyticsDashboard({ initialPlatform = "search-console", flash }: { initialPlatform?: Platform; flash?: string }) {
+  const [platform, setPlatform] = useState<Platform>(initialPlatform);
   const [dimension, setDimension] = useState("date");
   const [days, setDays] = useState(28);
   const [data, setData] = useState<Payload | null>(null);
@@ -126,17 +130,22 @@ export function AnalyticsDashboard() {
             </select>
           </label>
           {freshness ? <span className="text-xs text-muted-foreground">Últimos datos: {freshness.lastDate}</span> : null}
+          {platform === "tiktok" && configured ? (
+            <Button asChild size="sm" variant="outline">
+              <a href="/api/tiktok/connect"><Link2 className="h-4 w-4" /> {freshness ? "Reconectar TikTok" : "Conectar TikTok"}</a>
+            </Button>
+          ) : null}
           <Button size="sm" variant="outline" onClick={() => void sync()} disabled={syncing}>
             <RefreshCw className={syncing ? "h-4 w-4 animate-spin" : "h-4 w-4"} /> {syncing ? "Sincronizando…" : "Sincronizar"}
           </Button>
         </div>
       </div>
 
-      {notice ? (
+      {(notice ?? flash) ? (
         <Card>
           <CardContent className="flex items-start gap-3 text-sm">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-orange-400" />
-            <p className="text-muted-foreground">{notice}</p>
+            <p className="text-muted-foreground">{notice ?? flash}</p>
           </CardContent>
         </Card>
       ) : null}
@@ -145,10 +154,16 @@ export function AnalyticsDashboard() {
         <Card>
           <CardContent className="space-y-2 text-sm text-muted-foreground">
             <p className="font-medium text-foreground">{PLATFORM_LABEL[platform]} todavía no está conectado.</p>
-            <p>
-              Configura <code className="rounded bg-muted px-1">{platform === "search-console" ? "SEARCH_CONSOLE_SITE_URL" : "GA4_PROPERTY_ID"}</code> y la credencial{" "}
-              <code className="rounded bg-muted px-1">GOOGLE_SERVICE_ACCOUNT_KEY_FILE</code> en <code className="rounded bg-muted px-1">.env.local</code>, y da acceso de lectura al email del service account en la propiedad.
-            </p>
+            {platform === "tiktok" ? (
+              <p>
+                Configura <code className="rounded bg-muted px-1">TIKTOK_CLIENT_KEY</code> y <code className="rounded bg-muted px-1">TIKTOK_CLIENT_SECRET</code> en <code className="rounded bg-muted px-1">.env.local</code>, reinicia la app y pulsa «Conectar TikTok».
+              </p>
+            ) : (
+              <p>
+                Configura <code className="rounded bg-muted px-1">{platform === "search-console" ? "SEARCH_CONSOLE_SITE_URL" : "GA4_PROPERTY_ID"}</code> y la credencial{" "}
+                <code className="rounded bg-muted px-1">GOOGLE_SERVICE_ACCOUNT_KEY_FILE</code> en <code className="rounded bg-muted px-1">.env.local</code>, y da acceso de lectura al email del service account en la propiedad.
+              </p>
+            )}
           </CardContent>
         </Card>
       ) : null}

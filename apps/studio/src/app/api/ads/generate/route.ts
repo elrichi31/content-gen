@@ -9,7 +9,7 @@ import { openAiModel } from "../../../../lib/openai";
 export async function POST(request: Request) {
   const body = await request.json().catch(() => null) as { action?: unknown; document?: unknown; audience?: unknown; tone?: unknown; topic?: unknown; format?: unknown; layout?: unknown; campaignId?: unknown } | null;
   const previous = body?.action === "regenerate" ? adDocumentSchema.safeParse(body.document) : null;
-  const stored = typeof body?.campaignId === "string" ? await withDatabase((db) => db.prepare("SELECT campaign.data_json AS campaign_json, brand.data_json AS brand_json FROM campaigns campaign LEFT JOIN brand_kits brand ON brand.id = campaign.brand_kit_id AND brand.archived_at IS NULL WHERE campaign.id = ? AND campaign.archived_at IS NULL").get(body.campaignId) as { campaign_json: string; brand_json: string | null } | undefined) : undefined;
+  const stored = typeof body?.campaignId === "string" ? await withDatabase(async (db) => await db.prepare("SELECT campaign.data_json AS campaign_json, brand.data_json AS brand_json FROM campaigns campaign LEFT JOIN brand_kits brand ON brand.id = campaign.brand_kit_id AND brand.archived_at IS NULL WHERE campaign.id = ? AND campaign.archived_at IS NULL").get(body.campaignId) as { campaign_json: string; brand_json: string | null } | undefined) : undefined;
   if (body?.campaignId && !stored) return NextResponse.json({ error: "La campaña no existe o está archivada." }, { status: 400 });
   const campaign = stored ? campaignSchema.parse(JSON.parse(stored.campaign_json)) : undefined;
   const brief = campaign && typeof campaign.brief === "object" ? campaign.brief : undefined;

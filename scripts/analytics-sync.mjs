@@ -4,7 +4,7 @@
  *   npm run analytics:sync -- --days=7
  * Sale con código 1 si alguna plataforma configurada falló, para que el cron lo reporte.
  */
-process.env.DATABASE_URL ??= "file:./storage/content-gen.sqlite";
+
 
 const daysArgument = process.argv.slice(2).find((argument) => argument.startsWith("--days="));
 const { parseSyncDays, syncAnalytics } = await import("../apps/studio/src/lib/analytics-sync.ts");

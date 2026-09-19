@@ -1,8 +1,9 @@
-import { syncWindow } from "@content-gen/domain/analytics";
+import { formatIsoDate, syncWindow } from "@content-gen/domain/analytics";
 import { GA4_LAG_DAYS, runGa4Report, type Ga4Dimension } from "./google-analytics.ts";
 import { GoogleAuthError } from "./google-auth.ts";
 import { saveMetricSnapshots, type IncomingSnapshot } from "./metric-snapshots.ts";
 import { querySearchConsole, SEARCH_CONSOLE_LAG_DAYS, type SearchConsoleDimension } from "./search-console.ts";
+import { fetchTikTokStats, TikTokError } from "./tiktok.ts";
 
 export const DEFAULT_SYNC_DAYS = 28;
 const SEARCH_CONSOLE_SYNC_DIMENSIONS: SearchConsoleDimension[] = ["date", "query", "page", "country", "device"];
@@ -20,6 +21,7 @@ export function configuredPlatforms() {
   return {
     "search-console": Boolean(process.env.SEARCH_CONSOLE_SITE_URL?.trim()),
     "google-analytics": Boolean(process.env.GA4_PROPERTY_ID?.trim()),
+    tiktok: Boolean(process.env.TIKTOK_CLIENT_KEY?.trim() && process.env.TIKTOK_CLIENT_SECRET?.trim()),
   };
 }
 
@@ -44,6 +46,19 @@ async function syncPlatform(platform: string, days: number, today: Date, fetchRo
   }
 }
 
+/** TikTok no tiene ventana ni desgloses: una lectura de los contadores de hoy. */
+async function syncTikTok(today: Date, request: typeof fetch): Promise<PlatformSyncResult> {
+  const date = formatIsoDate(today);
+  try {
+    const saved = await saveMetricSnapshots(await fetchTikTokStats({ today, request }));
+    return { platform: "tiktok", status: "ok", startDate: date, endDate: date, ...saved, dimensions: ["date"] };
+  } catch (error) {
+    // Credenciales puestas pero cuenta sin conectar todavía: no es un fallo, es un paso pendiente.
+    const pending = error instanceof TikTokError && error.status === 409;
+    return { platform: "tiktok", status: pending ? "skipped" : "failed", inserted: 0, updated: 0, dimensions: [], error: error instanceof Error ? error.message : "Error desconocido al sincronizar." };
+  }
+}
+
 /**
  * Sincroniza las plataformas configuradas y devuelve un resumen por plataforma. Nunca lanza
  * por un fallo de proveedor: el llamador decide si un fallo parcial es aceptable.
@@ -59,6 +74,10 @@ export async function syncAnalytics({ days = parseSyncDays(), today = new Date()
   results.push(configured["google-analytics"]
     ? await syncPlatform("google-analytics", days, today, (window, dimension) => runGa4Report({ ...window, dimension: dimension as Ga4Dimension, request }), GA4_SYNC_DIMENSIONS, GA4_LAG_DAYS)
     : { platform: "google-analytics", status: "skipped", inserted: 0, updated: 0, dimensions: [], error: "GA4_PROPERTY_ID no está configurada." });
+
+  results.push(configured.tiktok
+    ? await syncTikTok(today, request)
+    : { platform: "tiktok", status: "skipped", inserted: 0, updated: 0, dimensions: [], error: "TIKTOK_CLIENT_KEY y TIKTOK_CLIENT_SECRET no están configuradas." });
 
   return {
     days,

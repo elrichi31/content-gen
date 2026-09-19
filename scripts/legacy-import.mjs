@@ -4,7 +4,8 @@ import { createHash } from "node:crypto";
 import { createReadStream, existsSync } from "node:fs";
 import { copyFile, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join, resolve, sep } from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import pg from "pg";
+import { adaptClient } from "../apps/studio/src/lib/db.ts";
 import { pathToFileURL } from "node:url";
 import { convertLegacyCarousel } from "../packages/domain/src/carousel.ts";
 import { assetSchema, brandKitSchema, campaignSchema, contentItemSchema, exportSchema } from "../packages/domain/src/schemas.ts";
@@ -68,9 +69,18 @@ function storageValue(snapshot, key) {
   try { return JSON.parse(value); } catch { return value; }
 }
 
-function insert(database, sql, ...params) {
-  return database.prepare(sql).run(...params).changes === 1;
+async function insert(database, sql, ...params) {
+  return (await database.prepare(sql).run(...params)).changes === 1;
 }
+
+/** Conexión propia a Postgres, con la misma API `prepare/exec` que usa la app. Quien la abre la cierra con `client.end()`. */
+async function openDatabase(databaseUrl) {
+  const client = new pg.Client({ connectionString: databaseUrl });
+  await client.connect();
+  return { client, database: adaptClient(client) };
+}
+
+const defaultMediaRoot = () => resolve(process.env.STORAGE_ROOT ?? "storage", "media");
 
 function hashFile(path) {
   return new Promise((resolveHash, reject) => {
@@ -91,7 +101,7 @@ async function importFileAsset(database, path, mediaRoot, campaignId, contentIte
   if (!existsSync(target)) await copyFile(path, target);
   const createdAt = info.birthtime.toISOString();
   const asset = assetSchema.parse({ id, schemaVersion: 1, filename: basename(path), mimeType, sizeBytes: info.size, storageKey, campaignId, contentItemId, createdAt });
-  const imported = insert(database, "INSERT OR IGNORE INTO assets (id, schema_version, data_json, created_at) VALUES (?, 1, ?, ?)", id, JSON.stringify(asset), createdAt);
+  const imported = await insert(database, "INSERT INTO assets (id, schema_version, data_json, created_at) VALUES (?, 1, ?, ?) ON CONFLICT DO NOTHING", id, JSON.stringify(asset), createdAt);
   items.push({ sourceId, type: "asset", status: imported ? "imported" : "skipped", targetId: id, reason: imported ? "Asset importado." : "Asset ya importado." });
   return id;
 }
@@ -107,15 +117,15 @@ function carouselDocument(value, fallbackTopic) {
   });
 }
 
-export async function importCarouselSnapshot(snapshotPath, databasePath, mediaRoot) {
+export async function importCarouselSnapshot(snapshotPath, databaseUrl, mediaRoot) {
   const sourcePath = resolve(snapshotPath);
   const snapshot = JSON.parse(await readFile(sourcePath, "utf8"));
-  const database = new DatabaseSync(resolve(databasePath));
+  const { database, client } = await openDatabase(databaseUrl);
   const items = [];
   const now = new Date().toISOString();
   const campaignId = stableUuid("carousel-ai:campaign");
   try {
-    database.exec("PRAGMA foreign_keys = ON; BEGIN IMMEDIATE;");
+    await database.exec("BEGIN;");
     const presets = storageValue(snapshot, "carousel-ai-brand-presets");
     const legacyBrand = storageValue(snapshot, "carousel-ai-brand");
     const brands = Array.isArray(presets) && presets.length ? presets : legacyBrand ? [{ ...legacyBrand, id: "legacy" }] : [];
@@ -141,18 +151,18 @@ export async function importCarouselSnapshot(snapshotPath, databasePath, mediaRo
         await mkdir(dirname(target), { recursive: true });
         if (!existsSync(target)) await writeFile(target, bytes);
         const asset = assetSchema.parse({ id: logoAssetId, schemaVersion: 1, filename: `${brand.id}-logo.${extension}`, mimeType: match[1].toLowerCase(), sizeBytes: bytes.length, storageKey, campaignId: null, contentItemId: null, createdAt: now });
-        const imported = insert(database, "INSERT OR IGNORE INTO assets (id, schema_version, data_json, created_at) VALUES (?, 1, ?, ?)", asset.id, JSON.stringify(asset), now);
+        const imported = await insert(database, "INSERT INTO assets (id, schema_version, data_json, created_at) VALUES (?, 1, ?, ?) ON CONFLICT DO NOTHING", asset.id, JSON.stringify(asset), now);
         items.push({ sourceId: `${sourceId}:logo`, type: "asset", status: imported ? "imported" : "skipped", targetId: asset.id, reason: imported ? "Logo importado." : "Logo ya importado." });
       }
       const color = Array.isArray(brand.colors) && /^#[0-9a-f]{6}$/i.test(brand.colors[0] ?? "") ? brand.colors[0] : "#22c55e";
       const brandKit = brandKitSchema.parse({ id: brandKitId, schemaVersion: 1, name: brand.name.trim(), primaryColor: color, logoAssetId, createdAt: now, updatedAt: now, archivedAt: null });
-      const imported = insert(database, "INSERT OR IGNORE INTO brand_kits (id, schema_version, data_json, created_at, updated_at, archived_at) VALUES (?, 1, ?, ?, ?, NULL)", brandKit.id, JSON.stringify(brandKit), now, now);
+      const imported = await insert(database, "INSERT INTO brand_kits (id, schema_version, data_json, created_at, updated_at, archived_at) VALUES (?, 1, ?, ?, ?, NULL) ON CONFLICT DO NOTHING", brandKit.id, JSON.stringify(brandKit), now, now);
       items.push({ sourceId, type: "brand-kit", status: imported ? "imported" : "skipped", targetId: brandKit.id, reason: imported ? "Preset convertido a BrandKit." : "BrandKit ya importado; no se sobrescribió." });
       if (brand.id === storageValue(snapshot, "carousel-ai-active-brand")) activeBrandKitId = brandKit.id;
     }
 
     const campaign = campaignSchema.parse({ id: campaignId, schemaVersion: 1, name: "Migración carousel-ai", brief: "Contenido recuperado de localStorage.", brandKitId: activeBrandKitId, createdAt: now, updatedAt: now, archivedAt: null });
-    insert(database, "INSERT OR IGNORE INTO campaigns (id, schema_version, brand_kit_id, data_json, created_at, updated_at, archived_at) VALUES (?, 1, ?, ?, ?, ?, NULL)", campaign.id, campaign.brandKitId, JSON.stringify(campaign), now, now);
+    await insert(database, "INSERT INTO campaigns (id, schema_version, brand_kit_id, data_json, created_at, updated_at, archived_at) VALUES (?, 1, ?, ?, ?, ?, NULL) ON CONFLICT DO NOTHING", campaign.id, campaign.brandKitId, JSON.stringify(campaign), now, now);
 
     const sources = [];
     const autosave = storageValue(snapshot, "carousel-ai:autosave");
@@ -166,7 +176,7 @@ export async function importCarouselSnapshot(snapshotPath, databasePath, mediaRo
         const id = stableUuid(source.sourceId);
         const createdAt = Number.isFinite(source.timestamp) ? new Date(source.timestamp).toISOString() : now;
         const content = contentItemSchema.parse({ id, schemaVersion: 1, campaignId, type: "carousel", document: { schemaVersion: 1, data: document }, revision: 0, createdAt, updatedAt: createdAt, archivedAt: null });
-        const imported = insert(database, "INSERT OR IGNORE INTO content_items (id, schema_version, campaign_id, type, document_json, revision, created_at, updated_at, archived_at) VALUES (?, 1, ?, 'carousel', ?, 0, ?, ?, NULL)", id, campaignId, JSON.stringify(content), createdAt, createdAt);
+        const imported = await insert(database, "INSERT INTO content_items (id, schema_version, campaign_id, type, document_json, revision, created_at, updated_at, archived_at) VALUES (?, 1, ?, 'carousel', ?, 0, ?, ?, NULL) ON CONFLICT DO NOTHING", id, campaignId, JSON.stringify(content), createdAt, createdAt);
         items.push({ sourceId: source.sourceId, type: "carousel", status: imported ? "imported" : "skipped", targetId: id, reason: imported ? "Carrusel importado." : "Carrusel ya importado; no se sobrescribió." });
       } catch (error) {
         items.push({ sourceId: source.sourceId, type: "carousel", status: "error", reason: error instanceof Error ? error.message : "Carrusel inválido." });
@@ -174,30 +184,30 @@ export async function importCarouselSnapshot(snapshotPath, databasePath, mediaRo
     }
     if (!autosave) items.push({ sourceId: "carousel-ai:autosave", type: "carousel", status: "skipped", reason: "La captura no contiene autosave." });
     items.push({ sourceId: "carousel-ai:ads", type: "ad", status: "skipped", reason: "Los anuncios legacy vivían solo en estado React y no tienen datos persistidos recuperables." });
-    database.exec("COMMIT;");
+    await database.exec("COMMIT;");
   } catch (error) {
-    database.exec("ROLLBACK;");
+    await database.exec("ROLLBACK;");
     throw error;
   } finally {
-    database.close();
+    await client.end();
   }
   return createImportReport("import-carousel", sourcePath, items);
 }
 
-export async function importLegacyVideos(remotionRoot, databasePath, mediaRoot) {
+export async function importLegacyVideos(remotionRoot, databaseUrl, mediaRoot) {
   const root = resolve(remotionRoot);
   const sourceRoot = join(root, "src");
   const publicRoot = join(root, "public");
   const outputRoot = join(root, "out");
   const scan = await scanVideoScripts(sourceRoot);
-  const database = new DatabaseSync(resolve(databasePath));
+  const { database, client } = await openDatabase(databaseUrl);
   const items = [];
   const now = new Date().toISOString();
   const campaignId = stableUuid("video-autom:campaign");
   try {
-    database.exec("PRAGMA foreign_keys = ON; BEGIN IMMEDIATE;");
+    await database.exec("BEGIN;");
     const campaign = campaignSchema.parse({ id: campaignId, schemaVersion: 1, name: "Migración video-autom", brief: "Videos recuperados del proyecto legacy.", brandKitId: null, createdAt: now, updatedAt: now, archivedAt: null });
-    insert(database, "INSERT OR IGNORE INTO campaigns (id, schema_version, brand_kit_id, data_json, created_at, updated_at, archived_at) VALUES (?, 1, NULL, ?, ?, ?, NULL)", campaign.id, JSON.stringify(campaign), now, now);
+    await insert(database, "INSERT INTO campaigns (id, schema_version, brand_kit_id, data_json, created_at, updated_at, archived_at) VALUES (?, 1, NULL, ?, ?, ?, NULL) ON CONFLICT DO NOTHING", campaign.id, JSON.stringify(campaign), now, now);
 
     for (const scanned of scan.items) {
       if (scanned.status !== "ready") {
@@ -244,7 +254,7 @@ export async function importLegacyVideos(remotionRoot, databasePath, mediaRoot) 
           scenes, legacy: { sourcePath: scanned.sourcePath, voiceoverAssetId, legacyVoiceoverAssetId },
         });
         const content = contentItemSchema.parse({ id: contentItemId, schemaVersion: 1, campaignId, type: "video", document: { schemaVersion: 1, data: document }, revision: 0, createdAt: now, updatedAt: now, archivedAt: null });
-        const imported = insert(database, "INSERT OR IGNORE INTO content_items (id, schema_version, campaign_id, type, document_json, revision, created_at, updated_at, archived_at) VALUES (?, 1, ?, 'video', ?, 0, ?, ?, NULL)", content.id, campaignId, JSON.stringify(content), now, now);
+        const imported = await insert(database, "INSERT INTO content_items (id, schema_version, campaign_id, type, document_json, revision, created_at, updated_at, archived_at) VALUES (?, 1, ?, 'video', ?, 0, ?, ?, NULL) ON CONFLICT DO NOTHING", content.id, campaignId, JSON.stringify(content), now, now);
         items.push({ sourceId: scanned.sourceId, type: "video", status: imported ? "imported" : "skipped", targetId: content.id, reason: imported ? "Video importado." : "Video ya importado; no se sobrescribió." });
 
         const outputPath = join(outputRoot, `${slug}.mp4`);
@@ -252,33 +262,33 @@ export async function importLegacyVideos(remotionRoot, databasePath, mediaRoot) 
           const outputAssetId = await importFileAsset(database, outputPath, mediaRoot, campaignId, contentItemId, `${scanned.sourceId}:output`, items, "video/mp4");
           const exportId = stableUuid(`${scanned.sourceId}:export`);
           const exported = exportSchema.parse({ id: exportId, schemaVersion: 1, contentItemId, format: "mp4", assetId: outputAssetId, createdAt: now });
-          const exportImported = insert(database, "INSERT OR IGNORE INTO exports (id, schema_version, content_item_id, asset_id, data_json, created_at) VALUES (?, 1, ?, ?, ?, ?)", exportId, contentItemId, outputAssetId, JSON.stringify(exported), now);
+          const exportImported = await insert(database, "INSERT INTO exports (id, schema_version, content_item_id, asset_id, data_json, created_at) VALUES (?, 1, ?, ?, ?, ?) ON CONFLICT DO NOTHING", exportId, contentItemId, outputAssetId, JSON.stringify(exported), now);
           items.push({ sourceId: `${scanned.sourceId}:export`, type: "export", status: exportImported ? "imported" : "skipped", targetId: exportId, reason: exportImported ? "MP4 registrado como Export." : "Export ya importado." });
         }
       } catch (error) {
         items.push({ sourceId: scanned.sourceId, type: "video", status: "error", reason: error instanceof Error ? error.message : "Video inválido." });
       }
     }
-    database.exec("COMMIT;");
+    await database.exec("COMMIT;");
   } catch (error) {
-    database.exec("ROLLBACK;");
+    await database.exec("ROLLBACK;");
     throw error;
   } finally {
-    database.close();
+    await client.end();
   }
   return createImportReport("import-video", root, items);
 }
 
-export async function importManualVideos(videoAutomRoot, databasePath, mediaRoot) {
+export async function importManualVideos(videoAutomRoot, databaseUrl, mediaRoot) {
   const root = resolve(videoAutomRoot);
-  const database = new DatabaseSync(resolve(databasePath));
+  const { database, client } = await openDatabase(databaseUrl);
   const items = [];
   const now = new Date().toISOString();
   const campaignId = stableUuid("video-autom:campaign");
   try {
-    database.exec("PRAGMA foreign_keys = ON; BEGIN IMMEDIATE;");
+    await database.exec("BEGIN;");
     const campaign = campaignSchema.parse({ id: campaignId, schemaVersion: 1, name: "Migración video-autom", brief: "Videos recuperados del proyecto legacy.", brandKitId: null, createdAt: now, updatedAt: now, archivedAt: null });
-    insert(database, "INSERT OR IGNORE INTO campaigns (id, schema_version, brand_kit_id, data_json, created_at, updated_at, archived_at) VALUES (?, 1, NULL, ?, ?, ?, NULL)", campaign.id, JSON.stringify(campaign), now, now);
+    await insert(database, "INSERT INTO campaigns (id, schema_version, brand_kit_id, data_json, created_at, updated_at, archived_at) VALUES (?, 1, NULL, ?, ?, ?, NULL) ON CONFLICT DO NOTHING", campaign.id, JSON.stringify(campaign), now, now);
     for (const [slug, compositionId, outputName] of manualCompositions) {
       const sourceId = `video-autom:manual:${compositionId}`;
       const contentItemId = stableUuid(sourceId);
@@ -291,7 +301,7 @@ export async function importManualVideos(videoAutomRoot, databasePath, mediaRoot
         legacy: { engine: "video-autom/remotion", compositionId, sourcePath: join(root, "remotion", "src", slug) },
       });
       const content = contentItemSchema.parse({ id: contentItemId, schemaVersion: 1, campaignId, type: "video", document: { schemaVersion: 1, data: document }, revision: 0, createdAt: now, updatedAt: now, archivedAt: null });
-      const imported = insert(database, "INSERT OR IGNORE INTO content_items (id, schema_version, campaign_id, type, document_json, revision, created_at, updated_at, archived_at) VALUES (?, 1, ?, 'video', ?, 0, ?, ?, NULL)", content.id, campaignId, JSON.stringify(content), now, now);
+      const imported = await insert(database, "INSERT INTO content_items (id, schema_version, campaign_id, type, document_json, revision, created_at, updated_at, archived_at) VALUES (?, 1, ?, 'video', ?, 0, ?, ?, NULL) ON CONFLICT DO NOTHING", content.id, campaignId, JSON.stringify(content), now, now);
       items.push({ sourceId, type: "manual-video", status: imported ? "imported" : "skipped", targetId: content.id, reason: imported ? "Composición manual registrada." : "Composición manual ya registrada." });
       const outputPath = join(root, "out", outputName);
       if (!existsSync(outputPath)) {
@@ -301,15 +311,15 @@ export async function importManualVideos(videoAutomRoot, databasePath, mediaRoot
       const outputAssetId = await importFileAsset(database, outputPath, mediaRoot, campaignId, contentItemId, `${sourceId}:output`, items, "video/mp4");
       const exportId = stableUuid(`${sourceId}:export`);
       const exported = exportSchema.parse({ id: exportId, schemaVersion: 1, contentItemId, format: "mp4", assetId: outputAssetId, createdAt: now });
-      const exportImported = insert(database, "INSERT OR IGNORE INTO exports (id, schema_version, content_item_id, asset_id, data_json, created_at) VALUES (?, 1, ?, ?, ?, ?)", exportId, contentItemId, outputAssetId, JSON.stringify(exported), now);
+      const exportImported = await insert(database, "INSERT INTO exports (id, schema_version, content_item_id, asset_id, data_json, created_at) VALUES (?, 1, ?, ?, ?, ?) ON CONFLICT DO NOTHING", exportId, contentItemId, outputAssetId, JSON.stringify(exported), now);
       items.push({ sourceId: `${sourceId}:export`, type: "export", status: exportImported ? "imported" : "skipped", targetId: exportId, reason: exportImported ? "MP4 manual registrado." : "Export manual ya importado." });
     }
-    database.exec("COMMIT;");
+    await database.exec("COMMIT;");
   } catch (error) {
-    database.exec("ROLLBACK;");
+    await database.exec("ROLLBACK;");
     throw error;
   } finally {
-    database.close();
+    await client.end();
   }
   return createImportReport("import-manual-video", root, items);
 }
@@ -332,10 +342,10 @@ async function main() {
   const report = command === "scan-video"
     ? await scanVideoScripts(resolve(sourceArg ?? "../video-autom/remotion/src"))
     : command === "import-carousel"
-      ? await importCarouselSnapshot(sourceArg, process.env.DATABASE_URL?.replace(/^file:/, "") ?? "storage/content-gen.sqlite", "storage/media")
+      ? await importCarouselSnapshot(sourceArg, process.env.DATABASE_URL, defaultMediaRoot())
       : command === "import-video"
-        ? await importLegacyVideos(resolve(sourceArg ?? "../video-autom/remotion"), process.env.DATABASE_URL?.replace(/^file:/, "") ?? "storage/content-gen.sqlite", "storage/media")
-        : await importManualVideos(resolve(sourceArg ?? "../video-autom"), process.env.DATABASE_URL?.replace(/^file:/, "") ?? "storage/content-gen.sqlite", "storage/media");
+        ? await importLegacyVideos(resolve(sourceArg ?? "../video-autom/remotion"), process.env.DATABASE_URL, defaultMediaRoot())
+        : await importManualVideos(resolve(sourceArg ?? "../video-autom"), process.env.DATABASE_URL, defaultMediaRoot());
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   const outputPath = await writeImportReport(report, outputArg ?? renderOutputArg ?? `storage/migration-reports/${command}-${stamp}.json`);
   console.log(JSON.stringify({ outputPath, summary: report.summary }));

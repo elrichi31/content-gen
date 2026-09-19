@@ -115,6 +115,8 @@ export const renderJobSchema = z.object({
   updatedAt: timestamp.optional(),
   completedAt: timestamp.nullable().default(null),
   error: z.string().max(1000).nullable().default(null),
+  /** Últimas líneas de progreso del render, para mostrar como una "consola" en la app. */
+  log: z.array(z.string()).default([]),
 });
 
 export const exportSchema = z.object({

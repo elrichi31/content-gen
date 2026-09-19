@@ -4,5 +4,10 @@
   "private": true,
   "scripts": {
     "test:job": "node src/worker.mjs --job fixtures/foundation-job.json"
+  },
+  "dependencies": {
+    "@remotion/bundler": "^4.0.509",
+    "@remotion/renderer": "^4.0.509",
+    "pg": "^8.23.0"
   }
 }
