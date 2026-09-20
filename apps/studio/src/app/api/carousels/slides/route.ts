@@ -1,14 +1,18 @@
 import { NextResponse } from "next/server";
 import { carouselDocumentSchema } from "@content-gen/domain/carousel";
+import { brandBrief } from "../../../../lib/brand-prompt";
+import { brandOrError } from "../../../../lib/brand-kits";
 import { addBeforeCta, generateSlide, replaceSlide } from "../../../../lib/carousel-slides";
 import { trackGeneration } from "../../../../lib/generation-runs";
 import { openAiModel } from "../../../../lib/openai";
 
 export async function POST(request: Request) {
-  const input = await request.json().catch(() => null) as { action?: unknown; document?: unknown; index?: unknown } | null; const document = carouselDocumentSchema.safeParse(input?.document);
+  const input = await request.json().catch(() => null) as { action?: unknown; document?: unknown; index?: unknown; brandKitId?: unknown } | null; const document = carouselDocumentSchema.safeParse(input?.document);
   if (!document.success || !["regenerate", "add"].includes(String(input?.action))) return NextResponse.json({ error: "Solicitud de slide inválida." }, { status: 400 });
+  const { brand, error: brandError } = await brandOrError(input?.brandKitId);
+  if (brandError) return NextResponse.json({ error: brandError }, { status: 400 });
   const slideFor = (layout: Parameters<typeof generateSlide>[1], operation: string) => trackGeneration({ operation, model: openAiModel("text") }, async () => {
-    const generated = await generateSlide(document.data.topic, layout);
+    const generated = await generateSlide(document.data.topic, layout, fetch, brandBrief(brand));
     return { value: generated.slide, usage: generated.usage };
   });
   try {

@@ -191,9 +191,9 @@ export async function generateOpenAiJson({ system, prompt, purpose = "text", too
   catch (error) { if (error instanceof OpenAiError) throw error; throw new OpenAiError("La IA no devolvió JSON válido.", 422); }
 }
 
-export async function generateOpenAiImage({ prompt, request = fetch }: { prompt: string; request?: typeof fetch }) {
+export async function generateOpenAiImage({ prompt, size = "1024x1536", request = fetch }: { prompt: string; size?: "1024x1024" | "1024x1536" | "1536x1024"; request?: typeof fetch }) {
   const { key, model } = configuration("image");
-  const response = await request("https://api.openai.com/v1/images/generations", { method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" }, signal: AbortSignal.timeout(120_000), body: JSON.stringify({ model, prompt, size: "1024x1536", quality: "low", output_format: "webp" }) });
+  const response = await request("https://api.openai.com/v1/images/generations", { method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" }, signal: AbortSignal.timeout(120_000), body: JSON.stringify({ model, prompt, size, quality: "low", output_format: "webp" }) });
   const body = await response.json().catch(() => null) as { data?: { b64_json?: unknown }[] } | null;
   const base64 = body?.data?.[0]?.b64_json;
   if (!response.ok || typeof base64 !== "string") throw new OpenAiError(message(body, "OpenAI no devolvió una imagen."), 502);

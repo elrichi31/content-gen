@@ -1,107 +1,55 @@
 "use client"
 
 import type { AdState } from "./types"
+import { alpha, fitSize, geometry, onColor } from "./ad-style"
+import { Arrow, Check, Cross, Cta, copy, display, fill } from "./kit"
 
+/** Problema y respuesta: la mitad del problema queda apagada y la de la solución, en acento y más grande. */
 export function PainSolutionAd({ ad, w, h }: { ad: AdState; w: number; h: number }) {
-  const s = w / 240
-  const isLandscape = w > h
+  const { u, tall, pad, top, bottom } = geometry(w, h)
+  const cols = !tall // el square también va en columnas: apilado no cabe el botón
+  const ink = ad.textColor
+  const accent = ad.accentColor
+  const onAccent = onColor(accent)
+  const textW = cols ? w / 2 - pad * 2 : w - pad * 2
+  const painSize = fitSize(ad.painHeadline, textW, h * (cols ? 0.34 : 0.15), { max: u * (cols ? 9 : 11), min: u * 4.5 })
+  const solutionSize = fitSize(ad.solutionHeadline, textW, h * (cols ? 0.4 : 0.19), { max: u * (cols ? 12 : 14), min: u * 5.5 })
+  const chip = u * 11
 
-  if (isLandscape) {
-    // Side by side for landscape
-    return (
-      <div className="flex h-full overflow-hidden" style={{ backgroundColor: ad.bgColor, color: ad.textColor }}>
-        {/* Pain — left */}
-        <div
-          className="flex flex-1 flex-col items-center justify-center text-center"
-          style={{ backgroundColor: "rgba(239,68,68,0.12)", padding: `${s * 12}px`, gap: s * 6 }}
-        >
-          <span style={{ fontSize: s * 26 }}>{ad.painEmoji}</span>
-          <p className="font-bold leading-tight" style={{ fontSize: s * 10, color: "#ef4444" }}>
-            {ad.painHeadline}
-          </p>
-          <p className="opacity-70 leading-snug" style={{ fontSize: s * 8 }}>
-            {ad.painDesc}
-          </p>
-        </div>
+  const tile = (background: string, color: string, icon: "cross" | "check") => (
+    <div style={{ width: u * 9, height: u * 9, background, color, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: u * 0.8 }}>
+      {icon === "cross" ? <Cross size={u * 5.4} /> : <Check size={u * 5.4} />}
+    </div>
+  )
+  const desc = (text: string, color: string) => text ? (
+    <p style={{ ...copy(u * 3.7), color, maxWidth: textW, display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{text}</p>
+  ) : null
+  const cta = ad.cta ? <Cta label={ad.cta} background={ink} color={ad.bgColor} u={u} /> : null
 
-        {/* Arrow divider */}
-        <div
-          className="flex items-center justify-center font-bold"
-          style={{ width: s * 24, backgroundColor: ad.accentColor, color: "#fff", fontSize: s * 14 }}
-        >
-          →
-        </div>
-
-        {/* Solution — right */}
-        <div
-          className="flex flex-1 flex-col items-center justify-center text-center"
-          style={{ backgroundColor: "rgba(34,197,94,0.10)", padding: `${s * 12}px`, gap: s * 6 }}
-        >
-          <span style={{ fontSize: s * 26 }}>{ad.solutionEmoji}</span>
-          <p className="font-bold leading-tight" style={{ fontSize: s * 10, color: "#22c55e" }}>
-            {ad.solutionHeadline}
-          </p>
-          <p className="opacity-70 leading-snug" style={{ fontSize: s * 8 }}>
-            {ad.solutionDesc}
-          </p>
-        </div>
+  const pain = (
+    <div style={{ flex: 1, background: alpha(ink, 0.07), display: "flex", flexDirection: "column", justifyContent: cols ? "center" : "flex-start", gap: u * 3, padding: cols ? pad : `${top}px ${pad}px ${u * 8}px` }}>
+      {tile(alpha(ink, 0.16), ink, "cross")}
+      <p style={{ ...display(painSize), color: alpha(ink, 0.92), textWrap: "balance" }}>{ad.painHeadline}</p>
+      {desc(ad.painDesc, alpha(ink, 0.7))}
+    </div>
+  )
+  const solution = (
+    <div style={{ flex: 1, background: accent, color: onAccent, display: "flex", flexDirection: "column", justifyContent: cols ? "center" : "space-between", gap: u * 3, padding: cols ? pad : `${u * 9}px ${pad}px ${bottom}px` }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: u * 3 }}>
+        {tile(onAccent, accent, "check")}
+        <p style={{ ...display(solutionSize), textWrap: "balance" }}>{ad.solutionHeadline}</p>
+        {desc(ad.solutionDesc, alpha(onAccent, 0.82))}
       </div>
-    )
-  }
-
-  // Stacked for story / square
+      {cta}
+    </div>
+  )
   return (
-    <div className="flex h-full flex-col overflow-hidden" style={{ backgroundColor: ad.bgColor, color: ad.textColor }}>
-      {/* Pain — top half */}
-      <div
-        className="flex flex-1 flex-col items-center justify-center text-center"
-        style={{ backgroundColor: "rgba(239,68,68,0.12)", padding: `${s * 14}px ${s * 16}px`, gap: s * 6 }}
-      >
-        <span style={{ fontSize: s * 30 }}>{ad.painEmoji}</span>
-        <p className="font-bold leading-tight" style={{ fontSize: s * 13, color: "#ef4444" }}>
-          {ad.painHeadline}
-        </p>
-        <p className="opacity-70 leading-snug" style={{ fontSize: s * 10 }}>
-          {ad.painDesc}
-        </p>
+    <div style={{ ...fill, display: "flex", flexDirection: cols ? "row" : "column" }}>
+      {pain}
+      {solution}
+      <div style={{ position: "absolute", width: chip, height: chip, borderRadius: chip, background: ink, color: ad.bgColor, display: "flex", alignItems: "center", justifyContent: "center", ...(cols ? { left: "50%", top: "50%", marginLeft: -chip / 2, marginTop: -chip / 2 } : { right: pad, top: "50%", marginTop: -chip / 2 }) }}>
+        <Arrow size={chip * 0.5} down={!cols} />
       </div>
-
-      {/* Arrow divider */}
-      <div
-        className="flex items-center justify-center font-black"
-        style={{ height: s * 28, backgroundColor: ad.accentColor, color: "#fff", fontSize: s * 16 }}
-      >
-        ↓
-      </div>
-
-      {/* Solution — bottom half */}
-      <div
-        className="flex flex-1 flex-col items-center justify-center text-center"
-        style={{ backgroundColor: "rgba(34,197,94,0.10)", padding: `${s * 14}px ${s * 16}px`, gap: s * 6 }}
-      >
-        <span style={{ fontSize: s * 30 }}>{ad.solutionEmoji}</span>
-        <p className="font-bold leading-tight" style={{ fontSize: s * 13, color: "#22c55e" }}>
-          {ad.solutionHeadline}
-        </p>
-        <p className="opacity-70 leading-snug" style={{ fontSize: s * 10 }}>
-          {ad.solutionDesc}
-        </p>
-      </div>
-
-      {/* CTA bar */}
-      {ad.cta && (
-        <div
-          className="flex items-center justify-center font-bold"
-          style={{
-            height: s * 30,
-            backgroundColor: ad.accentColor,
-            color: "#fff",
-            fontSize: s * 10,
-          }}
-        >
-          {ad.cta}
-        </div>
-      )}
     </div>
   )
 }

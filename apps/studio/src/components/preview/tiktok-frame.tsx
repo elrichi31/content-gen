@@ -43,7 +43,7 @@ export function TikTokFrame({
       <div className="relative">
         <div className="aspect-[3/5] w-full overflow-hidden relative">
           <div className="absolute inset-0">
-            <SlideRenderer slide={slides[activeSlide]} brand={brand} activePrimary={activePrimary} fontTheme={fontTheme} bgStyle={bgStyle} editable={editable} onUpdateField={onUpdateField} onUpdateListItem={onUpdateListItem} />
+            <SlideRenderer slide={slides[activeSlide]} platform="tiktok" index={activeSlide} total={slides.length} brand={brand} activePrimary={activePrimary} fontTheme={fontTheme} bgStyle={bgStyle} editable={editable} onUpdateField={onUpdateField} onUpdateListItem={onUpdateListItem} />
           </div>
           {isLoading && <SlideLoadingOverlay />}
 

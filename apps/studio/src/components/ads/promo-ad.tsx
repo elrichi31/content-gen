@@ -1,102 +1,53 @@
 "use client"
 
 import type { AdState } from "./types"
+import { alpha, fitSize, geometry, onColor } from "./ad-style"
+import { Clock, Cta, copy, display, fill } from "./kit"
 
-export function PromoAd({ ad, w }: { ad: AdState; w: number; h: number }) {
-  const s = w / 240
+/** Oferta: titular enorme arriba y un bloque de acento abajo con el precio y el botón. */
+export function PromoAd({ ad, w, h }: { ad: AdState; w: number; h: number }) {
+  const { u, tall, wide, pad, top, bottom } = geometry(w, h)
+  const ink = ad.textColor
+  const accent = ad.accentColor
+  const onAccent = onColor(accent)
+  const textW = wide ? w * 0.58 - pad * 1.6 : w - pad * 2
+  const panelW = wide ? w * 0.42 - pad * 2 : w - pad * 2
+  const headSize = fitSize(ad.headline, textW, wide ? h * 0.5 : h * (tall ? 0.28 : 0.2), { max: u * (wide ? 13 : tall ? 17 : 12.5), min: u * 6 })
+  const priceSize = fitSize(ad.newPrice, panelW, u * 21, { max: u * (wide ? 17 : tall ? 21 : 12.5), min: u * 7, charWidth: 0.56 })
 
+  const badge = ad.offerBadge ? (
+    <div style={{ ...display(u * 6), alignSelf: "flex-start", background: accent, color: onAccent, padding: `${u * 1.6}px ${u * 3}px`, borderRadius: u * 0.8, transform: "rotate(-3deg)" }}>{ad.offerBadge}</div>
+  ) : null
+  const headline = <p style={{ ...display(headSize), color: ink, textWrap: "balance" }}>{ad.headline}</p>
+  const body = ad.body ? (
+    <p style={{ ...copy(u * 3.9), color: alpha(ink, 0.82), maxWidth: textW, display: "-webkit-box", WebkitLineClamp: tall ? 3 : 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{ad.body}</p>
+  ) : null
+  const oldPrice = ad.originalPrice ? <p style={{ ...copy(u * 4.2, 700), textDecoration: "line-through", opacity: 0.7 }}>{ad.originalPrice}</p> : null
+  const newPrice = ad.newPrice ? <p style={{ ...display(priceSize), lineHeight: 0.9 }}>{ad.newPrice}</p> : null
+  const urgency = ad.urgency ? (
+    <div style={{ ...copy(u * 3.4, 800), display: "flex", alignItems: "center", gap: u * 1.6, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+      <Clock size={u * 4} />
+      <span>{ad.urgency}</span>
+    </div>
+  ) : null
+  const cta = ad.cta ? <Cta label={ad.cta} background={ink} color={ad.bgColor} u={u} /> : null
+
+  if (wide) {
+    return (
+      <div style={{ ...fill, display: "flex" }}>
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", gap: u * 3, padding: `${top}px ${pad}px` }}>{badge}{headline}{body}</div>
+        <div style={{ width: "42%", background: accent, color: onAccent, display: "flex", flexDirection: "column", justifyContent: "center", gap: u * 3.5, padding: pad }}>{oldPrice}{newPrice}{urgency}{cta}</div>
+      </div>
+    )
+  }
   return (
-    <div
-      className="relative flex h-full flex-col items-center justify-between overflow-hidden"
-      style={{ backgroundColor: ad.bgColor, color: ad.textColor }}
-    >
-      {/* Top noise overlay */}
-      <div
-        className="absolute inset-0 pointer-events-none"
-        style={{
-          backgroundImage: `radial-gradient(ellipse at 50% -20%, ${ad.accentColor}55 0%, transparent 60%)`,
-        }}
-      />
-
-      {/* Offer badge */}
-      <div style={{ paddingTop: s * 20, position: "relative" }}>
-        <div
-          className="font-black tracking-wide text-center"
-          style={{
-            backgroundColor: ad.accentColor,
-            color: "#fff",
-            borderRadius: s * 6,
-            padding: `${s * 4}px ${s * 14}px`,
-            fontSize: s * 16,
-            letterSpacing: "0.05em",
-          }}
-        >
-          {ad.offerBadge}
-        </div>
+    <div style={{ ...fill, display: "flex", flexDirection: "column" }}>
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: u * 3, padding: `${top}px ${pad}px ${u * 5}px`, overflow: "hidden" }}>{badge}{headline}{body}</div>
+      <div style={{ background: accent, color: onAccent, display: "flex", flexDirection: "column", gap: tall ? u * 3.5 : u * 2.6, padding: `${tall ? u * 5 : u * 4}px ${pad}px ${tall ? bottom : u * 4.5}px` }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: u * 3 }}>{oldPrice}{urgency}</div>
+        {newPrice}
+        {cta}
       </div>
-
-      {/* Main content */}
-      <div
-        className="relative flex flex-col items-center text-center"
-        style={{ padding: `${s * 6}px ${s * 16}px`, gap: s * 6 }}
-      >
-        <p className="font-bold leading-tight" style={{ fontSize: s * 14 }}>
-          {ad.headline}
-        </p>
-        {ad.body && (
-          <p className="opacity-70 leading-snug" style={{ fontSize: s * 10 }}>
-            {ad.body}
-          </p>
-        )}
-      </div>
-
-      {/* Price */}
-      <div className="relative flex flex-col items-center" style={{ gap: s * 4 }}>
-        {ad.originalPrice && (
-          <p
-            className="line-through opacity-50"
-            style={{ fontSize: s * 11 }}
-          >
-            {ad.originalPrice}
-          </p>
-        )}
-        {ad.newPrice && (
-          <p className="font-black" style={{ fontSize: s * 26, color: ad.accentColor }}>
-            {ad.newPrice}
-          </p>
-        )}
-        {ad.urgency && (
-          <p
-            className="font-semibold opacity-80"
-            style={{
-              fontSize: s * 9,
-              backgroundColor: "rgba(255,255,255,0.08)",
-              padding: `${s * 3}px ${s * 10}px`,
-              borderRadius: s * 20,
-            }}
-          >
-            ⏰ {ad.urgency}
-          </p>
-        )}
-      </div>
-
-      {/* CTA */}
-      {ad.cta && (
-        <div style={{ paddingBottom: s * 18, position: "relative" }}>
-          <div
-            className="font-bold text-center"
-            style={{
-              backgroundColor: ad.accentColor,
-              color: "#fff",
-              borderRadius: s * 20,
-              padding: `${s * 7}px ${s * 22}px`,
-              fontSize: s * 11,
-            }}
-          >
-            {ad.cta}
-          </div>
-        </div>
-      )}
     </div>
   )
 }

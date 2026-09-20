@@ -1,7 +1,7 @@
 "use client"
 
-import { EditableText } from "@/components/editable-text"
-import { HighlightedTitle, type LayoutProps, titleSizeClass } from "./shared"
+import { Arrow } from "@/components/ads/kit"
+import { Rule, Slab, Txt, bodyStyle, fitTitle, palette, tagStyle, titleStyle, type LayoutProps } from "./shared"
 
 export const coverVariants = [
   { id: 'centered', label: 'Centrado' },
@@ -12,178 +12,75 @@ export const coverVariants = [
   { id: 'hero',     label: 'Hero'     },
 ]
 
-function DecorCircles({ primary }: { primary: string }) {
-  return (
-    <svg className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden>
-      <circle cx="92%" cy="12%" r="60" fill={`color-mix(in srgb, ${primary} 12%, transparent)`} />
-      <circle cx="88%" cy="8%"  r="30" fill={`color-mix(in srgb, ${primary} 18%, transparent)`} />
-      <circle cx="10%" cy="88%" r="45" fill={`color-mix(in srgb, ${primary} 10%, transparent)`} />
-      <circle cx="5%"  cy="95%" r="20" fill={`color-mix(in srgb, ${primary} 15%, transparent)`} />
-    </svg>
-  )
-}
-
-export function CoverLayout({ slide, primary, bgStyle, bgBuilder, editable, onUpdateField }: LayoutProps) {
+/** Portada: la primera imagen que ve quien desliza, así que es la más grande y la que menos dice. */
+export function CoverLayout(p: LayoutProps) {
+  const { slide } = p
   const variant = slide.layoutVariant ?? 'centered'
-  const bg = bgBuilder(primary, bgStyle, 22, 6)
-  const titleCls = titleSizeClass(slide.titleSize, 'cover')
-
-  if (variant === 'hero') {
-    return (
-      <div className={`relative flex h-full flex-col items-center justify-center overflow-hidden px-8 pt-8 pb-10 text-center ${slide.textColor}`} style={bg}>
-        <DecorCircles primary={primary} />
-        {slide.emoji && (
-          <span className="pointer-events-none absolute inset-0 flex select-none items-center justify-center text-[120px] opacity-[0.07]">{slide.emoji}</span>
-        )}
-        <div className="relative z-10 mb-5 h-1 w-12 rounded-full" style={{ backgroundColor: primary }} />
-        <div className="relative z-10">
-          {editable && onUpdateField ? (
-            <EditableText value={slide.title ?? ''} field="title" onUpdate={onUpdateField} className={`text-balance font-extrabold leading-tight tracking-tight line-clamp-3 ${titleCls}`} />
-          ) : (
-            <h1 className={`text-balance font-extrabold leading-tight tracking-tight line-clamp-3 ${titleCls}`}>
-              <HighlightedTitle text={slide.title ?? ''} primary={primary} />
-            </h1>
-          )}
-          {slide.subtitle && (
-            editable && onUpdateField ? (
-              <EditableText value={slide.subtitle} field="subtitle" onUpdate={onUpdateField} className="mt-4 line-clamp-2 text-sm opacity-60 max-w-[220px] leading-relaxed mx-auto" />
-            ) : (
-              <p className="mt-4 line-clamp-2 text-sm opacity-60 max-w-[220px] leading-relaxed mx-auto">{slide.subtitle}</p>
-            )
-          )}
-        </div>
-        <div className="relative z-10 mt-5 h-1 w-12 rounded-full" style={{ backgroundColor: primary }} />
-      </div>
-    )
-  }
+  const tone = variant === 'minimal' || variant === 'hero' ? 'ink' : 'primary'
+  const c = palette(p, tone)
+  const title = (max: number, h: number, w = 84, extra?: object) => <Txt p={p} field="title" as="h1" style={{ ...titleStyle(p, fitTitle(p, slide.title, { w, h, max })), color: c.fg, ...extra }} />
+  const subtitle = (size: number, extra?: object) => <Txt p={p} field="subtitle" lines={4} style={{ ...bodyStyle(size), color: c.muted, ...extra }} />
 
   if (variant === 'bold') {
     return (
-      // pb-10 instead of pb-8 — gives the brand badge room at the very bottom
-      <div className={`relative flex h-full flex-col justify-end overflow-hidden px-8 pt-8 pb-10 ${slide.textColor}`} style={bg}>
-        <DecorCircles primary={primary} />
-        {slide.emoji && (
-          <span className="pointer-events-none absolute top-6 right-6 select-none text-7xl opacity-[0.12]">{slide.emoji}</span>
-        )}
-        <div className="relative z-10" style={{ borderLeftWidth: 3, borderLeftColor: primary, paddingLeft: 12 }}>
-          {editable && onUpdateField ? (
-            <EditableText value={slide.title ?? ''} field="title" onUpdate={onUpdateField} className={`font-extrabold leading-tight tracking-tight line-clamp-4 ${titleCls}`} />
-          ) : (
-            <h1 className={`font-extrabold leading-tight tracking-tight line-clamp-4 ${titleCls}`}>
-              <HighlightedTitle text={slide.title ?? ''} primary={primary} />
-            </h1>
-          )}
-          {slide.subtitle && (
-            editable && onUpdateField ? (
-              <EditableText value={slide.subtitle} field="subtitle" onUpdate={onUpdateField} className="mt-2 line-clamp-2 text-sm opacity-60" />
-            ) : (
-              <p className="mt-2 line-clamp-2 text-sm opacity-60">{slide.subtitle}</p>
-            )
-          )}
-        </div>
-      </div>
+      <Slab p={p} tone="primary" style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
+        <Rule color={c.accent} width={16} />
+        <div style={{ display: "flex", flexDirection: "column", gap: "3.5cqw" }}>{title(20, 62)}{subtitle(4.6)}</div>
+      </Slab>
     )
   }
 
   if (variant === 'minimal') {
     return (
-      <div className={`flex h-full flex-col items-center justify-center px-10 pt-10 pb-10 text-center ${slide.textColor}`} style={bg}>
-        <div className="mb-4 h-px w-12" style={{ backgroundColor: primary }} />
-        {editable && onUpdateField ? (
-          <EditableText value={slide.title ?? ''} field="title" onUpdate={onUpdateField} className={`font-bold leading-tight tracking-wide uppercase line-clamp-3 ${titleCls}`} />
-        ) : (
-          <h1 className={`font-bold leading-tight tracking-wide uppercase line-clamp-3 ${titleCls}`}>
-            <HighlightedTitle text={slide.title ?? ''} primary={primary} />
-          </h1>
-        )}
-        {slide.subtitle && (
-          editable && onUpdateField ? (
-            <EditableText value={slide.subtitle} field="subtitle" onUpdate={onUpdateField} className="mt-4 line-clamp-2 text-xs opacity-60 max-w-[200px] leading-relaxed" />
-          ) : (
-            <p className="mt-4 line-clamp-2 text-xs opacity-60 max-w-[200px] leading-relaxed">{slide.subtitle}</p>
-          )
-        )}
-        <div className="mt-4 h-px w-12" style={{ backgroundColor: primary }} />
-      </div>
+      <Slab p={p} tone="ink" style={{ alignItems: "center", justifyContent: "center", textAlign: "center", gap: "5cqw", padding: p.tall ? "14cqw 12cqw 34cqw 10cqw" : "10cqw 10cqw 14cqw" }}>
+        <div style={{ width: "14cqw", height: "0.5cqw", background: c.accent }} />
+        {title(10, 40, 80, { textTransform: "uppercase", letterSpacing: "0.08em" })}
+        {subtitle(4.2, { maxWidth: "66cqw" })}
+        <div style={{ width: "14cqw", height: "0.5cqw", background: c.accent }} />
+      </Slab>
     )
   }
 
   if (variant === 'split') {
+    const side = palette(p, 'ink')
     return (
-      <div className={`flex h-full flex-row ${slide.textColor}`} style={bg}>
-        <div className="flex flex-1 flex-col justify-center px-8 pt-8 pb-10">
-          {editable && onUpdateField ? (
-            <EditableText value={slide.title ?? ''} field="title" onUpdate={onUpdateField} className={`font-bold leading-tight line-clamp-4 ${titleCls}`} />
-          ) : (
-            <h1 className={`font-bold leading-tight line-clamp-4 ${titleCls}`}>
-              <HighlightedTitle text={slide.title ?? ''} primary={primary} />
-            </h1>
-          )}
-          {slide.subtitle && (
-            editable && onUpdateField ? (
-              <EditableText value={slide.subtitle} field="subtitle" onUpdate={onUpdateField} className="mt-3 line-clamp-2 text-sm opacity-60 leading-relaxed" />
-            ) : (
-              <p className="mt-3 line-clamp-2 text-sm opacity-60 leading-relaxed">{slide.subtitle}</p>
-            )
-          )}
-          <div className="mt-5 h-0.5 w-10" style={{ backgroundColor: primary }} />
+      <Slab p={p} tone="primary" style={{ flexDirection: "row", padding: 0 }}>
+        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", justifyContent: "center", gap: "3.5cqw", padding: p.tall ? "14cqw 6cqw 34cqw 8cqw" : "8cqw 6cqw 13cqw 8cqw" }}>
+          <Rule color={c.accent} width={10} />
+          {title(14, 58, 56)}
+          {subtitle(4.2)}
         </div>
-        {slide.emoji && (
-          <div className="flex w-1/3 items-center justify-center">
-            <span className="text-7xl">{slide.emoji}</span>
-          </div>
-        )}
-      </div>
+        <div style={{ ...side.style, width: "34%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "22cqw", lineHeight: 1 }}>
+          {slide.emoji ?? <Arrow size="18cqw" color={side.accent} />}
+        </div>
+      </Slab>
     )
   }
 
   if (variant === 'badge') {
     return (
-      <div className={`relative flex h-full flex-col items-center justify-center overflow-hidden px-8 pt-8 pb-10 text-center ${slide.textColor}`} style={bg}>
-        <DecorCircles primary={primary} />
-        {slide.subtitle && (
-          editable && onUpdateField ? (
-            <EditableText value={slide.subtitle} field="subtitle" onUpdate={onUpdateField} className="relative z-10 mb-4 rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-widest line-clamp-1" style={{ backgroundColor: `color-mix(in srgb, ${primary} 20%, transparent)`, color: primary } as React.CSSProperties} />
-          ) : (
-            <span
-              className="relative z-10 mb-4 rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-widest line-clamp-1"
-              style={{ backgroundColor: `color-mix(in srgb, ${primary} 20%, transparent)`, color: primary }}
-            >
-              {slide.subtitle}
-            </span>
-          )
-        )}
-        {slide.emoji && <span className="relative z-10 mb-3 text-4xl">{slide.emoji}</span>}
-        {editable && onUpdateField ? (
-          <EditableText value={slide.title ?? ''} field="title" onUpdate={onUpdateField} className={`relative z-10 font-extrabold leading-tight line-clamp-3 ${titleCls}`} />
-        ) : (
-          <h1 className={`relative z-10 font-extrabold leading-tight line-clamp-3 ${titleCls}`}>
-            <HighlightedTitle text={slide.title ?? ''} primary={primary} />
-          </h1>
-        )}
-      </div>
+      <Slab p={p} tone="primary" style={{ alignItems: "center", justifyContent: "center", textAlign: "center", gap: "5cqw" }}>
+        <Txt p={p} field="subtitle" lines={4} style={{ ...tagStyle(c.flip.bg, c.flip.fg), alignSelf: "center", maxWidth: "76cqw", textAlign: "center", transform: "rotate(-2deg)" }} />
+        {title(17, 52)}
+      </Slab>
     )
   }
 
-  // centered (default)
+  if (variant === 'hero') {
+    return (
+      <Slab p={p} tone="ink" style={{ justifyContent: "center", gap: "4cqw", paddingTop: p.tall ? "24cqw" : "16cqw" }}>
+        <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: "7cqw", background: c.accent }} />
+        {title(19, 58)}
+        {subtitle(4.6)}
+      </Slab>
+    )
+  }
+
   return (
-    <div className={`relative flex h-full flex-col items-center justify-center overflow-hidden px-8 pt-8 pb-10 text-center ${slide.textColor}`} style={bg}>
-      <DecorCircles primary={primary} />
-      {slide.emoji && <span className="relative z-10 mb-4 text-5xl">{slide.emoji}</span>}
-      {editable && onUpdateField ? (
-        <EditableText value={slide.title ?? ''} field="title" onUpdate={onUpdateField} className={`relative z-10 text-balance font-bold leading-tight line-clamp-3 ${titleCls}`} />
-      ) : (
-        <h1 className={`relative z-10 text-balance font-bold leading-tight line-clamp-3 ${titleCls}`}>
-          <HighlightedTitle text={slide.title ?? ''} primary={primary} />
-        </h1>
-      )}
-      {slide.subtitle && (
-        editable && onUpdateField ? (
-          <EditableText value={slide.subtitle} field="subtitle" onUpdate={onUpdateField} className="relative z-10 mt-3 line-clamp-2 text-balance text-sm opacity-70" />
-        ) : (
-          <p className="relative z-10 mt-3 line-clamp-2 text-balance text-sm opacity-70">{slide.subtitle}</p>
-        )
-      )}
-    </div>
+    <Slab p={p} tone="primary" style={{ alignItems: "center", justifyContent: "center", textAlign: "center", gap: "4cqw" }}>
+      <Rule color={c.accent} width={14} />
+      {title(17, 56)}
+      {subtitle(4.6, { maxWidth: "72cqw" })}
+    </Slab>
   )
 }

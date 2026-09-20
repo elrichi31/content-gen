@@ -1,7 +1,8 @@
 "use client"
 
-import { EditableText } from "@/components/editable-text"
-import { type LayoutProps } from "./shared"
+import type { CSSProperties } from "react"
+import { fitSize } from "@/components/ads/ad-style"
+import { Slab, Txt, bodyStyle, flexTone, palette, tabular, titleStyle, type LayoutProps } from "./shared"
 
 export const bigNumberVariants = [
   { id: 'default',    label: 'Centrado'   },
@@ -9,97 +10,45 @@ export const bigNumberVariants = [
   { id: 'full',       label: 'Full'       },
 ]
 
-export function BigNumberLayout({ slide, primary, bgStyle, bgBuilder, editable, onUpdateField }: LayoutProps) {
+/** Una cifra que se lee antes que cualquier otra cosa. Se respeta el texto tal cual: «3s» no pasa a «3S». */
+export function BigNumberLayout(p: LayoutProps) {
+  const { slide } = p
   const variant = slide.layoutVariant ?? 'default'
-  const bg = bgBuilder(primary, bgStyle, 15, 5)
-
-  if (variant === 'full') {
-    return (
-      <div className={`relative flex h-full flex-col items-center justify-center overflow-hidden p-8 text-center ${slide.textColor}`} style={bg}>
-        {/* ghost watermark */}
-        <span
-          className="pointer-events-none absolute select-none font-extrabold tracking-tighter leading-none opacity-[0.06]"
-          style={{ fontSize: '11rem', color: primary, top: '50%', left: '50%', transform: 'translate(-50%, -50%)' }}
-          aria-hidden
-        >
-          {slide.bigNumber}
-        </span>
-        {slide.emoji && <span className="relative z-10 mb-3 text-3xl">{slide.emoji}</span>}
-        {editable && onUpdateField ? (
-          <EditableText value={slide.bigNumber ?? ''} field="bigNumber" onUpdate={onUpdateField} className="relative z-10 text-7xl font-extrabold tracking-tight" style={{ color: primary } as React.CSSProperties} />
-        ) : (
-          <span className="relative z-10 text-7xl font-extrabold tracking-tight" style={{ color: primary }}>
-            {slide.bigNumber}
-          </span>
-        )}
-        {slide.bigNumberLabel && (
-          editable && onUpdateField ? (
-            <EditableText value={slide.bigNumberLabel} field="bigNumberLabel" onUpdate={onUpdateField} className="relative z-10 mt-4 max-w-[80%] text-balance text-sm opacity-70" multiline />
-          ) : (
-            <p className="relative z-10 mt-4 max-w-[80%] text-balance text-sm opacity-70">{slide.bigNumberLabel}</p>
-          )
-        )}
-      </div>
-    )
+  const tone = variant === 'full' ? 'primary' : flexTone(p)
+  const c = palette(p, tone)
+  const poster = p.fontTheme === "poster"
+  const number = (w: number, h: number, max: number, extra?: CSSProperties) => {
+    const size = fitSize(slide.bigNumber ?? "", w, h, { max, min: max * 0.3, charWidth: poster ? 0.52 : 0.64, leading: 0.9 })
+    // Una cifra es texto grande: el color de marca puro se lee bien y es lo que da identidad.
+    return <Txt p={p} field="bigNumber" as="h1" style={{ ...titleStyle(p, size), ...tabular, lineHeight: 0.9, textTransform: "none", color: tone === 'primary' ? c.fg : c.accent, ...extra }} />
   }
+  const label = (size: number, extra?: CSSProperties) => <Txt p={p} field="bigNumberLabel" lines={5} style={{ ...bodyStyle(size, 600), color: c.fg, ...extra }} />
 
   if (variant === 'horizontal') {
     return (
-      <div className={`relative flex h-full flex-col justify-center overflow-hidden p-8 ${slide.textColor}`} style={bg}>
-        {/* ghost watermark */}
-        <span
-          className="pointer-events-none absolute right-[-1rem] top-1/2 -translate-y-1/2 select-none font-extrabold tracking-tighter opacity-[0.07]"
-          style={{ fontSize: '8rem', color: primary, lineHeight: 1 }}
-          aria-hidden
-        >
-          {slide.bigNumber}
-        </span>
-        <div className="relative z-10 flex items-center gap-4">
-          {slide.emoji && <span className="text-4xl">{slide.emoji}</span>}
-          {editable && onUpdateField ? (
-            <EditableText value={slide.bigNumber ?? ''} field="bigNumber" onUpdate={onUpdateField} className="text-5xl font-extrabold tracking-tight" style={{ color: primary } as React.CSSProperties} />
-          ) : (
-            <span className="text-5xl font-extrabold tracking-tight" style={{ color: primary }}>
-              {slide.bigNumber}
-            </span>
-          )}
+      <Slab p={p} tone={tone} style={{ justifyContent: "center" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "5cqw" }}>
+          <div style={{ flex: "0 1 auto", minWidth: 0 }}>{number(46, 44, 44)}</div>
+          <div style={{ width: "0.6cqw", alignSelf: "stretch", background: c.accent, flexShrink: 0 }} />
+          <div style={{ flex: 1, minWidth: 0 }}>{label(4.8)}</div>
         </div>
-        {slide.bigNumberLabel && (
-          editable && onUpdateField ? (
-            <EditableText value={slide.bigNumberLabel} field="bigNumberLabel" onUpdate={onUpdateField} className="relative z-10 mt-4 text-sm opacity-70 max-w-[80%]" multiline />
-          ) : (
-            <p className="relative z-10 mt-4 text-sm opacity-70 max-w-[80%]">{slide.bigNumberLabel}</p>
-          )
-        )}
-      </div>
+      </Slab>
+    )
+  }
+
+  if (variant === 'full') {
+    return (
+      <Slab p={p} tone="primary" style={{ justifyContent: "flex-end", gap: "5cqw" }}>
+        <div style={{ flex: 1, display: "flex", alignItems: "center" }}>{number(84, 70, 78)}</div>
+        {label(5.4, { maxWidth: "72cqw" })}
+      </Slab>
     )
   }
 
   return (
-    <div className={`relative flex h-full flex-col items-center justify-center overflow-hidden p-8 text-center ${slide.textColor}`} style={bg}>
-      {/* ghost watermark */}
-      <span
-        className="pointer-events-none absolute select-none font-extrabold tracking-tighter leading-none opacity-[0.06]"
-        style={{ fontSize: '9rem', color: primary, top: '50%', left: '50%', transform: 'translate(-50%, -50%)' }}
-        aria-hidden
-      >
-        {slide.bigNumber}
-      </span>
-      {slide.emoji && <span className="relative z-10 mb-2 text-3xl">{slide.emoji}</span>}
-      {editable && onUpdateField ? (
-        <EditableText value={slide.bigNumber ?? ''} field="bigNumber" onUpdate={onUpdateField} className="relative z-10 text-5xl font-extrabold tracking-tight" style={{ color: primary } as React.CSSProperties} />
-      ) : (
-        <span className="relative z-10 text-5xl font-extrabold tracking-tight" style={{ color: primary }}>
-          {slide.bigNumber}
-        </span>
-      )}
-      {slide.bigNumberLabel && (
-        editable && onUpdateField ? (
-          <EditableText value={slide.bigNumberLabel} field="bigNumberLabel" onUpdate={onUpdateField} className="relative z-10 mt-4 max-w-[80%] text-balance text-sm opacity-70" multiline />
-        ) : (
-          <p className="relative z-10 mt-4 max-w-[80%] text-balance text-sm opacity-70">{slide.bigNumberLabel}</p>
-        )
-      )}
-    </div>
+    <Slab p={p} tone={tone} style={{ alignItems: "center", justifyContent: "center", textAlign: "center", gap: "4cqw" }}>
+      {number(84, 62, 70)}
+      {label(5.2, { maxWidth: "74cqw" })}
+    </Slab>
   )
 }

@@ -42,7 +42,7 @@ const OPERATION_LABEL: Record<string, string> = {
   "radar-research": "Radar · investigación",
 };
 
-const PROVIDER_LABEL: Record<string, string> = { openai: "OpenAI", elevenlabs: "ElevenLabs", unsplash: "Unsplash", local: "Local" };
+const PROVIDER_LABEL: Record<string, string> = { openai: "OpenAI", gemini: "Gemini", elevenlabs: "ElevenLabs", unsplash: "Unsplash", local: "Local" };
 
 /**
  * Los importes son céntimos de dólar: con dos decimales casi todo saldría «$0.00». Se muestran

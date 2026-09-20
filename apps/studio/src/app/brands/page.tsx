@@ -10,11 +10,11 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
-type Business = { sector: string; offering: string; audience: string; valueProposition: string };
+type Business = { sector: string; offering: string; audience: string; valueProposition: string; voice: string; avoid: string };
 type Brand = { id: string; name: string; primaryColor: string; business?: Business };
 
 const DEFAULT_COLOR = "#2f7d40";
-const EMPTY_BUSINESS: Business = { sector: "", offering: "", audience: "", valueProposition: "" };
+const EMPTY_BUSINESS: Business = { sector: "", offering: "", audience: "", valueProposition: "", voice: "", avoid: "" };
 
 export default function BrandsPage() {
   const [brands, setBrands] = useState<Brand[]>([]);
@@ -124,6 +124,14 @@ export default function BrandsPage() {
               <div className="space-y-1.5">
                 <Label htmlFor="value">Qué lo diferencia</Label>
                 <Textarea id="value" rows={2} value={business.valueProposition} onChange={(event) => setBusiness({ ...business, valueProposition: event.target.value })} placeholder="Ej. implementamos y damos soporte, no solo diagnosticamos" />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="voice">Cómo habla</Label>
+                <Textarea id="voice" rows={2} value={business.voice} onChange={(event) => setBusiness({ ...business, voice: event.target.value })} placeholder="Ej. cercano y directo, tutea, sin tecnicismos ni anglicismos" />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="avoid">Qué nunca dice</Label>
+                <Textarea id="avoid" rows={2} value={business.avoid} onChange={(event) => setBusiness({ ...business, avoid: event.target.value })} placeholder="Ej. no promete «100% seguro», no usa miedo como gancho" />
               </div>
             </div>
             {error ? <p className="text-sm text-destructive">{error}</p> : null}

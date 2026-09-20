@@ -17,6 +17,7 @@ export type ColorThemeId = keyof typeof colorThemes
 export const CUSTOM_COLOR_ID = '__custom__' as const
 
 export const fontThemes = {
+  poster:   { label: 'Cartel',        family: 'var(--font-ad)'         },
   geist:    { label: 'Geist Sans',    family: 'var(--font-geist)'      },
   playfair: { label: 'Playfair',      family: 'var(--font-playfair)'   },
   space:    { label: 'Space Grotesk', family: 'var(--font-space)'      },

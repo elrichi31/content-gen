@@ -6,6 +6,7 @@ import type { CarouselDocument } from "@content-gen/domain/carousel";
 import { AppSidebar } from "@/components/app-sidebar";
 import { WorkspacePanel } from "@/components/workspace-panel";
 import { CarouselGenerator } from "@/components/carousel-generator";
+import { BRAND_FROM_CAMPAIGN, BrandSelect, type BrandOption } from "@/components/brand-select";
 import { CarouselImagePanel } from "@/components/carousel-image-panel";
 import { LayoutVariantPicker } from "@/components/editor/layout-picker";
 import { CarouselFrame, carouselFixture, type CarouselBackground, type CarouselFont, type CarouselPlatform, type CarouselTheme } from "@/components/carousel-preview";
@@ -23,7 +24,7 @@ import { useRequestedContentId } from "@/lib/use-requested-content-id";
 
 type Slide = typeof carouselFixture.slides[number];
 type Campaign = { id: string; name: string; brief: string | { topic: string; audience: string; tone: string }; brandKitId: string | null };
-type Brand = { id: string; name: string; primaryColor: string };
+type Brand = BrandOption;
 type Stored = { id: string; revision: number; campaignId: string; document: { data: unknown } };
 const layouts = ["cover", "content", "list", "bigNumber", "quote", "split", "imageOverlay", "timeline", "statGrid", "cta"] as const;
 
@@ -82,7 +83,7 @@ export default function CarouselPage() {
   const [future, setFuture] = useState<Slide[][]>([]);
   const [platform, setPlatform] = useState<CarouselPlatform>("instagram");
   const [theme, setTheme] = useState<CarouselTheme>("green");
-  const [font, setFont] = useState<CarouselFont>("playfair");
+  const [font, setFont] = useState<CarouselFont>("poster");
   const [background, setBackground] = useState<CarouselBackground>("grid");
   const [themeTouched, setThemeTouched] = useState(false);
   const [caption, setCaption] = useState(carouselFixture.caption);
@@ -90,6 +91,7 @@ export default function CarouselPage() {
   const [brands, setBrands] = useState<Brand[]>([]);
   const [stored, setStored] = useState<Stored[]>([]);
   const [campaignId, setCampaignId] = useState(NONE);
+  const [brandChoice, setBrandChoice] = useState(BRAND_FROM_CAMPAIGN);
   const [contentId, setContentId] = useState("");
   const [revision, setRevision] = useState(0);
   const [notice, setNotice] = useState<NoticeState>(null);
@@ -105,7 +107,10 @@ export default function CarouselPage() {
   const document = { ...carouselFixture, slides, platform, caption };
   const dirty = snapshotOf(slides, platform, caption) !== savedSnapshot;
   const selectedCampaign = campaigns.find((campaign) => campaign.id === campaignId);
-  const brandColor = selectedCampaign?.brandKitId ? brands.find((brand) => brand.id === selectedCampaign.brandKitId)?.primaryColor : undefined;
+  // La marca elegida a mano manda; si no, la de la campaña. Es la que la IA usa y la que tiñe los slides.
+  const brandId = brandChoice !== BRAND_FROM_CAMPAIGN ? brandChoice : selectedCampaign?.brandKitId ?? undefined;
+  const activeBrand = brands.find((brand) => brand.id === brandId);
+  const brandColor = activeBrand?.primaryColor;
   const accentColor = brandColor && !themeTouched ? brandColor : undefined;
 
   async function refresh() {
@@ -194,7 +199,7 @@ export default function CarouselPage() {
   async function slideAction(action: "regenerate" | "add") {
     setBusy(action);
     try {
-      const response = await fetch("/api/carousels/slides", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, document, index: active }) });
+      const response = await fetch("/api/carousels/slides", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, document, index: active, brandKitId: brandId }) });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error ?? "No se pudo modificar la slide.");
       const next = payload.document as CarouselDocument;
@@ -290,6 +295,7 @@ export default function CarouselPage() {
                       </SelectContent>
                     </Select>
                   </div>
+                  <BrandSelect brands={brands} choice={brandChoice} active={activeBrand} onChange={(value) => { setBrandChoice(value); setThemeTouched(false); }} className="space-y-1.5" />
                   <Button className="w-full" onClick={() => void save()}><Save className="h-4 w-4" /> Guardar</Button>
                 </div>
 
@@ -297,6 +303,7 @@ export default function CarouselPage() {
 
                 <CarouselGenerator
                   campaignId={campaignId === NONE ? undefined : campaignId}
+                  brandKitId={brandId}
                   // El tema del radar manda sobre el brief de la campaña: si se vino desde un tema
                   // concreto, es de eso de lo que se quiere hablar.
                   brief={radar.brief

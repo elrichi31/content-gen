@@ -12,10 +12,11 @@ export const carouselGenerationInputSchema = z.object({
   context: z.string().trim().max(10000).default(""),
   slideCount: z.number().int().min(3).max(20),
   campaignId: z.string().min(1).optional(),
+  brandKitId: z.string().min(1).optional(),
 });
 
 export type CarouselGenerationInput = z.infer<typeof carouselGenerationInputSchema>;
-type CarouselGenerationRequest = z.input<typeof carouselGenerationInputSchema> & { brandName?: string; primaryColor?: string };
+type CarouselGenerationRequest = z.input<typeof carouselGenerationInputSchema> & { brandName?: string; primaryColor?: string; brandBrief?: string };
 
 export class GenerationError extends Error {
   readonly status: number;
@@ -58,10 +59,11 @@ function readOutputText(value: unknown) {
   throw new GenerationError("La IA no devolvió texto JSON.", 502);
 }
 
-export function buildCarouselPrompt(input: CarouselGenerationInput & { brandName?: string; primaryColor?: string }) {
-  const brand = input.brandName ? ` Marca: ${input.brandName}${input.primaryColor ? `; color principal ${input.primaryColor}` : ""}.` : "";
+export function buildCarouselPrompt(input: CarouselGenerationInput & { brandName?: string; primaryColor?: string; brandBrief?: string }) {
+  // El perfil completo de la marca (giro, oferta, voz…) si lo hay; si no, al menos nombre y color.
+  const brand = input.brandBrief ? ` ${input.brandBrief}` : input.brandName ? ` Marca: ${input.brandName}${input.primaryColor ? `; color principal ${input.primaryColor}` : ""}.` : "";
   const context = input.context ? ` Contexto: ${input.context}.` : "";
-  return `Devuelve ÚNICAMENTE JSON con caption {text, hashtags} y slides. Tema: ${input.topic}. Audiencia: ${input.audience}. Tono: ${input.tone}. Idioma: ${input.language}.${context}${brand} Crea exactamente ${input.slideCount} slides: la primera layout cover, la última cta. Cada slide usa uno de cover, content, list, bigNumber, quote, split, imageOverlay, timeline, statGrid, cta y sus campos de texto correspondientes.`;
+  return `Devuelve ÚNICAMENTE JSON con caption {text, hashtags} y slides. Tema: ${input.topic}. Audiencia: ${input.audience}. Tono: ${input.tone}. Idioma: ${input.language}.${context}${brand} Crea exactamente ${input.slideCount} slides: la primera layout cover, la última cta. Cada slide usa uno de cover, content, list, bigNumber, quote, split, imageOverlay, timeline, statGrid, cta y sus campos de texto correspondientes. En títulos, citas y cifras puedes resaltar UNA palabra o cifra clave envolviéndola en *asteriscos* (por ejemplo «Deja de *perder* ventas»); úsalo solo donde de verdad cargue la idea, en pocos slides, nunca en el cuerpo ni en más de una palabra por texto.`;
 }
 
 export async function generateCarousel(input: CarouselGenerationRequest, request: typeof fetch = fetch) {

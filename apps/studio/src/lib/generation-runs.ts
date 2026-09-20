@@ -9,7 +9,7 @@ export class GenerationRunError extends Error {
   constructor(message: string, status: number) { super(message); this.status = status; }
 }
 
-type Provider = "openai" | "unsplash" | "elevenlabs" | "local";
+type Provider = "openai" | "gemini" | "unsplash" | "elevenlabs" | "local";
 
 /**
  * Abre el registro de una operación de IA. `contentItemId` puede ser nulo: la investigación del

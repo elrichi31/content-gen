@@ -1,82 +1,53 @@
 "use client"
 
 import type { AdState } from "./types"
+import { alpha, fitSize, geometry, onColor } from "./ad-style"
+import { Check, Cta, copy, display, fill } from "./kit"
 
-export function FeatureAd({ ad, w }: { ad: AdState; w: number; h: number }) {
-  const s = w / 240
+/** Beneficios: titular y una lista de filas con marca de acento, separadas por filetes, sin tarjetas. */
+export function FeatureAd({ ad, w, h }: { ad: AdState; w: number; h: number }) {
+  const { u, tall, wide, pad, top, bottom } = geometry(w, h)
+  const ink = ad.textColor
+  const accent = ad.accentColor
+  const onAccent = onColor(accent)
+  const items = ad.features.filter((feature) => feature.label).slice(0, 5)
+  const textW = wide ? w * 0.5 - pad * 1.5 : w - pad * 2
+  const headSize = fitSize(ad.featHeadline, textW, h * (wide ? 0.4 : 0.22), { max: u * (wide ? 12 : 14), min: u * 5.5 })
+  const listH = wide ? h * 0.7 : h * (tall ? 0.34 : 0.3)
+  const rowSize = Math.min(u * 5.2, Math.max(u * 3, listH / (Math.max(1, items.length) * 2.4)))
+  const tileSize = rowSize * 1.9
 
-  return (
-    <div
-      className="relative flex h-full flex-col overflow-hidden"
-      style={{ backgroundColor: ad.bgColor, color: ad.textColor }}
-    >
-      {/* Background glow */}
-      <div
-        className="absolute inset-0 pointer-events-none"
-        style={{
-          backgroundImage: `radial-gradient(ellipse at 80% 100%, ${ad.accentColor}40 0%, transparent 55%)`,
-        }}
-      />
-
-      {/* Header */}
-      <div
-        className="relative flex flex-col"
-        style={{ padding: `${s * 18}px ${s * 16}px ${s * 10}px`, gap: s * 5 }}
-      >
-        <p className="font-black leading-tight" style={{ fontSize: s * 15, color: ad.accentColor }}>
-          {ad.featHeadline}
-        </p>
-        {ad.featBody && (
-          <p className="opacity-70 leading-snug" style={{ fontSize: s * 10 }}>
-            {ad.featBody}
-          </p>
-        )}
-      </div>
-
-      {/* Feature grid */}
-      <div
-        className="relative grid grid-cols-2 flex-1"
-        style={{ margin: `0 ${s * 12}px`, gap: s * 8 }}
-      >
-        {ad.features.map((f, i) => (
-          <div
-            key={i}
-            className="flex flex-col items-center justify-center rounded-lg text-center"
-            style={{
-              backgroundColor: "rgba(255,255,255,0.06)",
-              border: `${Math.max(1, s * 0.8)}px solid rgba(255,255,255,0.1)`,
-              padding: `${s * 8}px ${s * 6}px`,
-              gap: s * 4,
-            }}
-          >
-            <span style={{ fontSize: s * 18 }}>{f.emoji}</span>
-            <span className="font-semibold leading-tight" style={{ fontSize: s * 9 }}>
-              {f.label}
-            </span>
+  const headline = <p style={{ ...display(headSize), color: onAccent, textWrap: "balance" }}>{ad.featHeadline}</p>
+  const sub = ad.featBody ? <p style={{ ...copy(u * 3.8), color: alpha(onAccent, 0.82), maxWidth: textW, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{ad.featBody}</p> : null
+  const list = (
+    <div style={{ display: "flex", flexDirection: "column" }}>
+      {items.map((feature, index) => (
+        <div key={`${feature.label}-${index}`} style={{ display: "flex", alignItems: "center", gap: rowSize * 0.9, padding: `${rowSize * 0.55}px 0`, borderTop: `1px solid ${alpha(ink, 0.2)}` }}>
+          <div style={{ width: tileSize, height: tileSize, flexShrink: 0, background: accent, color: onAccent, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: u * 0.8 }}>
+            <Check size={rowSize * 1.1} />
           </div>
-        ))}
-      </div>
-
-      {/* CTA */}
-      {ad.cta && (
-        <div
-          className="relative flex justify-center"
-          style={{ padding: `${s * 12}px ${s * 16}px` }}
-        >
-          <div
-            className="font-bold text-center"
-            style={{
-              backgroundColor: ad.accentColor,
-              color: "#fff",
-              borderRadius: s * 20,
-              padding: `${s * 6}px ${s * 20}px`,
-              fontSize: s * 10,
-            }}
-          >
-            {ad.cta}
-          </div>
+          <p style={{ ...copy(rowSize, 800), color: ink }}>{feature.label}</p>
         </div>
-      )}
+      ))}
+    </div>
+  )
+  const cta = ad.cta ? <Cta label={ad.cta} background={ink} color={ad.bgColor} u={u} /> : null
+
+  if (wide) {
+    return (
+      <div style={{ ...fill, display: "flex" }}>
+        <div style={{ flex: 1, background: accent, display: "flex", flexDirection: "column", justifyContent: "center", gap: u * 3.5, padding: `${top}px ${pad}px` }}>{headline}{sub}{cta}</div>
+        <div style={{ width: "44%", display: "flex", flexDirection: "column", justifyContent: "center", padding: `${top}px ${pad}px` }}>{list}</div>
+      </div>
+    )
+  }
+  return (
+    <div style={{ ...fill, display: "flex", flexDirection: "column" }}>
+      <div style={{ background: accent, display: "flex", flexDirection: "column", gap: u * 3, padding: `${top}px ${pad}px ${u * 6}px` }}>{headline}{sub}</div>
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "space-between", gap: u * 3, padding: `${u * 3}px ${pad}px ${bottom}px` }}>
+        {list}
+        {cta}
+      </div>
     </div>
   )
 }

@@ -20,6 +20,10 @@ export const businessProfileSchema = z.object({
   audience: z.string().trim().max(300).default(""),
   /** Qué lo diferencia; útil para el ángulo de las piezas. */
   valueProposition: z.string().trim().max(1000).default(""),
+  /** Cómo habla la marca: registro, ritmo, expresiones. Es lo que más evita el contenido genérico. */
+  voice: z.string().trim().max(500).default(""),
+  /** Lo que la marca nunca dice o promete: promesas vetadas, temas, tonos. */
+  avoid: z.string().trim().max(500).default(""),
 });
 export type BusinessProfile = z.infer<typeof businessProfileSchema>;
 
@@ -89,7 +93,7 @@ export const generationRunSchema = z.object({
    */
   contentItemId: id.nullable().default(null),
   radarTopicId: id.nullable().default(null),
-  provider: z.enum(["openai", "unsplash", "elevenlabs", "local"]),
+  provider: z.enum(["openai", "gemini", "unsplash", "elevenlabs", "local"]),
   status: z.enum(["queued", "running", "completed", "failed", "skipped"]),
   createdAt: timestamp,
   completedAt: timestamp.nullable().default(null),

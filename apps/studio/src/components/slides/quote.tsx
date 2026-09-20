@@ -1,7 +1,8 @@
 "use client"
 
-import { EditableText } from "@/components/editable-text"
-import { type LayoutProps } from "./shared"
+import type { CSSProperties } from "react"
+import { QuoteMark } from "@/components/ads/kit"
+import { Slab, Txt, bodyStyle, fitTitle, palette, type LayoutProps } from "./shared"
 
 export const quoteVariants = [
   { id: 'default', label: 'Centrado'  },
@@ -9,80 +10,45 @@ export const quoteVariants = [
   { id: 'card',    label: 'Card'      },
 ]
 
-export function QuoteLayout({ slide, primary, bgStyle, bgBuilder, editable, onUpdateField }: LayoutProps) {
+/** Cita: es el titular del slide, en frase y no en mayúsculas para que se lea de corrido. */
+export function QuoteLayout(p: LayoutProps) {
+  const { slide } = p
   const variant = slide.layoutVariant ?? 'default'
-  const bg = bgBuilder(primary, bgStyle, 15, 5)
+  const poster = p.fontTheme === "poster"
+  // La cita va en la misma fuente pero sin el condensado extremo del titular.
+  const quoteText = (fg: string, h: number, max: number, w = 82): CSSProperties => ({ margin: 0, fontSize: `${fitTitle(p, slide.quote, { w, h, max })}cqw`, fontWeight: poster ? 800 : 700, fontStretch: poster ? "80%" : undefined, fontVariationSettings: poster ? "'wdth' 80" : undefined, lineHeight: 1.12, letterSpacing: "-0.015em", textWrap: "balance", color: fg })
+  const author = (fg: string, extra?: CSSProperties) => <Txt p={p} field="quoteAuthor" lines={2} style={{ ...bodyStyle(4.2, 800), textTransform: "uppercase", letterSpacing: "0.1em", color: fg, ...extra }} />
 
   if (variant === 'left') {
+    const c = palette(p, 'ink')
     return (
-      <div className={`flex h-full flex-col justify-center p-8 ${slide.textColor}`} style={bg}>
-        <div style={{ borderLeftWidth: 3, borderLeftColor: primary, paddingLeft: 16 }}>
-          {editable && onUpdateField ? (
-            <EditableText value={slide.quote ?? ''} field="quote" onUpdate={onUpdateField} className="text-balance text-lg font-medium italic leading-relaxed" multiline />
-          ) : (
-            <blockquote className="text-balance text-lg font-medium italic leading-relaxed">
-              {slide.quote}
-            </blockquote>
-          )}
-          {slide.quoteAuthor && (
-            editable && onUpdateField ? (
-              <EditableText value={slide.quoteAuthor} field="quoteAuthor" onUpdate={onUpdateField} className="mt-3 text-sm opacity-60" />
-            ) : (
-              <cite className="mt-3 block text-sm not-italic opacity-60">&mdash; {slide.quoteAuthor}</cite>
-            )
-          )}
-        </div>
-      </div>
+      <Slab p={p} tone="ink" style={{ justifyContent: "center", gap: "5cqw" }}>
+        <QuoteMark size="14cqw" color={c.accent} />
+        <Txt p={p} field="quote" multiline style={quoteText(c.fg, 54, 11.5)} />
+        {author(c.text)}
+      </Slab>
     )
   }
 
   if (variant === 'card') {
+    const card = palette(p, 'primary')
     return (
-      <div className={`flex h-full flex-col items-center justify-center p-6 ${slide.textColor}`} style={bg}>
-        <div
-          className="w-full rounded-2xl p-6 text-center"
-          style={{
-            backgroundColor: `color-mix(in srgb, ${primary} 12%, transparent)`,
-            border: `1px solid color-mix(in srgb, ${primary} 25%, transparent)`,
-          }}
-        >
-          <span className="text-3xl" style={{ color: primary, opacity: 0.6 }}>&ldquo;</span>
-          {editable && onUpdateField ? (
-            <EditableText value={slide.quote ?? ''} field="quote" onUpdate={onUpdateField} className="mt-2 text-balance text-base font-medium italic leading-relaxed" multiline />
-          ) : (
-            <blockquote className="mt-2 text-balance text-base font-medium italic leading-relaxed">
-              {slide.quote}
-            </blockquote>
-          )}
-          {slide.quoteAuthor && (
-            editable && onUpdateField ? (
-              <EditableText value={slide.quoteAuthor} field="quoteAuthor" onUpdate={onUpdateField} className="mt-3 text-sm opacity-60" />
-            ) : (
-              <cite className="mt-3 block text-sm not-italic opacity-60">&mdash; {slide.quoteAuthor}</cite>
-            )
-          )}
+      <Slab p={p} tone="ink" style={{ justifyContent: "center", padding: p.tall ? "14cqw 12cqw 34cqw 8cqw" : "8cqw 7cqw 13cqw" }}>
+        <div style={{ ...card.vars, background: p.primary, color: card.fg, borderRadius: "1.5cqw", padding: "8cqw 7cqw", display: "flex", flexDirection: "column", gap: "5cqw" }}>
+          <QuoteMark size="11cqw" color={card.fg} />
+          <Txt p={p} field="quote" multiline style={quoteText(card.fg, 48, 10, 70)} />
+          {author(card.muted)}
         </div>
-      </div>
+      </Slab>
     )
   }
 
+  const c = palette(p, 'primary')
   return (
-    <div className={`flex h-full flex-col items-center justify-center p-8 text-center ${slide.textColor}`} style={bg}>
-      <span className="mb-4 text-4xl" style={{ color: primary, opacity: 0.6 }}>&ldquo;</span>
-      {editable && onUpdateField ? (
-        <EditableText value={slide.quote ?? ''} field="quote" onUpdate={onUpdateField} className="text-balance text-lg font-medium italic leading-relaxed" multiline />
-      ) : (
-        <blockquote className="text-balance text-lg font-medium italic leading-relaxed">
-          {slide.quote}
-        </blockquote>
-      )}
-      {slide.quoteAuthor && (
-        editable && onUpdateField ? (
-          <EditableText value={slide.quoteAuthor} field="quoteAuthor" onUpdate={onUpdateField} className="mt-4 text-sm opacity-60" />
-        ) : (
-          <cite className="mt-4 text-sm not-italic opacity-60">&mdash; {slide.quoteAuthor}</cite>
-        )
-      )}
-    </div>
+    <Slab p={p} tone="primary" style={{ alignItems: "center", justifyContent: "center", textAlign: "center", gap: "5cqw" }}>
+      <QuoteMark size="14cqw" color={c.fg} />
+      <Txt p={p} field="quote" multiline style={quoteText(c.fg, 54, 11.5)} />
+      {author(c.muted)}
+    </Slab>
   )
 }

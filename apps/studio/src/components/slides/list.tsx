@@ -1,7 +1,7 @@
 "use client"
 
-import { EditableText } from "@/components/editable-text"
-import { HighlightedTitle, type LayoutProps } from "./shared"
+import { Check } from "@/components/ads/kit"
+import { ItemText, Rule, Slab, Txt, bodyStyle, fitTitle, flexTone, palette, tabular, titleStyle, type LayoutProps } from "./shared"
 
 export const listVariants = [
   { id: 'default',  label: 'Emoji'    },
@@ -9,104 +9,36 @@ export const listVariants = [
   { id: 'cards',    label: 'Cards'    },
 ]
 
-export function ListLayout({ slide, primary, bgStyle, bgBuilder, editable, onUpdateField, onUpdateListItem }: LayoutProps) {
+/** Lista: cada punto en su fila, separados por filetes. Los emoji solo viven en la variante «Emoji». */
+export function ListLayout(p: LayoutProps) {
+  const { slide } = p
   const variant = slide.layoutVariant ?? 'default'
-  const bg = bgBuilder(primary, bgStyle, 18, 4)
-
-  if (variant === 'numbered') {
-    return (
-      <div className={`flex h-full flex-col justify-center p-8 ${slide.textColor}`} style={bg}>
-        {slide.title && (
-          editable && onUpdateField ? (
-            <EditableText value={slide.title} field="title" onUpdate={onUpdateField} className="mb-5 text-balance text-xl font-bold leading-tight" />
-          ) : (
-            <h2 className="mb-5 text-balance text-xl font-bold leading-tight">
-              <HighlightedTitle text={slide.title} primary={primary} />
-            </h2>
-          )
-        )}
-        {slide.listItems && (
-          <ol className="space-y-3">
-            {slide.listItems.map((item, i) => (
-              <li key={i} className="flex items-start gap-3 text-sm">
-                <span
-                  className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full text-[10px] font-bold"
-                  style={{ backgroundColor: `color-mix(in srgb, ${primary} 20%, transparent)`, color: primary }}
-                >
-                  {i + 1}
-                </span>
-                {editable && onUpdateListItem ? (
-                  <EditableText value={item.text} field="listItems" onUpdate={(_, v) => onUpdateListItem(i, v)} className="opacity-90 pt-0.5 flex-1" />
-                ) : (
-                  <span className="opacity-90 pt-0.5">{item.text}</span>
-                )}
-              </li>
-            ))}
-          </ol>
-        )}
-      </div>
-    )
-  }
-
-  if (variant === 'cards') {
-    return (
-      <div className={`flex h-full flex-col justify-center p-6 ${slide.textColor}`} style={bg}>
-        {slide.title && (
-          editable && onUpdateField ? (
-            <EditableText value={slide.title} field="title" onUpdate={onUpdateField} className="mb-4 text-balance text-lg font-bold leading-tight" />
-          ) : (
-            <h2 className="mb-4 text-balance text-lg font-bold leading-tight">
-              <HighlightedTitle text={slide.title} primary={primary} />
-            </h2>
-          )
-        )}
-        {slide.listItems && (
-          <div className="space-y-2">
-            {slide.listItems.map((item, i) => (
-              <div
-                key={i}
-                className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm"
-                style={{ backgroundColor: `color-mix(in srgb, ${primary} 10%, transparent)` }}
-              >
-                <span className="text-base leading-none">{item.emoji}</span>
-                {editable && onUpdateListItem ? (
-                  <EditableText value={item.text} field="listItems" onUpdate={(_, v) => onUpdateListItem(i, v)} className="opacity-90 text-xs flex-1" />
-                ) : (
-                  <span className="opacity-90 text-xs">{item.text}</span>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    )
-  }
+  const cards = variant === 'cards'
+  const tone = cards ? 'primary' : flexTone(p)
+  const c = palette(p, tone)
+  const items = (slide.listItems ?? []).slice(0, 6)
+  const size = items.length > 4 ? 4.6 : 5.4
 
   return (
-    <div className={`flex h-full flex-col justify-center p-8 ${slide.textColor}`} style={bg}>
-      {slide.title && (
-        editable && onUpdateField ? (
-          <EditableText value={slide.title} field="title" onUpdate={onUpdateField} className="mb-5 text-balance text-xl font-bold leading-tight" />
-        ) : (
-          <h2 className="mb-5 text-balance text-xl font-bold leading-tight">
-            <HighlightedTitle text={slide.title} primary={primary} />
-          </h2>
-        )
-      )}
-      {slide.listItems && (
-        <ul className="space-y-3">
-          {slide.listItems.map((item, i) => (
-            <li key={i} className="flex items-start gap-3 text-sm">
-              <span className="text-lg leading-none" style={{ color: primary }}>{item.emoji}</span>
-              {editable && onUpdateListItem ? (
-                <EditableText value={item.text} field="listItems" onUpdate={(_, v) => onUpdateListItem(i, v)} className="opacity-90 flex-1" />
-              ) : (
-                <span className="opacity-90">{item.text}</span>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
+    <Slab p={p} tone={tone} style={{ justifyContent: "center", gap: "5cqw" }}>
+      <Rule color={c.accent} />
+      <Txt p={p} field="title" as="h2" style={{ ...titleStyle(p, fitTitle(p, slide.title, { h: 26, max: 13 })), color: c.fg }} />
+      <div style={{ display: "flex", flexDirection: "column", gap: cards ? "2cqw" : 0 }}>
+        {items.map((item, i) => {
+          const first = cards && i === 0
+          const lead = variant === 'numbered'
+            ? <span style={{ ...titleStyle(p, 9), ...tabular, color: c.text, minWidth: "13cqw" }}>{String(i + 1).padStart(2, "0")}</span>
+            : cards
+              ? <Check size="5.5cqw" color={first ? c.flip.fg : c.fg} />
+              : <span style={{ fontSize: "6.5cqw", lineHeight: 1, minWidth: "9cqw", textAlign: "center" }}>{item.emoji}</span>
+          return (
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: "3.5cqw", padding: cards ? "3cqw 4cqw" : "3cqw 0", borderTop: cards ? undefined : `1px solid ${c.rule}`, borderRadius: cards ? "1cqw" : undefined, background: cards ? (first ? c.flip.bg : c.panel) : undefined, color: first ? c.flip.fg : c.fg }}>
+              {lead}
+              <ItemText p={p} index={i} text={item.text} style={{ ...bodyStyle(size, 600), flex: 1 }} />
+            </div>
+          )
+        })}
+      </div>
+    </Slab>
   )
 }

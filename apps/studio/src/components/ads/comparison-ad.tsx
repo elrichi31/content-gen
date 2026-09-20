@@ -1,98 +1,58 @@
 "use client"
 
 import type { AdState } from "./types"
+import { alpha, fitSize, geometry, onColor } from "./ad-style"
+import { Check, Cross, Cta, copy, display, fill } from "./kit"
 
-export function ComparisonAd({ ad, w }: { ad: AdState; w: number; h: number }) {
-  const s = w / 240 // scale factor relative to square reference
+/** Antes contra ahora: un panel apagado y otro de acento con el botón. Apilados o en columnas según el formato. */
+export function ComparisonAd({ ad, w, h }: { ad: AdState; w: number; h: number }) {
+  const { u, tall, wide, pad, top, bottom } = geometry(w, h)
+  const cols = !tall // el square también va en columnas: apilado no cabe el botón
+  const ink = ad.textColor
+  const accent = ad.accentColor
+  const onAccent = onColor(accent)
+  const headSize = fitSize(ad.compHeadline, w - pad * 2, h * (wide ? 0.3 : tall ? 0.17 : 0.2), { max: u * (wide ? 11 : 13), min: u * 5 })
+  const panelH = cols ? h * 0.5 : h * 0.3
+  const rowSize = (count: number) => Math.min(u * (tall ? 4.6 : wide ? 3.8 : 3.9), Math.max(u * 2.8, (panelH - u * 16) / (Math.max(1, count) * 1.9)))
+  const chip = u * 10
 
+  const rows = (items: string[], icon: "cross" | "check") => {
+    const size = rowSize(items.length)
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: size * 0.55 }}>
+        {items.slice(0, 5).map((item) => (
+          <div key={item} style={{ ...copy(size, icon === "check" ? 800 : 500), display: "flex", alignItems: "center", gap: size * 0.6, color: icon === "check" ? onAccent : alpha(ink, 0.72) }}>
+            {icon === "check" ? <Check size={size * 1.15} /> : <Cross size={size * 1.15} color={alpha(ink, 0.5)} />}
+            <span>{item}</span>
+          </div>
+        ))}
+      </div>
+    )
+  }
+  const label = (text: string, color: string) => <p style={{ ...copy(u * 3.2, 800), textTransform: "uppercase", letterSpacing: "0.12em", color }}>{text}</p>
+  const cta = ad.cta ? <Cta label={ad.cta} background={ink} color={ad.bgColor} u={u} /> : null
+
+  // La proporción 1 : 1.35 fija dónde cae la costura, y ahí va el "VS".
+  const seam = `${(100 / 2.35).toFixed(2)}%`
   return (
-    <div
-      className="relative flex h-full flex-col overflow-hidden"
-      style={{ backgroundColor: ad.bgColor, color: ad.textColor }}
-    >
-      {/* Top accent bar */}
-      <div style={{ height: Math.max(2, s * 3), backgroundColor: ad.accentColor }} />
-
-      {/* Headline */}
-      <div style={{ padding: `${s * 10}px ${s * 14}px ${s * 6}px` }}>
-        <p
-          className="font-bold text-center leading-tight"
-          style={{ fontSize: s * 13 }}
-        >
-          {ad.compHeadline}
-        </p>
+    <div style={{ ...fill, display: "flex", flexDirection: "column" }}>
+      <div style={{ padding: `${top}px ${pad}px ${u * 4}px` }}>
+        <p style={{ ...display(headSize), color: ink, textWrap: "balance" }}>{ad.compHeadline}</p>
       </div>
-
-      {/* Table */}
-      <div
-        className="flex flex-1 overflow-hidden"
-        style={{ margin: `0 ${s * 10}px`, borderRadius: s * 8, fontSize: s * 10 }}
-      >
-        {/* Left — Competitor */}
-        <div className="flex flex-1 flex-col" style={{ backgroundColor: "rgba(255,255,255,0.05)" }}>
-          <div
-            className="text-center font-semibold"
-            style={{
-              backgroundColor: "rgba(255,255,255,0.1)",
-              padding: `${s * 5}px ${s * 4}px`,
-              fontSize: s * 9,
-            }}
-          >
-            {ad.leftLabel}
-          </div>
-          <div className="flex flex-1 flex-col justify-evenly" style={{ padding: `${s * 6}px ${s * 8}px` }}>
-            {ad.leftItems.map((item, i) => (
-              <div key={i} className="flex items-start gap-1">
-                <span style={{ color: "#ef4444", fontSize: s * 11 }}>✗</span>
-                <span className="opacity-75 leading-tight">{item}</span>
-              </div>
-            ))}
-          </div>
+      <div style={{ flex: 1, position: "relative", display: "flex", flexDirection: cols ? "row" : "column" }}>
+        <div style={{ flex: 1, background: alpha(ink, 0.08), display: "flex", flexDirection: "column", gap: u * 3, padding: `${u * 6}px ${pad}px` }}>
+          {label(ad.leftLabel, alpha(ink, 0.65))}
+          {rows(ad.leftItems, "cross")}
         </div>
-
-        {/* Divider */}
-        <div style={{ width: 1, backgroundColor: "rgba(255,255,255,0.1)" }} />
-
-        {/* Right — Us */}
-        <div className="flex flex-1 flex-col">
-          <div
-            className="text-center font-bold"
-            style={{
-              backgroundColor: ad.accentColor,
-              padding: `${s * 5}px ${s * 4}px`,
-              fontSize: s * 9,
-            }}
-          >
-            {ad.rightLabel}
+        <div style={{ flex: 1.35, background: accent, color: onAccent, display: "flex", flexDirection: "column", justifyContent: "space-between", gap: u * 3, padding: `${cols ? u * 6 : u * 9}px ${pad}px ${cols ? pad : bottom}px` }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: u * 3 }}>
+            {label(ad.rightLabel, onAccent)}
+            {rows(ad.rightItems, "check")}
           </div>
-          <div className="flex flex-1 flex-col justify-evenly" style={{ padding: `${s * 6}px ${s * 8}px` }}>
-            {ad.rightItems.map((item, i) => (
-              <div key={i} className="flex items-start gap-1">
-                <span style={{ color: "#22c55e", fontSize: s * 11 }}>✓</span>
-                <span className="font-semibold leading-tight">{item}</span>
-              </div>
-            ))}
-          </div>
+          {cta}
         </div>
+        <div style={{ ...display(u * 4), position: "absolute", width: chip, height: chip, borderRadius: chip, background: ink, color: ad.bgColor, display: "flex", alignItems: "center", justifyContent: "center", ...(cols ? { left: seam, top: "50%", marginLeft: -chip / 2, marginTop: -chip / 2 } : { top: seam, right: pad, marginTop: -chip / 2 }) }}>VS</div>
       </div>
-
-      {/* CTA */}
-      {ad.cta && (
-        <div style={{ padding: `${s * 10}px ${s * 14}px` }} className="flex justify-center">
-          <div
-            className="font-bold text-center"
-            style={{
-              backgroundColor: ad.accentColor,
-              color: "#fff",
-              borderRadius: s * 20,
-              padding: `${s * 6}px ${s * 18}px`,
-              fontSize: s * 10,
-            }}
-          >
-            {ad.cta}
-          </div>
-        </div>
-      )}
     </div>
   )
 }

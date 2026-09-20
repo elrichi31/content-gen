@@ -56,7 +56,7 @@ export function InstagramFrame({
           {activeSlide + 1}/{slides.length}
         </div>
         <div className="relative aspect-[4/5] w-full overflow-hidden">
-          <SlideRenderer slide={slides[activeSlide]} brand={brand} activePrimary={activePrimary} fontTheme={fontTheme} bgStyle={bgStyle} editable={editable} onUpdateField={onUpdateField} onUpdateListItem={onUpdateListItem} />
+          <SlideRenderer slide={slides[activeSlide]} index={activeSlide} total={slides.length} brand={brand} activePrimary={activePrimary} fontTheme={fontTheme} bgStyle={bgStyle} editable={editable} onUpdateField={onUpdateField} onUpdateListItem={onUpdateListItem} />
           {isLoading && <SlideLoadingOverlay />}
         </div>
       </div>

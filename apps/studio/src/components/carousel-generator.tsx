@@ -10,11 +10,13 @@ import { Label } from "@/components/ui/label";
 
 export function CarouselGenerator({
   campaignId,
+  brandKitId,
   brief,
   onGenerated,
   onNotice,
 }: {
   campaignId?: string;
+  brandKitId?: string;
   brief?: { topic: string; audience: string; tone: string; context?: string };
   onGenerated: (document: CarouselDocument) => void;
   onNotice: (notice: NoticeState) => void;
@@ -42,12 +44,13 @@ export function CarouselGenerator({
     if (tone.trim()) body.tone = tone.trim();
     if (context.trim()) body.context = context.trim();
     if (campaignId) body.campaignId = campaignId;
+    if (brandKitId) body.brandKitId = brandKitId;
     try {
       const response = await fetch("/api/carousels/generate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const payload = await response.json();
       if (!response.ok) return onNotice(noticeError(typeof payload.error === "string" ? payload.error : "No se pudo generar el carrusel."));
       onGenerated(payload.document);
-      onNotice(noticeOk(campaignId ? "Carrusel generado con la marca de la campaña. Revísalo y guárdalo." : "Carrusel generado. Revísalo y guárdalo en la biblioteca."));
+      onNotice(noticeOk(brandKitId || campaignId ? "Carrusel generado con la marca. Revísalo y guárdalo." : "Carrusel generado. Revísalo y guárdalo en la biblioteca."));
     } catch {
       // Sin esto, una caída de red dejaba el botón en «Generando…» para siempre: el `finally`
       // es lo que garantiza que el formulario vuelve a estar disponible pase lo que pase.

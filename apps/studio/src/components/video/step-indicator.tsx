@@ -6,10 +6,11 @@ import { Check } from "lucide-react";
 export const WIZARD_STEPS = ["Tema", "Guión", "Imágenes", "Voz", "Guardar"] as const;
 export type WizardStep = 1 | 2 | 3 | 4 | 5;
 
-export function StepIndicator({ current, onSelect, reached }: { current: WizardStep; onSelect: (step: WizardStep) => void; reached: WizardStep }) {
+/** `steps` permite reutilizarlo en otros flujos (anuncios); por defecto son los de video. */
+export function StepIndicator({ current, onSelect, reached, steps = WIZARD_STEPS }: { current: WizardStep; onSelect: (step: WizardStep) => void; reached: WizardStep; steps?: readonly string[] }) {
   return (
     <ol className="mb-8 flex flex-wrap items-center gap-2">
-      {WIZARD_STEPS.map((label, index) => {
+      {steps.map((label, index) => {
         const step = (index + 1) as WizardStep;
         const done = current > step;
         const active = current === step;
@@ -27,7 +28,7 @@ export function StepIndicator({ current, onSelect, reached }: { current: WizardS
               </span>
               <span className={active ? "font-semibold text-foreground" : "text-muted-foreground"}>{label}</span>
             </button>
-            {step < WIZARD_STEPS.length ? <span className="mx-1 h-px w-8 bg-border" /> : null}
+            {step < steps.length ? <span className="mx-1 h-px w-8 bg-border" /> : null}
           </li>
         );
       })}

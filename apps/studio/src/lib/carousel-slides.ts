@@ -24,9 +24,9 @@ function outputText(value: unknown) {
   throw new Error("La IA no devolvió JSON de slide.");
 }
 
-export async function generateSlide(topic: string, layout: Slide["layout"], request: typeof fetch = fetch) {
+export async function generateSlide(topic: string, layout: Slide["layout"], request: typeof fetch = fetch, brandBrief = "") {
   if (process.env.CONTENT_GEN_AI_PROVIDER !== "openai" || !process.env.OPENAI_API_KEY) throw new Error("OpenAI no está configurado.");
-  const response = await openAiRequest("text", request, "https://api.openai.com/v1/responses", { method: "POST", headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, "Content-Type": "application/json" }, body: JSON.stringify({ model: process.env.OPENAI_TEXT_MODEL || "gpt-5.6-sol", input: `Responde solamente JSON de una slide layout ${layout} para el tema "${topic}". Incluye los campos de texto adecuados para ese layout.`, text: { format: { type: "json_object" } } }) });
+  const response = await openAiRequest("text", request, "https://api.openai.com/v1/responses", { method: "POST", headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, "Content-Type": "application/json" }, body: JSON.stringify({ model: process.env.OPENAI_TEXT_MODEL || "gpt-5.6-sol", input: `Responde solamente JSON de una slide layout ${layout} para el tema "${topic}".${brandBrief ? ` ${brandBrief}` : ""} Incluye los campos de texto adecuados para ese layout. En títulos, citas y cifras puedes resaltar UNA palabra o cifra clave envolviéndola en *asteriscos* (por ejemplo «Deja de *perder* ventas»); úsalo solo donde de verdad cargue la idea, en pocos slides, nunca en el cuerpo ni en más de una palabra por texto.`, text: { format: { type: "json_object" } } }) });
   const body = await response.json().catch(() => null); if (!response.ok) throw new Error("No se pudo generar la slide.");
   return { slide: JSON.parse(outputText(body)), model: process.env.OPENAI_TEXT_MODEL || "gpt-5.6-sol", usage: normalizeResponsesUsage(body) };
 }

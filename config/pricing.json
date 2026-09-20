@@ -21,11 +21,14 @@
     "- web_search cobra $10 por cada 1000 llamadas. Los tokens del contenido buscado se facturan",
     "  al precio del modelo, y ya vienen contados dentro de input_tokens: no hay que sumarlos aparte.",
     "",
+    "gemini-3.1-flash-image (Nano Banana 2) verificado el 2026-09-20 en ai.google.dev/gemini-api/docs/pricing:",
+    "$0.067 por imagen de 1K (1024x1024), que es el tamaño que pide la aplicación en los anuncios.",
+    "",
     "Familia GPT-5.6 verificada el 2026-08-18: sol $5/$30, terra $2/$12, luna $0.20/$1.20 por millon.",
     "El radar gasta el 65% en tokens de ENTRADA (el contenido que traen las busquedas), asi que",
     "cambiar de modelo divide esa partida directamente: los mismos tokens a otra tarifa."
   ],
-  "version": "2026-08-18b",
+  "version": "2026-09-20",
   "currency": "USD",
   "models": {
     "gpt-5.6-sol": {
@@ -35,6 +38,9 @@
     },
     "gpt-image-2": {
       "perImage": 0.005
+    },
+    "gemini-3.1-flash-image": {
+      "perImage": 0.067
     },
     "gpt-5.6-terra": {
       "inputPerMillion": 2,

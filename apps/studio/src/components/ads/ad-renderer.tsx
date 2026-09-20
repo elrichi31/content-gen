@@ -7,13 +7,33 @@ import { PromoAd } from "./promo-ad";
 import { FeatureAd } from "./feature-ad";
 import { TestimonialAd } from "./testimonial-ad";
 import { PainSolutionAd } from "./pain-solution-ad";
+import { alpha } from "./ad-style";
+import { FONT, fill } from "./kit";
+
+/** Cuánto vela el fondo cada plantilla: la que pone texto directo sobre la foto necesita más. */
+const SCRIM: Record<AdState["layout"], number> = { promo: 0.4, testimonial: 0.7, comparison: 0.6, feature: 0.78, painSolution: 0.5 };
+
+/** Con imagen: foto a sangre con un velo del color de fondo. Sin imagen: trama de puntos, como un impreso. */
+function Backdrop({ ad, w, h }: { ad: AdState; w: number; h: number }) {
+  if (ad.imageAssetId) {
+    const s = SCRIM[ad.layout];
+    return (
+      <>
+        <img src={`/api/assets/${ad.imageAssetId}`} alt="" style={{ ...fill, width: "100%", height: "100%", objectFit: "cover" }} />
+        <div style={{ ...fill, background: `linear-gradient(180deg, ${alpha(ad.bgColor, Math.min(1, s + 0.25))} 0%, ${alpha(ad.bgColor, s)} 45%, ${alpha(ad.bgColor, Math.min(1, s + 0.3))} 100%)` }} />
+      </>
+    );
+  }
+  const step = Math.min(w, h) * 0.022;
+  return <div style={{ ...fill, backgroundImage: `radial-gradient(circle, ${alpha(ad.textColor, 0.1)} 0, ${alpha(ad.textColor, 0.1)} ${step * 0.07}px, transparent ${step * 0.12}px)`, backgroundSize: `${step}px ${step}px` }} />;
+}
 
 export function AdRenderer({ ad, w, h }: { ad: AdState; w: number; h: number }) {
   const props = { ad, w, h };
   return (
-    <div className="relative flex h-full w-full flex-col overflow-hidden" style={{ backgroundColor: ad.bgColor }}>
-      {ad.imageAssetId ? <><img src={`/api/assets/${ad.imageAssetId}`} alt="" className="absolute inset-0 h-full w-full object-cover opacity-30" /><div className="absolute inset-0 bg-gradient-to-b from-black/25 via-black/45 to-black/75" /></> : null}
-      <div className="relative flex h-full w-full flex-col">
+    <div style={{ position: "relative", width: "100%", height: "100%", overflow: "hidden", backgroundColor: ad.bgColor, color: ad.textColor, fontFamily: FONT }}>
+      <Backdrop {...props} />
+      <div style={{ ...fill, display: "flex", flexDirection: "column" }}>
         {ad.layout === "comparison" && <ComparisonAd {...props} />}
         {ad.layout === "promo" && <PromoAd {...props} />}
         {ad.layout === "feature" && <FeatureAd {...props} />}

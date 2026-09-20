@@ -1,7 +1,6 @@
 "use client"
 
-import { EditableText } from "@/components/editable-text"
-import { HighlightedTitle, ImagePlaceholder, type LayoutProps } from "./shared"
+import { INK, Photo, Rule, Slab, Txt, alpha, bodyStyle, fitTitle, flexTone, palette, tabular, titleStyle, type LayoutProps } from "./shared"
 
 export const contentVariants = [
   { id: 'default',     label: 'Default'       },
@@ -11,115 +10,55 @@ export const contentVariants = [
   { id: 'bg-image',    label: 'Img Fondo'     },
 ]
 
-export function ContentLayout({ slide, primary, bgStyle, bgBuilder, editable, onUpdateField }: LayoutProps) {
+/** Una idea con su explicación: titular grande arriba y el párrafo debajo. */
+export function ContentLayout(p: LayoutProps) {
+  const { slide } = p
   const variant = slide.layoutVariant ?? 'default'
-  const bg = bgBuilder(primary, bgStyle, 18, 4)
-
-  if (slide.imagePosition === 'background') {
-    return (
-      <div className="relative flex h-full text-white">
-        {slide.imageUrl ? (
-          <img src={slide.imageUrl} alt="" className="absolute inset-0 h-full w-full object-cover scale-105" style={{ filter: 'blur(3px)' }} />
-        ) : (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-muted/30">
-            <ImagePlaceholder large />
-          </div>
-        )}
-        <div className="absolute inset-0 bg-black/65" />
-        <div className="relative z-10 flex h-full flex-col items-center justify-center px-8 text-center">
-          {slide.title && (
-            editable && onUpdateField ? (
-              <EditableText value={slide.title} field="title" onUpdate={onUpdateField} className="text-balance text-xl font-bold leading-tight drop-shadow-md" />
-            ) : (
-              <h2 className="text-balance text-xl font-bold leading-tight drop-shadow-md" style={{ color: '#fff' }}>
-                <HighlightedTitle text={slide.title} primary={primary} />
-              </h2>
-            )
-          )}
-          {slide.content && (
-            editable && onUpdateField ? (
-              <EditableText value={slide.content} field="content" onUpdate={onUpdateField} className="mt-3 text-pretty text-sm leading-relaxed opacity-85 drop-shadow-sm max-w-[85%]" multiline />
-            ) : (
-              <p className="mt-3 text-pretty text-sm leading-relaxed opacity-85 drop-shadow-sm max-w-[85%]">{slide.content}</p>
-            )
-          )}
-        </div>
-      </div>
-    )
-  }
-
-  if (variant === 'centered') {
-    return (
-      <div className={`flex h-full flex-col items-center justify-center px-8 pt-6 pb-10 text-center ${slide.textColor}`} style={bg}>
-        {slide.title && (
-          editable && onUpdateField ? (
-            <EditableText value={slide.title} field="title" onUpdate={onUpdateField} className="text-balance text-xl font-bold leading-tight line-clamp-3" />
-          ) : (
-            <h2 className="text-balance text-xl font-bold leading-tight line-clamp-3">
-              <HighlightedTitle text={slide.title} primary={primary} />
-            </h2>
-          )
-        )}
-        {slide.content && (
-          editable && onUpdateField ? (
-            <EditableText value={slide.content} field="content" onUpdate={onUpdateField} className="mt-3 text-pretty text-sm leading-relaxed opacity-80 max-w-[85%] line-clamp-6" multiline />
-          ) : (
-            <p className="mt-3 text-pretty text-sm leading-relaxed opacity-80 max-w-[85%] line-clamp-6">{slide.content}</p>
-          )
-        )}
-      </div>
-    )
-  }
+  const tone = variant === 'image-right' || variant === 'image-left' || variant === 'bg-image' ? 'ink' : flexTone(p)
+  const c = palette(p, tone)
+  const title = (max: number, h: number, w = 84) => <Txt p={p} field="title" as="h2" style={{ ...titleStyle(p, fitTitle(p, slide.title, { w, h, max })), color: c.fg }} />
+  const body = (size: number, lines: number) => <Txt p={p} field="content" multiline lines={lines} style={{ ...bodyStyle(size), color: c.fg, opacity: 0.88 }} />
+  // Si la IA numeró el paso («01»), el número es el gancho del slide; si no, una barra abre el titular.
+  const step = /^\d{1,2}$/.test(slide.emoji ?? "") ? slide.emoji : undefined
+  const opener = step ? <span style={{ ...titleStyle(p, 20), ...tabular, color: c.text, lineHeight: 0.8 }}>{step}</span> : <Rule color={c.accent} />
 
   if (variant === 'image-right' || variant === 'image-left') {
-    const imageOnLeft = variant === 'image-left'
+    const imageLeft = variant === 'image-left'
     return (
-      <div className={`flex h-full ${imageOnLeft ? 'flex-row' : 'flex-row-reverse'} ${slide.textColor}`} style={bg}>
-        <div className="flex w-1/2 items-center justify-center bg-black/10">
-          {slide.imageUrl
-            ? <img src={slide.imageUrl} alt="" className="h-full w-full object-cover" />
-            : <ImagePlaceholder />}
+      <Slab p={p} tone="ink" style={{ flexDirection: imageLeft ? "row-reverse" : "row", padding: 0 }}>
+        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", justifyContent: "center", gap: "3.5cqw", padding: p.tall ? "14cqw 6cqw 34cqw" : "8cqw 6cqw 13cqw" }}>
+          <Rule color={c.accent} width={10} />
+          {title(11, 46, 40)}
+          {body(4.2, 11)}
         </div>
-        <div className="flex w-1/2 flex-col justify-center p-6">
-          {slide.title && (
-            editable && onUpdateField ? (
-              <EditableText value={slide.title} field="title" onUpdate={onUpdateField} className="text-balance text-lg font-bold leading-tight" />
-            ) : (
-              <h2 className="text-balance text-lg font-bold leading-tight">
-                <HighlightedTitle text={slide.title} primary={primary} />
-              </h2>
-            )
-          )}
-          {slide.content && (
-            editable && onUpdateField ? (
-              <EditableText value={slide.content} field="content" onUpdate={onUpdateField} className="mt-3 text-pretty text-xs leading-relaxed opacity-80" multiline />
-            ) : (
-              <p className="mt-3 text-pretty text-xs leading-relaxed opacity-80">{slide.content}</p>
-            )
-          )}
+        <div style={{ position: "relative", width: "46%" }}>
+          <Photo src={slide.imageUrl} />
+          <div style={{ position: "absolute", top: 0, bottom: 0, [imageLeft ? "right" : "left"]: 0, width: "2cqw", background: c.accent }} />
         </div>
-      </div>
+      </Slab>
     )
   }
 
+  if (variant === 'bg-image') {
+    return (
+      <Slab p={p} tone="ink" style={{ justifyContent: "flex-end" }}>
+        <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}><Photo src={slide.imageUrl} /></div>
+        <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, background: `linear-gradient(180deg, ${alpha(INK, 0.3)} 0%, ${alpha(INK, 0.92)} 72%)` }} />
+        <div style={{ position: "relative", display: "flex", flexDirection: "column", gap: "3.5cqw" }}>
+          <Rule color={c.accent} width={10} />
+          {title(12, 30)}
+          {body(4.4, 6)}
+        </div>
+      </Slab>
+    )
+  }
+
+  const centered = variant === 'centered'
   return (
-    <div className={`flex h-full flex-col justify-center px-8 pt-6 pb-10 ${slide.textColor}`} style={bg}>
-      {slide.title && (
-        editable && onUpdateField ? (
-          <EditableText value={slide.title} field="title" onUpdate={onUpdateField} className="text-balance text-xl font-bold leading-tight line-clamp-3" />
-        ) : (
-          <h2 className="text-balance text-xl font-bold leading-tight line-clamp-3">
-            <HighlightedTitle text={slide.title} primary={primary} />
-          </h2>
-        )
-      )}
-      {slide.content && (
-        editable && onUpdateField ? (
-          <EditableText value={slide.content} field="content" onUpdate={onUpdateField} className="mt-3 text-pretty text-sm leading-relaxed opacity-80 line-clamp-6" multiline />
-        ) : (
-          <p className="mt-3 text-pretty text-sm leading-relaxed opacity-80 line-clamp-6">{slide.content}</p>
-        )
-      )}
-    </div>
+    <Slab p={p} tone={tone} style={{ justifyContent: "center", gap: "4cqw", ...(centered ? { alignItems: "center", textAlign: "center" } : null) }}>
+      {opener}
+      {title(19, 32)}
+      {body(4.8, 7)}
+    </Slab>
   )
 }
