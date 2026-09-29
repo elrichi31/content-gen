@@ -29,6 +29,7 @@ export type FontThemeId = keyof typeof fontThemes
 
 // Background style patterns overlaid on the primary color gradient
 export const bgStyles = {
+  aura:     { label: 'Aura' },
   gradient: { label: 'Gradient' },
   lines:    { label: 'Lines' },
   dots:     { label: 'Dots' },
@@ -88,10 +89,22 @@ export function buildBgStyle(primary: string, style: BgStyleId, startPct: number
         backgroundImage: `radial-gradient(ellipse at 30% 20%, ${mix(startPct + 10)} 0%, transparent 60%), radial-gradient(ellipse at 80% 80%, ${mix(startPct)} 0%, transparent 50%), ${base}`,
       }
 
+    case 'aura':
+      // Luz del color de marca que entra por una esquina, sombra que asienta el pie y un grano fino
+      // encima: da profundidad de impreso sin patrón que compita con el texto.
+      return {
+        backgroundColor: dark,
+        backgroundImage: `${GRAIN}, radial-gradient(120% 80% at 92% 0%, ${mix(34)} 0%, transparent 62%), radial-gradient(90% 60% at 0% 100%, ${mix(14)} 0%, transparent 70%), linear-gradient(180deg, transparent 45%, rgba(0,0,0,0.3))`,
+        backgroundSize: '160px 160px, 100% 100%, 100% 100%, 100% 100%',
+      }
+
     default:
       return { backgroundColor: dark, backgroundImage: base }
   }
 }
+
+/** Grano de película en SVG: se repite en mosaico y pesa menos de 1 KB. */
+const GRAIN = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 0.07 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")`
 
 /**
  * Export-safe version of buildBgStyle.
@@ -138,6 +151,13 @@ export function buildBgStyleExport(hexPrimary: string, style: BgStyleId, startPc
         backgroundColor: dark,
         backgroundImage: `radial-gradient(ellipse at 30% 20%, ${rgba(startPct + 10)} 0%, transparent 60%), radial-gradient(ellipse at 80% 80%, ${rgba(startPct)} 0%, transparent 50%), ${base}`,
       }
+    case 'aura':
+      return {
+        backgroundColor: dark,
+        backgroundImage: `${GRAIN}, radial-gradient(120% 80% at 92% 0%, ${rgba(34)} 0%, transparent 62%), radial-gradient(90% 60% at 0% 100%, ${rgba(14)} 0%, transparent 70%), linear-gradient(180deg, transparent 45%, rgba(0,0,0,0.3))`,
+        backgroundSize: '160px 160px, 100% 100%, 100% 100%, 100% 100%',
+      }
+
     default:
       return { backgroundColor: dark, backgroundImage: base }
   }

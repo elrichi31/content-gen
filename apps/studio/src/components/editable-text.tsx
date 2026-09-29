@@ -1,7 +1,18 @@
 "use client"
 
-import { useRef, useEffect, useCallback, useState } from "react"
+import { useRef, useEffect, useLayoutEffect, useCallback, useState } from "react"
 import type { Slide } from "@/lib/slide-types"
+
+/**
+ * Si el texto no cabe en sus líneas (line-clamp), baja el tamaño de letra hasta 60% para que salga entero.
+ * No usa zoom: con zoom caben las mismas palabras por línea y no se gana nada.
+ */
+export function shrinkToFit(el: HTMLElement, fontSize: React.CSSProperties["fontSize"]) {
+  el.style.fontSize = String(fontSize ?? "")
+  if (getComputedStyle(el).webkitLineClamp === "none") return
+  const base = parseFloat(getComputedStyle(el).fontSize)
+  for (let k = 0.96; el.scrollHeight > el.clientHeight + 1 && k >= 0.6; k -= 0.04) el.style.fontSize = `${base * k}px`
+}
 
 interface EditableTextProps {
   value: string
@@ -26,6 +37,14 @@ export function EditableText({ value, field, onUpdate, className, multiline, sty
     if (!el || document.activeElement === el) return
     if (el.textContent !== value) el.textContent = value
   }, [value])
+
+  // Mismo ajuste que la vista previa: el texto se achica para no cortarse, también mientras se escribe.
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    shrinkToFit(el, style?.fontSize)
+    void document.fonts?.ready.then(() => shrinkToFit(el, style?.fontSize))
+  })
 
   const handleBlur = useCallback(() => {
     setFocused(false)
@@ -64,7 +83,7 @@ export function EditableText({ value, field, onUpdate, className, multiline, sty
         onFocus={() => setFocused(true)}
         onBlur={handleBlur}
         onKeyDown={handleKeyDown}
-        onInput={(e) => setCharCount((e.target as HTMLElement).textContent?.length ?? 0)}
+        onInput={(e) => { const el = e.target as HTMLElement; setCharCount(el.textContent?.length ?? 0); shrinkToFit(el, style?.fontSize) }}
       >
         {value}
       </div>

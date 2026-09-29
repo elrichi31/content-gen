@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { CampaignAssetSelect } from "@/components/campaign-asset-select";
+import { AiProgress } from "@/components/ai-progress";
 
 type Source = "unsplash" | "openai" | "upload";
 
@@ -143,7 +144,7 @@ export function VideoAssetPanel({
           />
           <Button type="button" variant="outline" size="sm" className="w-full" disabled={busy !== "" || prompt.trim().length < 3} onClick={() => void generateImage()}>
             {source === "openai" ? <Sparkles className="h-4 w-4" /> : <Search className="h-4 w-4" />}
-            {busy === "image" ? (source === "openai" ? "Generando…" : "Buscando…") : source === "openai" ? "Generar" : "Buscar"}
+            {busy === "image" ? (source === "openai" ? <AiProgress label="Generando" estimateMs={20_000} state="shaping" /> : "Buscando…") : source === "openai" ? "Generar" : "Buscar"}
           </Button>
         </>
       )}

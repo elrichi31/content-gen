@@ -41,6 +41,7 @@ const GROUPS: NavGroup[] = [
     title: "Crear",
     items: [
       { href: "/carousel", label: "Carrusel", icon: GalleryHorizontal },
+      { href: "/ai-carousel", label: "Carrusel IA", icon: Sparkles, badge: "Beta" },
       { href: "/ads", label: "Anuncio", icon: Megaphone, badge: "Beta" },
       { href: "/video", label: "Video", icon: Clapperboard, badge: "Beta" },
       { href: "/articles", label: "Artículo", icon: FileText, badge: "Beta" },

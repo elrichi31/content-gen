@@ -5,6 +5,7 @@ import { InstagramFrame } from "@/components/preview/instagram-frame";
 import { TikTokFrame } from "@/components/preview/tiktok-frame";
 import { colorThemes, type BgStyleId, type FontThemeId } from "@/lib/themes";
 import type { BrandSettings, Slide } from "@/lib/slide-types";
+import { SlideLookContext, SlideRenderer } from "@/components/slide-renderer";
 
 export type CarouselTheme = keyof typeof colorThemes;
 export type CarouselFont = FontThemeId;
@@ -38,6 +39,8 @@ export function CarouselFrame({
   font,
   background,
   accentColor,
+  surface = "dark",
+  decor = false,
   brand,
   isLoading,
   onUpdate,
@@ -52,6 +55,8 @@ export function CarouselFrame({
   font: CarouselFont;
   background: CarouselBackground;
   accentColor?: string;
+  surface?: "light" | "dark" | "brand";
+  decor?: boolean;
   brand?: BrandSettings | null;
   isLoading?: boolean;
   onUpdate?: (field: string, value: string) => void;
@@ -76,8 +81,32 @@ export function CarouselFrame({
   };
 
   return (
-    <div className="w-full max-w-[360px]">
-      {platform === "instagram" ? <InstagramFrame {...shared} /> : <TikTokFrame {...shared} />}
-    </div>
+    <SlideLookContext.Provider value={{ surface, decor }}>
+      <div className="w-full max-w-[360px]">
+        {platform === "instagram" ? <InstagramFrame {...shared} /> : <TikTokFrame {...shared} />}
+      </div>
+    </SlideLookContext.Provider>
+  );
+}
+
+/**
+ * Todas las slides tal cual se ven en la vista previa, fuera de pantalla, para capturarlas como PNG.
+ * Cada una mide 360px de ancho: los layouts van en cqw, así que al capturar a escala 3 salen a 1080px.
+ */
+export function CarouselExportSheet({ document, platform, theme, font, background, accentColor, surface = "dark", decor = false, brand }: {
+  document: CarouselDocument; platform: CarouselPlatform; theme: CarouselTheme; font: CarouselFont; background: CarouselBackground;
+  accentColor?: string; surface?: "light" | "dark" | "brand"; decor?: boolean; brand?: BrandSettings | null;
+}) {
+  const primary = accentColor ?? colorThemes[theme].primary;
+  return (
+    <SlideLookContext.Provider value={{ surface, decor }}>
+      <div aria-hidden style={{ position: "fixed", left: -10000, top: 0, pointerEvents: "none" }}>
+        {document.slides.map((slide, index) => (
+          <div key={slide.id ?? index} data-export-slide style={{ width: 360, aspectRatio: platform === "tiktok" ? "9 / 16" : "4 / 5", overflow: "hidden" }}>
+            <SlideRenderer slide={slide as Slide} index={index} brand={brand} activePrimary={primary} fontTheme={font} bgStyle={background} platform={platform} />
+          </div>
+        ))}
+      </div>
+    </SlideLookContext.Provider>
   );
 }

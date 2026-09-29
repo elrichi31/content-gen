@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, open, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
 import { assetSchema } from "@content-gen/domain/schemas";
 import { assertAssetFile, assertAssetMimeType, assertAssetSignature, assetExtensions, resolveAssetPath } from "./asset-file";
@@ -63,4 +63,12 @@ export async function storeAssetStream({ stream, mimeType, filename, campaignId 
   } catch (error) {
     await rm(temporaryPath, { force: true }); throw error;
   }
+}
+
+/** Bytes de un asset guardado, para mandarlo como referencia a un modelo (p. ej. el logo de la marca). */
+export async function readAsset(id: string) {
+  const row = await withDatabase(async (db) => await db.prepare("SELECT data_json FROM assets WHERE id = ?").get(id) as { data_json: string } | undefined);
+  if (!row) return null;
+  const { storageKey, mimeType } = JSON.parse(row.data_json) as { storageKey: string; mimeType: string };
+  return { bytes: await readFile(resolveAssetPath(mediaRoot, storageKey)), mimeType };
 }

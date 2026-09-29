@@ -11,7 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
 type Business = { sector: string; offering: string; audience: string; valueProposition: string; voice: string; avoid: string };
-type Brand = { id: string; name: string; primaryColor: string; business?: Business };
+type Brand = { id: string; name: string; primaryColor: string; logoAssetId?: string | null; business?: Business };
 
 const DEFAULT_COLOR = "#2f7d40";
 const EMPTY_BUSINESS: Business = { sector: "", offering: "", audience: "", valueProposition: "", voice: "", avoid: "" };
@@ -22,6 +22,7 @@ export default function BrandsPage() {
   const [name, setName] = useState("");
   const [primaryColor, setPrimaryColor] = useState(DEFAULT_COLOR);
   const [business, setBusiness] = useState<Business>(EMPTY_BUSINESS);
+  const [logoAssetId, setLogoAssetId] = useState<string | null>(null);
   const [error, setError] = useState("");
 
   async function refresh() {
@@ -30,20 +31,28 @@ export default function BrandsPage() {
   }
   useEffect(() => { void refresh(); }, []);
 
-  function reset() { setSelected(null); setName(""); setPrimaryColor(DEFAULT_COLOR); setBusiness(EMPTY_BUSINESS); setError(""); }
-  function choose(brand: Brand) { setSelected(brand); setName(brand.name); setPrimaryColor(brand.primaryColor); setBusiness({ ...EMPTY_BUSINESS, ...brand.business }); setError(""); }
+  function reset() { setSelected(null); setName(""); setPrimaryColor(DEFAULT_COLOR); setBusiness(EMPTY_BUSINESS); setLogoAssetId(null); setError(""); }
+  function choose(brand: Brand) { setSelected(brand); setName(brand.name); setPrimaryColor(brand.primaryColor); setBusiness({ ...EMPTY_BUSINESS, ...brand.business }); setLogoAssetId(brand.logoAssetId ?? null); setError(""); }
 
   async function save(event: FormEvent) {
     event.preventDefault();
     const response = await fetch(selected ? `/api/brand-kits/${selected.id}` : "/api/brand-kits", {
       method: selected ? "PATCH" : "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, primaryColor, business }),
+      body: JSON.stringify({ name, primaryColor, business, logoAssetId }),
     });
     if (!response.ok) return setError("Revisa el nombre y el color de la marca.");
     const brand = await response.json() as Brand;
     await refresh();
     choose(brand);
+  }
+
+  async function uploadLogo(file: File | undefined) {
+    if (!file) return;
+    const response = await fetch("/api/assets", { method: "POST", headers: { "Content-Type": file.type, "x-asset-filename": encodeURIComponent(file.name) }, body: file });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) return setError(body.error ?? "No se pudo subir el logo (usa PNG, JPG o WebP).");
+    setLogoAssetId(body.id); setError("");
   }
 
   async function archive() {
@@ -100,6 +109,17 @@ export default function BrandsPage() {
                 />
                 <code className="rounded-md bg-muted px-2 py-1 text-sm text-foreground">{primaryColor}</code>
               </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="logo">Logo</Label>
+              <div className="flex items-center gap-3">
+                {logoAssetId ? (
+                  <img src={`/api/assets/${logoAssetId}`} alt="Logo de la marca" className="h-14 w-14 rounded-md border object-contain p-1" />
+                ) : null}
+                <Input id="logo" type="file" accept="image/png,image/jpeg,image/webp" className="max-w-xs" onChange={(event) => void uploadLogo(event.target.files?.[0])} />
+                {logoAssetId ? <Button type="button" variant="ghost" size="sm" onClick={() => setLogoAssetId(null)}>Quitar</Button> : null}
+              </div>
+              <p className="text-xs text-muted-foreground">Aparece en el cierre de los carruseles y en el perfil de la vista previa, y el Carrusel IA lo usa en cada slide. Mejor PNG con fondo transparente. Pulsa «Guardar cambios» después de subirlo.</p>
             </div>
             <div className="space-y-4 border-t border-border/40 pt-5">
               <div>

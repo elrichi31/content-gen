@@ -8,6 +8,7 @@ export const quoteVariants = [
   { id: 'default', label: 'Centrado'  },
   { id: 'left',    label: 'Izquierda' },
   { id: 'card',    label: 'Card'      },
+  { id: 'mark',    label: 'Comilla'   },
 ]
 
 /** Cita: es el titular del slide, en frase y no en mayúsculas para que se lea de corrido. */
@@ -26,6 +27,21 @@ export function QuoteLayout(p: LayoutProps) {
         <QuoteMark size="14cqw" color={c.accent} />
         <Txt p={p} field="quote" multiline style={quoteText(c.fg, 54, 11.5)} />
         {author(c.text)}
+      </Slab>
+    )
+  }
+
+  // Comilla gigante de fondo, cita grande alineada abajo.
+  if (variant === 'mark') {
+    const c = palette(p, 'ink')
+    return (
+      <Slab p={p} tone="ink" style={{ justifyContent: "flex-end", gap: "5cqw" }}>
+        <div aria-hidden style={{ position: "absolute", top: "4cqw", left: "4cqw", opacity: 0.35, zIndex: -1 }}><QuoteMark size="44cqw" color={c.accent} /></div>
+        <Txt p={p} field="quote" multiline style={quoteText(c.fg, 50, 12)} />
+        <div style={{ display: "flex", alignItems: "center", gap: "3cqw" }}>
+          <span style={{ width: "10cqw", height: "0.6cqw", background: c.accent }} />
+          {author(c.text)}
+        </div>
       </Slab>
     )
   }

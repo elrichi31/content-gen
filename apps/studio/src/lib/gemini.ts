@@ -8,7 +8,7 @@ export class GeminiError extends Error {
 /** Nano Banana 2. `gemini-2.5-flash-image` (el Nano Banana original) deja de existir el 2026-10-02. */
 export const geminiImageModel = () => process.env.GEMINI_IMAGE_MODEL?.trim() || "gemini-3.1-flash-image";
 
-export type GeminiAspectRatio = "1:1" | "9:16" | "16:9";
+export type GeminiAspectRatio = "1:1" | "4:5" | "9:16" | "16:9";
 
 type ImagePart = { type?: unknown; data?: unknown; mime_type?: unknown };
 
@@ -22,15 +22,19 @@ function imageOf(body: unknown) {
   return typeof response?.output_image?.data === "string" ? response.output_image : null;
 }
 
-export async function generateGeminiImage({ prompt, aspectRatio, request = fetch }: { prompt: string; aspectRatio: GeminiAspectRatio; request?: typeof fetch }) {
+export type ReferenceImage = { bytes: Buffer; mimeType: string };
+
+export async function generateGeminiImage({ prompt, aspectRatio, images = [], timeoutMs = 120_000, request = fetch }: { prompt: string; aspectRatio: GeminiAspectRatio; images?: ReferenceImage[]; timeoutMs?: number; request?: typeof fetch }) {
   const key = process.env.GEMINI_API_KEY?.trim();
   if (!key) throw new GeminiError("Falta configurar GEMINI_API_KEY.", 503);
   const model = geminiImageModel();
+  // Con imágenes de referencia (p. ej. el logo) la entrada pasa a ser una lista de bloques.
+  const input = images.length ? [...images.map((image) => ({ type: "image", mime_type: image.mimeType, data: image.bytes.toString("base64") })), { type: "text", text: prompt }] : prompt;
   const response = await request("https://generativelanguage.googleapis.com/v1beta/interactions", {
     method: "POST",
     headers: { "x-goog-api-key": key, "Content-Type": "application/json" },
-    signal: AbortSignal.timeout(120_000),
-    body: JSON.stringify({ model, input: prompt, response_format: { type: "image", mime_type: "image/jpeg", aspect_ratio: aspectRatio, image_size: "1K" } }),
+    signal: AbortSignal.timeout(timeoutMs),
+    body: JSON.stringify({ model, input, response_format: { type: "image", mime_type: "image/jpeg", aspect_ratio: aspectRatio, image_size: "1K" } }),
   });
   const body = await response.json().catch(() => null) as { error?: { message?: unknown } } | null;
   const image = imageOf(body);

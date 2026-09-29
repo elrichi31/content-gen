@@ -4,6 +4,7 @@ import { useState } from "react";
 import { AudioLines, Plus, RotateCcw } from "lucide-react";
 import { SCENE_LABELS, type VideoDocument, type VideoSceneKey } from "@content-gen/domain/video";
 import { Button } from "@/components/ui/button";
+import { AiProgress } from "@/components/ai-progress";
 
 type Persisted = { revision: number; document: { data: unknown } };
 
@@ -71,7 +72,7 @@ export function ImageGallery({
           <p className="mt-1 text-sm text-muted-foreground">{ready}/{document.scenes.length} generadas · vertical 9:16</p>
         </div>
         <Button type="button" disabled={loadingAll || loadingKey !== null} onClick={() => void generate()}>
-          {loadingAll ? "Generando todas…" : "Generar todas"}
+          {loadingAll ? <AiProgress label="Generando todas" estimateMs={45_000} state="shaping" /> : "Generar todas"}
         </Button>
       </div>
 

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
-export type BrandOption = { id: string; name: string; primaryColor: string; business?: { sector?: string; offering?: string; audience?: string; voice?: string } };
+export type BrandOption = { id: string; name: string; primaryColor: string; logoAssetId?: string | null; business?: { sector?: string; offering?: string; audience?: string; voice?: string } };
 
 /** Valor de «sin elección»: la marca sale de la campaña, si esta tiene una. */
 export const BRAND_FROM_CAMPAIGN = "none";

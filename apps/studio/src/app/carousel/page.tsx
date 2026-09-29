@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Plus, Undo2, Redo2, Save, ArrowLeft, ArrowRight, Copy, Trash2, Hash, Image as ImageIcon, FileArchive, RefreshCw, Wand2, Link2, Pencil, PencilOff, Check, SlidersHorizontal, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Plus, Undo2, Redo2, Save, ArrowLeft, ArrowRight, Copy, Trash2, Image as ImageIcon, FileArchive, RefreshCw, Wand2, Link2, Pencil, PencilOff, Check, SlidersHorizontal, X } from "lucide-react";
 import type { CarouselDocument } from "@content-gen/domain/carousel";
 import { AppSidebar } from "@/components/app-sidebar";
 import { WorkspacePanel } from "@/components/workspace-panel";
@@ -9,7 +9,7 @@ import { CarouselGenerator } from "@/components/carousel-generator";
 import { BRAND_FROM_CAMPAIGN, BrandSelect, type BrandOption } from "@/components/brand-select";
 import { CarouselImagePanel } from "@/components/carousel-image-panel";
 import { LayoutVariantPicker } from "@/components/editor/layout-picker";
-import { CarouselFrame, carouselFixture, type CarouselBackground, type CarouselFont, type CarouselPlatform, type CarouselTheme } from "@/components/carousel-preview";
+import { CarouselExportSheet, CarouselFrame, carouselFixture, type CarouselBackground, type CarouselFont, type CarouselPlatform, type CarouselTheme } from "@/components/carousel-preview";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -18,6 +18,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator";
 import { Notice, noticeError, noticeOk, type NoticeState } from "@/components/ui/notice";
 import { cn } from "@/lib/utils";
+import { ThinkingOrb } from "thinking-orbs";
 import { colorThemes } from "@/lib/themes";
 import { useRadarTopic } from "@/lib/use-radar-topic";
 import { useRequestedContentId } from "@/lib/use-requested-content-id";
@@ -25,7 +26,7 @@ import { useRequestedContentId } from "@/lib/use-requested-content-id";
 type Slide = typeof carouselFixture.slides[number];
 type Campaign = { id: string; name: string; brief: string | { topic: string; audience: string; tone: string }; brandKitId: string | null };
 type Brand = BrandOption;
-type Stored = { id: string; revision: number; campaignId: string; document: { data: unknown } };
+type Stored = { id: string; revision: number; campaignId: string; campaignName?: string; updatedAt?: string; document: { data: unknown } };
 const layouts = ["cover", "content", "list", "bigNumber", "quote", "split", "imageOverlay", "timeline", "statGrid", "cta"] as const;
 
 /** El nombre interno del layout no es el nombre del layout: la pantalla está en español. */
@@ -34,6 +35,60 @@ const LAYOUT_LABEL: Record<(typeof layouts)[number], string> = {
   split: "Dividido", imageOverlay: "Imagen de fondo", timeline: "Línea de tiempo", statGrid: "Rejilla de datos", cta: "Cierre (CTA)",
 };
 
+/**
+ * Los campos que dibuja cada layout, con su nombre para quien edita. Antes eran «texto principal» y
+ * «secundario» para todos, y en la portada el secundario editaba un campo que la portada no pinta.
+ */
+const FIELDS: Record<string, { primary: string; primaryLabel: string; secondary?: string; secondaryLabel?: string }> = {
+  cover: { primary: "title", primaryLabel: "Título", secondary: "subtitle", secondaryLabel: "Subtítulo" },
+  content: { primary: "title", primaryLabel: "Título", secondary: "content", secondaryLabel: "Texto" },
+  list: { primary: "title", primaryLabel: "Título" },
+  bigNumber: { primary: "bigNumber", primaryLabel: "Cifra", secondary: "bigNumberLabel", secondaryLabel: "Qué significa" },
+  quote: { primary: "quote", primaryLabel: "Cita", secondary: "quoteAuthor", secondaryLabel: "Autor" },
+  split: { primary: "title", primaryLabel: "Título", secondary: "content", secondaryLabel: "Texto" },
+  imageOverlay: { primary: "title", primaryLabel: "Título", secondary: "subtitle", secondaryLabel: "Subtítulo" },
+  timeline: { primary: "title", primaryLabel: "Título" },
+  statGrid: { primary: "title", primaryLabel: "Título" },
+  cta: { primary: "ctaText", primaryLabel: "Llamado a la acción", secondary: "ctaSubtext", secondaryLabel: "Texto de apoyo" },
+};
+
+const THEME_LABEL: Record<CarouselTheme, string> = { green: "Verde", blue: "Azul", purple: "Morado", orange: "Naranja", red: "Rojo", pink: "Rosa", teal: "Turquesa", yellow: "Amarillo" };
+/** Instagram corta el caption a la vista en ~125 caracteres; pasados 300 ya casi nadie lo lee. */
+const CAPTION_LIMIT = 300;
+
+/** Si el layout dibuja una foto. En los demás la foto no se ve aunque exista. */
+const slideUsesPhoto = (slide: Slide) => slide.layout === "split" || slide.layout === "imageOverlay" || slide.imagePosition === "background" || (slide.layout === "content" && /image-(left|right)/.test(slide.layoutVariant ?? ""));
+
+function PanelSection({ title, aside, children }: { title: string; aside?: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <section className="space-y-3">
+      <div className="flex items-center justify-between">
+        <h2 className="text-[13px] font-semibold text-foreground">{title}</h2>
+        {aside}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function IconAction({ label, onClick, disabled, danger, children }: { label: string; onClick: () => void; disabled?: boolean; danger?: boolean; children: React.ReactNode }) {
+  return (
+    <button type="button" aria-label={label} title={label} onClick={onClick} disabled={disabled}
+      className={cn("flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-30 [&_svg]:h-4 [&_svg]:w-4", danger && "ml-auto hover:bg-destructive/10 hover:text-destructive")}>
+      {children}
+    </button>
+  );
+}
+
+function Swatch({ color, label, selected, onClick, brand }: { color: string; label: string; selected: boolean; onClick: () => void; brand?: boolean }) {
+  return (
+    <button type="button" role="radio" aria-checked={selected} aria-label={label} title={label} onClick={onClick}
+      className={cn("relative h-7 w-7 rounded-full border border-black/10 transition-transform hover:scale-110", selected && "ring-2 ring-foreground ring-offset-2 ring-offset-background")} style={{ background: color }}>
+      {brand ? <span aria-hidden className="absolute -right-1 -top-1 rounded-full bg-foreground px-1 text-[8px] font-bold leading-3 text-background">M</span> : null}
+    </button>
+  );
+}
+
 /** Layouts cuyo contenido real son sus elementos, no un párrafo. */
 const LIST_LAYOUTS = new Set(["list", "timeline", "statGrid"]);
 
@@ -41,15 +96,23 @@ const LIST_LAYOUTS = new Set(["list", "timeline", "statGrid"]);
  * Lo que se compara para saber si hay cambios sin guardar. Es exactamente lo que se persiste:
  * si entrara algo más —el tema visual, por ejemplo— la pieza aparecería sucia sin haberla tocado.
  */
-const snapshotOf = (slides: Slide[], platform: CarouselPlatform, caption: CarouselDocument["caption"]) =>
-  JSON.stringify({ slides, platform, caption });
+const snapshotOf = (slides: Slide[], platform: CarouselPlatform, caption: CarouselDocument["caption"], style: CarouselStyle = DEFAULT_STYLE, topic = carouselFixture.topic) =>
+  JSON.stringify({ slides, platform, caption, style, topic });
+
+/** El aspecto del carrusel se guarda con el documento, para que al volver a abrirlo se vea igual. */
+type CarouselStyle = { theme: CarouselTheme; themeTouched: boolean; customColor?: string; font: CarouselFont; background: CarouselBackground; surface: "light" | "dark" | "brand"; decor: boolean };
+const DEFAULT_STYLE: CarouselStyle = { theme: "green", themeTouched: false, font: "poster", background: "aura", surface: "light", decor: true };
 
 /** Nombre con el que se reconoce un documento guardado. El identificador no es un nombre. */
 function storedLabel(item: Stored) {
   const data = item.document.data as { topic?: unknown; slides?: { title?: unknown }[] } | null;
   const topic = typeof data?.topic === "string" ? data.topic.trim() : "";
   const first = typeof data?.slides?.[0]?.title === "string" ? (data.slides[0].title as string).trim() : "";
-  return topic || first || `Sin título · ${item.id.slice(0, 8)}`;
+  // El tema de ejemplo no distingue nada: si es ese, manda el titular de la portada.
+  const name = (topic && topic !== carouselFixture.topic ? topic : first || topic) || "Sin título";
+  // Varias piezas pueden llamarse igual: la campaña y la fecha las separan.
+  const date = item.updatedAt ? new Date(item.updatedAt).toLocaleDateString("es", { day: "numeric", month: "short" }) : "";
+  return [name, item.campaignName, date].filter(Boolean).join(" · ");
 }
 const NEW = "new";
 const NONE = "none";
@@ -84,9 +147,15 @@ export default function CarouselPage() {
   const [platform, setPlatform] = useState<CarouselPlatform>("instagram");
   const [theme, setTheme] = useState<CarouselTheme>("green");
   const [font, setFont] = useState<CarouselFont>("poster");
-  const [background, setBackground] = useState<CarouselBackground>("grid");
+  const [background, setBackground] = useState<CarouselBackground>("aura");
+  const [customColor, setCustomColor] = useState<string>();
+  // Claro y con formas por defecto: el estilo editorial de las plantillas de referencia.
+  const [surface, setSurface] = useState<"light" | "dark" | "brand">("light");
+  const [decor, setDecor] = useState(true);
   const [themeTouched, setThemeTouched] = useState(false);
   const [caption, setCaption] = useState(carouselFixture.caption);
+  // Nombre con el que aparece en la biblioteca: el tema generado, o lo que escribas.
+  const [topic, setTopic] = useState(carouselFixture.topic);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [brands, setBrands] = useState<Brand[]>([]);
   const [stored, setStored] = useState<Stored[]>([]);
@@ -104,14 +173,18 @@ export default function CarouselPage() {
   const [editMode, setEditMode] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const current = slides[active];
-  const document = { ...carouselFixture, slides, platform, caption };
-  const dirty = snapshotOf(slides, platform, caption) !== savedSnapshot;
+  const document = { ...carouselFixture, topic: topic.trim() || carouselFixture.topic, slides, platform, caption };
+  const style: CarouselStyle = { theme, themeTouched, customColor, font, background, surface, decor };
+  const dirty = snapshotOf(slides, platform, caption, style, topic) !== savedSnapshot;
   const selectedCampaign = campaigns.find((campaign) => campaign.id === campaignId);
   // La marca elegida a mano manda; si no, la de la campaña. Es la que la IA usa y la que tiñe los slides.
   const brandId = brandChoice !== BRAND_FROM_CAMPAIGN ? brandChoice : selectedCampaign?.brandKitId ?? undefined;
   const activeBrand = brands.find((brand) => brand.id === brandId);
   const brandColor = activeBrand?.primaryColor;
-  const accentColor = brandColor && !themeTouched ? brandColor : undefined;
+  // Manda el color que se eligió a mano: personalizado, luego un preset; si no se tocó, el de la marca.
+  const accentColor = customColor ?? (brandColor && !themeTouched ? brandColor : undefined);
+  const primaryColor = accentColor ?? colorThemes[theme].primary;
+  const brandSettings = activeBrand ? { name: activeBrand.name, logoUrl: activeBrand.logoAssetId ? `/api/assets/${activeBrand.logoAssetId}` : null, colors: [activeBrand.primaryColor] } : null;
 
   async function refresh() {
     const [campaignResponse, contentResponse, brandResponse] = await Promise.all([fetch("/api/campaigns"), fetch("/api/content-items?type=carousel"), fetch("/api/brand-kits")]);
@@ -139,6 +212,15 @@ export default function CarouselPage() {
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
   }, [dirty]);
+
+  // Autoguardado: 2 s después del último cambio, si hay campaña. Sin campaña no hay dónde guardarlo.
+  const saving = useRef(false);
+  const autosave = useRef(save); autosave.current = save;
+  useEffect(() => {
+    if (!dirty || campaignId === NONE) return;
+    const timer = setTimeout(() => void autosave.current(true), 2000);
+    return () => clearTimeout(timer);
+  }, [dirty, campaignId, slides, caption, topic, platform, theme, themeTouched, customColor, font, background, surface, decor]);
 
   // Atajos del original: Ctrl+Z deshacer, Ctrl+Y o Ctrl+Shift+Z rehacer.
   useEffect(() => {
@@ -178,13 +260,21 @@ export default function CarouselPage() {
   const addListItem = () => patchList((items) => [...items, { emoji: String(items.length + 1).padStart(2, "0"), text: "" }]);
   const removeListItem = (index: number) => patchList((items) => items.filter((_, position) => position !== index));
 
-  function applyImage(url: string, source: "dalle" | "unsplash" | "upload") { commit(slides.map((slide, index) => index === active ? { ...slide, imageUrl: url || undefined, imageSource: url ? source : undefined } : slide)); }
+  function applyImage(url: string, source: "dalle" | "unsplash" | "upload" | "illustration") { commit(slides.map((slide, index) => index === active ? { ...slide, imageUrl: url || undefined, imageSource: url ? source : undefined } : slide)); }
   function setCaptionText(text: string) { setCaption((value) => ({ ...value, text })); }
   function setHashtags(value: string) { setCaption((current) => ({ ...current, hashtags: value.split(/[\s,]+/).map((tag) => tag.trim()).filter(Boolean).map((tag) => (tag.startsWith("#") ? tag : `#${tag}`)) })); }
   async function exportCarousel(format: "png" | "zip") {
     setBusy(format);
     try {
-      const response = await fetch("/api/carousels/export", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ document, format }) });
+      // Se capturan las slides reales (renderizadas fuera de pantalla), no un dibujo aparte del servidor.
+      const { domToPng } = await import("modern-screenshot");
+      await window.document.fonts.ready;
+      const nodes = [...window.document.querySelectorAll<HTMLElement>("[data-export-slide]")].slice(0, format === "png" ? 1 : undefined);
+      const images = [];
+      // ponytail: el grano SVG (feTurbulence) del fondo Aura sale negro al capturar; se quita solo en la copia exportada.
+      const dropGrain = (el: Node) => { if (el instanceof HTMLElement && el.style.backgroundImage.includes("feTurbulence")) { el.style.backgroundImage = el.style.backgroundImage.replace(/^url\(".*?"\),\s*/, ""); el.style.backgroundSize = "100% 100%"; } };
+      for (const node of nodes) images.push(await domToPng(node, { scale: 3, onCloneEachNode: dropGrain }));
+      const response = await fetch("/api/carousels/export", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ document, format, images }) });
       if (!response.ok) { const payload = await response.json().catch(() => null); throw new Error(payload?.error ?? "No se pudo exportar."); }
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
@@ -223,32 +313,47 @@ export default function CarouselPage() {
   function undo() { const previous = past.at(-1); if (!previous) return; setPast((value) => value.slice(0, -1)); setFuture((value) => [slides, ...value].slice(0, 25)); setSlides(previous); setActive(Math.min(active, previous.length - 1)); }
   function redo() { const next = future[0]; if (!next) return; setFuture((value) => value.slice(1)); setPast((value) => [...value.slice(-24), slides]); setSlides(next); setActive(Math.min(active, next.length - 1)); }
   function load(item: Stored) {
-    const data = item.document.data as { slides?: Slide[]; platform?: CarouselPlatform; caption?: CarouselDocument["caption"] };
+    const data = item.document.data as { slides?: Slide[]; platform?: CarouselPlatform; caption?: CarouselDocument["caption"]; style?: Partial<CarouselStyle>; topic?: string };
     if (!Array.isArray(data.slides)) return setNotice(noticeError("Este contenido todavía no usa CarouselDocument v1."));
     const platform = data.platform ?? "instagram";
     const caption = data.caption ?? carouselFixture.caption;
-    setSlides(data.slides); setPlatform(platform); setCaption(caption); setContentId(item.id); setRevision(item.revision); setCampaignId(item.campaignId); setThemeTouched(false); setActive(0); setPast([]); setFuture([]);
+    setSlides(data.slides); setPlatform(platform); setCaption(caption); setContentId(item.id); setRevision(item.revision); setCampaignId(item.campaignId); setActive(0); setPast([]); setFuture([]);
+    const loaded = { ...DEFAULT_STYLE, ...data.style };
+    setTheme(loaded.theme); setThemeTouched(loaded.themeTouched); setCustomColor(loaded.customColor); setFont(loaded.font); setBackground(loaded.background); setSurface(loaded.surface); setDecor(loaded.decor);
     // Lo recién cargado es exactamente lo guardado: la pieza empieza limpia.
-    setSavedSnapshot(snapshotOf(data.slides, platform, caption));
+    const name = data.topic ?? carouselFixture.topic; setTopic(name);
+    setSavedSnapshot(snapshotOf(data.slides, platform, caption, loaded, name));
     setNotice(noticeOk(`Cargado: ${storedLabel(item)}`));
   }
   function applyGenerated(generated: CarouselDocument) {
-    setSlides(generated.slides); setPlatform(generated.platform); setCaption(generated.caption); setContentId(""); setRevision(0); setActive(0); setPast([]); setFuture([]);
+    setTopic(generated.topic);
+    // Reemplaza el carrusel abierto (mismo documento, se autoguarda encima). Se puede deshacer con Ctrl+Z.
+    commit(generated.slides); setPlatform(generated.platform); setCaption(generated.caption); setActive(0);
   }
-  async function save() {
-    if (campaignId === NONE) return setNotice(noticeError("Selecciona una campaña antes de guardar."));
-    const body = contentId ? { revision, campaignId, type: "carousel", document: { schemaVersion: 1, data: document } } : { campaignId, type: "carousel", document: { schemaVersion: 1, data: document } };
+  async function save(auto = false) {
+    if (campaignId === NONE) return auto ? undefined : setNotice(noticeError("Selecciona una campaña antes de guardar."));
+    if (saving.current) return;
+    saving.current = true;
+    try { await persist(auto); } finally { saving.current = false; }
+  }
+  async function persist(auto: boolean) {
+    const snapshot = snapshotOf(slides, platform, caption, style, topic);
+    const data = { ...document, style };
+    const body = contentId ? { revision, campaignId, type: "carousel", document: { schemaVersion: 1, data } } : { campaignId, type: "carousel", document: { schemaVersion: 1, data } };
     const response = await fetch(contentId ? `/api/content-items/${contentId}` : "/api/content-items", { method: contentId ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const saved = await response.json();
     if (!response.ok) return setNotice(noticeError(typeof saved.error === "string" ? saved.error : "No se pudo guardar."));
+    const created = !contentId;
     setContentId(saved.id); setRevision(saved.revision); setCampaignId(saved.campaignId);
-    setSavedSnapshot(snapshotOf(slides, platform, caption));
+    setSavedSnapshot(snapshot);
+    // La URL apunta a la pieza: recargar o compartir el enlace la vuelve a abrir.
+    if (created) window.history.replaceState(null, "", `/carousel?id=${saved.id}`);
     // Trazabilidad con el tema del radar, si la pieza salió de uno. No bloquea el guardado.
-    await radar.link(saved.id);
-    setNotice(noticeOk("Guardado en la biblioteca central.")); await refresh();
+    if (created) await radar.link(saved.id);
+    if (!auto) setNotice(noticeOk("Guardado en la biblioteca central."));
+    if (created || !auto) await refresh();
   }
-  const primaryField = current.layout === "cta" ? "ctaText" : current.layout === "quote" ? "quote" : current.layout === "bigNumber" ? "bigNumberLabel" : "title";
-  const secondaryField = current.layout === "cta" ? "ctaSubtext" : current.layout === "quote" ? "quoteAuthor" : "content";
+  const fields = FIELDS[current.layout] ?? FIELDS.content;
   const record = current as unknown as Record<string, string | undefined>;
 
   return (
@@ -256,7 +361,7 @@ export default function CarouselPage() {
       <AppSidebar />
       <div className="overflow-hidden pt-14 md:pl-64 md:pt-0">
         <main className="mx-auto h-[calc(100vh-3.5rem)] w-full max-w-[1800px] px-3 pb-3 pt-3 sm:px-4 sm:pb-4 sm:pt-4 md:h-screen">
-          <div className="grid h-full min-w-0 grid-cols-1 gap-3 lg:grid-cols-[320px_minmax(0,1fr)] xl:grid-cols-[300px_minmax(0,1fr)_300px] 2xl:grid-cols-[340px_minmax(0,1fr)_320px]">
+          <div className="grid h-full min-w-0 grid-cols-1 gap-3 lg:grid-cols-[360px_minmax(0,1fr)] xl:grid-cols-[360px_minmax(0,1fr)_360px] 2xl:grid-cols-[400px_minmax(0,1fr)_400px]">
 
             <WorkspacePanel className="hidden lg:block">
               <div className="flex h-full flex-col overflow-y-auto p-5">
@@ -281,10 +386,14 @@ export default function CarouselPage() {
                     >
                       <SelectTrigger aria-label="Documento" className="h-9"><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value={NEW}>Nuevo documento</SelectItem>
+                        <SelectItem value={NEW}>Nuevo (se guarda como carrusel nuevo)</SelectItem>
                         {stored.map((item) => <SelectItem key={item.id} value={item.id}>{storedLabel(item)}</SelectItem>)}
                       </SelectContent>
                     </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="carousel-name" className="text-[10px] uppercase tracking-wider text-muted-foreground">Nombre</Label>
+                    <Input id="carousel-name" className="h-9" value={topic} onChange={(event) => setTopic(event.target.value)} placeholder="Cómo se llama en la biblioteca" />
                   </div>
                   <div className="space-y-1.5">
                     <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Campaña</Label>
@@ -370,10 +479,10 @@ export default function CarouselPage() {
                         slides editadas encima. Ahora compara contra lo último que se persistió. */}
                     <span
                       className={cn("mr-1 hidden items-center gap-1 text-[10px] sm:flex", dirty ? "text-amber-500" : "text-muted-foreground/50")}
-                      title={dirty ? "Los cambios viven en el navegador hasta que pulses Guardar." : "No hay cambios sin guardar."}
+                      title={campaignId === NONE ? "Elige una campaña y se guarda solo en la biblioteca." : dirty ? "Guardando en unos segundos…" : "Guardado en la biblioteca."}
                     >
                       {dirty
-                        ? <><span className="h-1.5 w-1.5 rounded-full bg-amber-500" aria-hidden /> Sin guardar</>
+                        ? <><span className="h-1.5 w-1.5 rounded-full bg-amber-500" aria-hidden /> {campaignId === NONE ? "Elige campaña para guardar" : "Guardando…"}</>
                         : <><Check className="h-3 w-3 text-green-500/70" aria-hidden /> Guardado</>}
                     </span>
                     <button
@@ -410,7 +519,8 @@ export default function CarouselPage() {
 
                 <div className="flex-1 overflow-y-auto">
                   <div className="mx-auto flex min-h-full w-full flex-col items-center justify-start gap-3 p-4 sm:p-6 xl:p-8">
-                    <CarouselFrame document={document} activeSlide={active} onSlideChange={setActive} platform={platform} theme={theme} font={font} background={background} accentColor={accentColor} onUpdate={editMode ? update : undefined} onUpdateListItem={editMode ? updateListItem : undefined} />
+                    <CarouselFrame document={document} activeSlide={active} onSlideChange={setActive} platform={platform} theme={theme} font={font} background={background} accentColor={accentColor} surface={surface} decor={decor} brand={brandSettings} onUpdate={editMode ? update : undefined} onUpdateListItem={editMode ? updateListItem : undefined} />
+                    <CarouselExportSheet document={document} platform={platform} theme={theme} font={font} background={background} accentColor={accentColor} surface={surface} decor={decor} brand={brandSettings} />
                     <p className="text-xs uppercase tracking-wider text-muted-foreground">{LAYOUT_LABEL[current.layout] ?? current.layout} · slide {active + 1} de {slides.length}{editMode ? " · edición directa activa" : ""}</p>
                   </div>
                 </div>
@@ -426,181 +536,166 @@ export default function CarouselPage() {
                   : "hidden",
               )}
             >
-              <div className="flex h-full flex-col overflow-y-auto p-5">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-xs font-semibold uppercase tracking-widest text-primary">Ficha de slide</p>
-                  <button type="button" aria-label="Cerrar ficha del slide" className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground xl:hidden" onClick={() => setInspectorOpen(false)}><X className="h-4 w-4" /></button>
+              <div className="flex h-full flex-col overflow-y-auto">
+                {/* Cabecera fija: qué slide es y todo lo que se le puede hacer, en una sola fila. */}
+                <div className="sticky top-0 z-10 border-b border-border bg-background/95 px-4 pb-3 pt-4 backdrop-blur-sm">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-semibold text-foreground">Slide {active + 1} <span className="font-normal text-muted-foreground">de {slides.length} · {LAYOUT_LABEL[current.layout] ?? current.layout}</span></p>
+                    <button type="button" aria-label="Cerrar ficha del slide" className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground xl:hidden" onClick={() => setInspectorOpen(false)}><X className="h-4 w-4" /></button>
+                  </div>
+                  <div className="mt-2.5 flex items-center gap-0.5" role="toolbar" aria-label="Acciones del slide">
+                    <IconAction label="Mover antes" onClick={() => move(-1)} disabled={!active}><ArrowLeft /></IconAction>
+                    <IconAction label="Mover después" onClick={() => move(1)} disabled={active === slides.length - 1}><ArrowRight /></IconAction>
+                    <span className="mx-1 h-4 w-px bg-border" aria-hidden />
+                    <IconAction label="Duplicar" onClick={duplicate}><Copy /></IconAction>
+                    <IconAction label="Slide nueva en blanco" onClick={create}><Plus /></IconAction>
+                    <IconAction label="Añadir slide escrita con IA (antes del cierre)" onClick={() => void slideAction("add")} disabled={Boolean(busy)}>{busy === "add" ? <ThinkingOrb state="composing" size={20} aria-label="Añadiendo" /> : <Wand2 />}</IconAction>
+                    <IconAction label="Reescribir este slide con IA" onClick={() => void slideAction("regenerate")} disabled={Boolean(busy)}>{busy === "regenerate" ? <ThinkingOrb state="composing" size={20} aria-label="Reescribiendo" /> : <RefreshCw />}</IconAction>
+                    <IconAction label="Eliminar slide" onClick={remove} disabled={slides.length < 2} danger><Trash2 /></IconAction>
+                  </div>
                 </div>
 
-                <div className="mt-4 space-y-4">
-                  <div className="space-y-1.5">
-                    <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Layout</Label>
-                    <Select value={current.layout} onValueChange={(value) => commit(slides.map((slide, index) => index === active ? { ...slide, layout: value as Slide["layout"] } : slide))}>
-                      <SelectTrigger aria-label="Layout" className="h-9"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {layouts.map((layout) => <SelectItem key={layout} value={layout}>{LAYOUT_LABEL[layout]}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <LayoutVariantPicker
-                    slide={current}
-                    activePrimary={accentColor ?? colorThemes[theme].primary}
-                    selectedBgStyle={background}
-                    onChange={(variant) => update("layoutVariant", variant)}
-                  />
-                  <div className="space-y-1.5">
-                    <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Tamaño del título</Label>
-                    <Select value={current.titleSize ?? "regular"} onValueChange={(value) => update("titleSize", value)}>
-                      <SelectTrigger aria-label="Tamaño del título" className="h-9"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="compact">Compacto</SelectItem>
-                        <SelectItem value="regular">Regular</SelectItem>
-                        <SelectItem value="large">Grande</SelectItem>
-                        <SelectItem value="display">Display</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Texto principal</Label>
-                    <Textarea aria-label="Texto principal" value={record[primaryField] ?? ""} onChange={(event) => update(primaryField, event.target.value)} rows={3} />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Texto secundario</Label>
-                    <Textarea aria-label="Texto secundario" value={record[secondaryField] ?? ""} onChange={(event) => update(secondaryField, event.target.value)} rows={3} />
-                  </div>
-
-                  {/* Los layouts de lista no tienen «texto principal»: su contenido son estos
-                      elementos, y hasta ahora no había forma de tocarlos desde ninguna parte. */}
-                  {LIST_LAYOUTS.has(current.layout) ? (
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Elementos de la lista</Label>
-                        <span className="text-[10px] tabular-nums text-muted-foreground">{(current.listItems ?? []).length}</span>
-                      </div>
-                      {(current.listItems ?? []).map((item, index) => (
-                        <div key={index} className="flex items-start gap-1.5">
-                          <Input
-                            aria-label={`Viñeta del elemento ${index + 1}`}
-                            title="Número, guion o emoji con el que empieza la línea."
-                            className="h-9 w-12 shrink-0 px-1 text-center"
-                            value={item.emoji}
-                            onChange={(event) => updateListEmoji(index, event.target.value)}
-                          />
-                          <Textarea
-                            aria-label={`Texto del elemento ${index + 1}`}
-                            className="min-h-0 flex-1"
-                            rows={2}
-                            value={item.text}
-                            onChange={(event) => updateListItem(index, event.target.value)}
-                          />
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-9 w-9 shrink-0 text-muted-foreground hover:text-destructive"
-                            aria-label={`Eliminar elemento ${index + 1}`}
-                            onClick={() => removeListItem(index)}
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        </div>
-                      ))}
-                      <Button variant="outline" size="sm" className="w-full" onClick={addListItem}><Plus className="h-4 w-4" /> Añadir elemento</Button>
-                      {(current.listItems ?? []).length ? null : <p className="text-[10px] text-muted-foreground">Este layout se dibuja a partir de una lista, y ahora mismo está vacía.</p>}
+                <div className="space-y-6 px-4 py-5">
+                  <PanelSection title="Texto">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="slide-primary" className="text-xs text-muted-foreground">{fields.primaryLabel}</Label>
+                      <Textarea id="slide-primary" value={record[fields.primary] ?? ""} onChange={(event) => update(fields.primary, event.target.value)} rows={2} />
                     </div>
+                    {fields.secondary ? (
+                      <div className="space-y-1.5">
+                        <Label htmlFor="slide-secondary" className="text-xs text-muted-foreground">{fields.secondaryLabel}</Label>
+                        <Textarea id="slide-secondary" value={record[fields.secondary] ?? ""} onChange={(event) => update(fields.secondary!, event.target.value)} rows={3} />
+                      </div>
+                    ) : null}
+                    {LIST_LAYOUTS.has(current.layout) ? (
+                      <div className="space-y-1.5">
+                        <Label className="text-xs text-muted-foreground">{current.layout === "statGrid" ? "Datos (cifra + etiqueta)" : current.layout === "timeline" ? "Pasos" : "Puntos"}</Label>
+                        {(current.listItems ?? []).map((item, index) => (
+                          <div key={index} className="flex items-start gap-1.5">
+                            <Input aria-label={`Viñeta del elemento ${index + 1}`} title="Número, cifra o emoji con el que empieza la línea." className="h-9 w-14 shrink-0 px-1 text-center" value={item.emoji} onChange={(event) => updateListEmoji(index, event.target.value)} />
+                            <Textarea aria-label={`Texto del elemento ${index + 1}`} className="min-h-0 flex-1" rows={1} value={item.text} onChange={(event) => updateListItem(index, event.target.value)} />
+                            <Button variant="ghost" size="icon" className="h-9 w-9 shrink-0 text-muted-foreground hover:text-destructive" aria-label={`Eliminar elemento ${index + 1}`} onClick={() => removeListItem(index)}><Trash2 className="h-3.5 w-3.5" /></Button>
+                          </div>
+                        ))}
+                        <Button variant="ghost" size="sm" className="w-full text-muted-foreground" onClick={addListItem}><Plus className="h-4 w-4" /> Añadir</Button>
+                      </div>
+                    ) : null}
+                    <p className="text-xs text-muted-foreground">Envuelve una palabra en *asteriscos* para resaltarla.</p>
+                  </PanelSection>
+
+                  {/* La foto solo se ofrece donde el layout la dibuja: en el resto confundía más que ayudaba. */}
+                  {slideUsesPhoto(current) ? (
+                    <PanelSection title="Foto">
+                      <CarouselImagePanel imageUrl={current.imageUrl} campaignId={campaignId === NONE ? undefined : campaignId} suggestion={current.imagePrompt ?? current.title ?? ""} color={accentColor ?? theme} onApply={applyImage} />
+                    </PanelSection>
                   ) : null}
 
-                  <CarouselImagePanel imageUrl={current.imageUrl} campaignId={campaignId === NONE ? undefined : campaignId} onApply={applyImage} />
+                  <PanelSection title="Diseño del slide">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-1.5">
+                        <Label className="text-xs text-muted-foreground">Layout</Label>
+                        <Select value={current.layout} onValueChange={(value) => commit(slides.map((slide, index) => index === active ? { ...slide, layout: value as Slide["layout"] } : slide))}>
+                          <SelectTrigger aria-label="Layout" className="h-9"><SelectValue /></SelectTrigger>
+                          <SelectContent>{layouts.map((layout) => <SelectItem key={layout} value={layout}>{LAYOUT_LABEL[layout]}</SelectItem>)}</SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs text-muted-foreground">Título</Label>
+                        <Select value={current.titleSize ?? "regular"} onValueChange={(value) => update("titleSize", value)}>
+                          <SelectTrigger aria-label="Tamaño del título" className="h-9"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="compact">Compacto</SelectItem>
+                            <SelectItem value="regular">Regular</SelectItem>
+                            <SelectItem value="large">Grande</SelectItem>
+                            <SelectItem value="display">Enorme</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                    <LayoutVariantPicker slide={current} activePrimary={primaryColor} selectedBgStyle={background} onChange={(variant) => update("layoutVariant", variant)} />
+                  </PanelSection>
+
+                  <PanelSection title="Estilo del carrusel">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-1.5">
+                        <Label className="text-xs text-muted-foreground">Fondo base</Label>
+                        <div role="radiogroup" aria-label="Fondo base" className="grid grid-cols-3 rounded-lg border border-border p-0.5">
+                          {([["light", "Claro", "Todos los slides claros"], ["dark", "Oscuro", "Todos los slides oscuros"], ["brand", "Color", "Alterna oscuro con slides del color de marca"]] as const).map(([value, label, hint]) => (
+                            <button key={value} type="button" role="radio" title={hint} aria-checked={surface === value} onClick={() => setSurface(value)}
+                              className={cn("rounded-md px-1 py-1 text-xs font-medium transition-colors", surface === value ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground")}>{label}</button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs text-muted-foreground">Formas</Label>
+                        <div role="radiogroup" aria-label="Formas de adorno" className="grid grid-cols-2 rounded-lg border border-border p-0.5">
+                          {([[true, "Con"], [false, "Sin"]] as const).map(([value, label]) => (
+                            <button key={label} type="button" role="radio" aria-checked={decor === value} onClick={() => setDecor(value)}
+                              className={cn("rounded-md px-2 py-1 text-xs font-medium transition-colors", decor === value ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground")}>{label}</button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-muted-foreground">Color</Label>
+                      <div className="flex flex-wrap items-center gap-1.5" role="radiogroup" aria-label="Color del carrusel">
+                        {brandColor ? <Swatch color={brandColor} label={`Color de ${activeBrand?.name ?? "la marca"}`} selected={!customColor && !themeTouched} onClick={() => { setCustomColor(undefined); setThemeTouched(false); }} brand /> : null}
+                        {(Object.keys(colorThemes) as CarouselTheme[]).map((key) => (
+                          <Swatch key={key} color={colorThemes[key].primary} label={THEME_LABEL[key]} selected={!customColor && (themeTouched || !brandColor) && theme === key} onClick={() => { setTheme(key); setCustomColor(undefined); setThemeTouched(true); }} />
+                        ))}
+                        <label title="Color personalizado" className={cn("relative flex h-7 w-7 cursor-pointer items-center justify-center overflow-hidden rounded-full border border-black/10 transition-transform hover:scale-110", customColor && "ring-2 ring-foreground ring-offset-2 ring-offset-background")} style={{ background: customColor ?? "conic-gradient(from 0deg, #f43f5e, #f59e0b, #84cc16, #06b6d4, #6366f1, #d946ef, #f43f5e)" }}>
+                          <span className="sr-only">Color personalizado</span>
+                          <input type="color" className="absolute inset-0 cursor-pointer opacity-0" value={customColor ?? "#2f7d40"} onChange={(event) => { setCustomColor(event.target.value); setThemeTouched(true); }} />
+                        </label>
+                        {customColor ? <code className="ml-1 text-xs text-muted-foreground">{customColor}</code> : null}
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-1.5">
+                        <Label className="text-xs text-muted-foreground">Fuente</Label>
+                        <Select value={font} onValueChange={(value) => setFont(value as CarouselFont)}>
+                          <SelectTrigger aria-label="Fuente" className="h-9"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="poster">Cartel</SelectItem>
+                            <SelectItem value="geist">Geist</SelectItem>
+                            <SelectItem value="playfair">Playfair</SelectItem>
+                            <SelectItem value="space">Space Grotesk</SelectItem>
+                            <SelectItem value="sora">Sora</SelectItem>
+                            <SelectItem value="mono">Monospace</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs text-muted-foreground">Fondo</Label>
+                        <Select value={background} onValueChange={(value) => setBackground(value as CarouselBackground)}>
+                          <SelectTrigger aria-label="Fondo" className="h-9"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="aura">Aura</SelectItem>
+                            <SelectItem value="gradient">Gradiente</SelectItem>
+                            <SelectItem value="radial">Radial</SelectItem>
+                            <SelectItem value="grid">Retícula</SelectItem>
+                            <SelectItem value="dots">Puntos</SelectItem>
+                            <SelectItem value="lines">Líneas</SelectItem>
+                            <SelectItem value="noise">Ruido</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  </PanelSection>
+
+                  <PanelSection title="Caption" aside={<span className={cn("text-xs tabular-nums", caption.text.length > CAPTION_LIMIT ? "text-amber-600" : "text-muted-foreground")}>{caption.text.length}/{CAPTION_LIMIT}</span>}>
+                    <Textarea aria-label="Caption" value={caption.text} onChange={(event) => setCaptionText(event.target.value)} rows={4} placeholder="Texto corto que acompaña la publicación…" />
+                    <Input aria-label="Hashtags" className="h-9" value={caption.hashtags.join(" ")} onChange={(event) => setHashtags(event.target.value)} placeholder="#contenido #diseño" />
+                  </PanelSection>
 
                   <div className="grid grid-cols-2 gap-2">
-                    <Button variant="outline" size="sm" aria-label="Mover la slide una posición antes" onClick={() => move(-1)} disabled={!active}><ArrowLeft className="h-4 w-4" /> Antes</Button>
-                    <Button variant="outline" size="sm" aria-label="Mover la slide una posición después" onClick={() => move(1)} disabled={active === slides.length - 1}>Después <ArrowRight className="h-4 w-4" /></Button>
-                    <Button variant="outline" size="sm" onClick={duplicate}><Copy className="h-4 w-4" /> Duplicar</Button>
-                    <Button variant="outline" size="sm" className="border-destructive/40 text-destructive hover:bg-destructive/10" onClick={remove} disabled={slides.length < 2}><Trash2 className="h-4 w-4" /> Eliminar</Button>
-                    <Button variant="outline" size="sm" onClick={create}><Plus className="h-4 w-4" /> Nueva</Button>
-                    <Button variant="outline" size="sm" title="Escribe una slide nueva con IA y la coloca antes del cierre." disabled={busy === "add"} onClick={() => void slideAction("add")}><Wand2 className="h-4 w-4" /> {busy === "add" ? "Añadiendo…" : "Con IA"}</Button>
+                    <Button variant="outline" size="sm" title="Exporta solo la portada como imagen." disabled={busy === "png"} onClick={() => void exportCarousel("png")}>
+                      <ImageIcon className="h-4 w-4" /> {busy === "png" ? "…" : "Portada"}
+                    </Button>
+                    <Button variant="outline" size="sm" title="Exporta todas las slides y el caption en un ZIP." disabled={busy === "zip"} onClick={() => void exportCarousel("zip")}>
+                      <FileArchive className="h-4 w-4" /> {busy === "zip" ? "…" : "Todo (ZIP)"}
+                    </Button>
                   </div>
-                  <Button variant="outline" size="sm" className="w-full" disabled={busy === "regenerate"} onClick={() => void slideAction("regenerate")}>
-                    <RefreshCw className="h-4 w-4" /> {busy === "regenerate" ? "Regenerando…" : "Regenerar slide (IA)"}
-                  </Button>
-                </div>
-
-                <Separator className="my-5" />
-
-                <p className="text-xs font-semibold uppercase tracking-widest text-primary">Estilo</p>
-                <div className="mt-4 space-y-4">
-                  <div className="space-y-1.5">
-                    <Label className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-muted-foreground">
-                      Tema
-                      {accentColor ? <span className="inline-flex items-center gap-1 rounded-full bg-muted px-1.5 py-0.5 text-[9px] normal-case tracking-normal text-foreground"><span className="h-2 w-2 rounded-full" style={{ background: accentColor }} />marca</span> : null}
-                    </Label>
-                    <Select value={theme} onValueChange={(value) => { setTheme(value as CarouselTheme); setThemeTouched(true); }}>
-                      <SelectTrigger aria-label="Tema" className="h-9"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="green">Verde</SelectItem>
-                        <SelectItem value="blue">Azul</SelectItem>
-                        <SelectItem value="purple">Morado</SelectItem>
-                        <SelectItem value="orange">Naranja</SelectItem>
-                        <SelectItem value="red">Rojo</SelectItem>
-                        <SelectItem value="pink">Rosa</SelectItem>
-                        <SelectItem value="teal">Turquesa</SelectItem>
-                        <SelectItem value="yellow">Amarillo</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Fuente</Label>
-                    <Select value={font} onValueChange={(value) => setFont(value as CarouselFont)}>
-                      <SelectTrigger aria-label="Fuente" className="h-9"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="geist">Geist</SelectItem>
-                        <SelectItem value="playfair">Playfair</SelectItem>
-                        <SelectItem value="space">Space Grotesk</SelectItem>
-                        <SelectItem value="sora">Sora</SelectItem>
-                        <SelectItem value="mono">Monospace</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Fondo</Label>
-                    <Select value={background} onValueChange={(value) => setBackground(value as CarouselBackground)}>
-                      <SelectTrigger aria-label="Fondo" className="h-9"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="gradient">Gradiente</SelectItem>
-                        <SelectItem value="lines">Líneas</SelectItem>
-                        <SelectItem value="dots">Puntos</SelectItem>
-                        <SelectItem value="grid">Retícula</SelectItem>
-                        <SelectItem value="noise">Ruido</SelectItem>
-                        <SelectItem value="radial">Radial</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-
-                <Separator className="my-5" />
-
-                <div className="flex items-center gap-2">
-                  <Hash className="h-4 w-4 text-primary" />
-                  <p className="text-xs font-semibold uppercase tracking-widest text-primary">Caption</p>
-                </div>
-                <div className="mt-4 space-y-3">
-                  <Textarea aria-label="Caption" value={caption.text} onChange={(event) => setCaptionText(event.target.value)} rows={4} placeholder="Escribe el texto que acompaña a la publicación…" />
-                  <Input aria-label="Hashtags" className="h-9" value={caption.hashtags.join(" ")} onChange={(event) => setHashtags(event.target.value)} placeholder="#contenido #diseño" />
-                  {caption.hashtags.length ? (
-                    <div className="flex flex-wrap gap-1.5">
-                      {caption.hashtags.map((tag) => <span key={tag} className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">{tag}</span>)}
-                    </div>
-                  ) : null}
-                </div>
-
-                <Separator className="my-5" />
-
-                <div className="grid grid-cols-2 gap-2">
-                  <Button variant="outline" size="sm" title="Exporta solo la portada como imagen." disabled={busy === "png"} onClick={() => void exportCarousel("png")}>
-                    <ImageIcon className="h-4 w-4" /> {busy === "png" ? "…" : "Portada"}
-                  </Button>
-                  <Button variant="outline" size="sm" title="Exporta todas las slides y el caption en un ZIP." disabled={busy === "zip"} onClick={() => void exportCarousel("zip")}>
-                    <FileArchive className="h-4 w-4" /> {busy === "zip" ? "…" : "Todo (ZIP)"}
-                  </Button>
                 </div>
               </div>
             </WorkspacePanel>

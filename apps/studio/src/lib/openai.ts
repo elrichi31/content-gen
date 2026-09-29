@@ -191,9 +191,18 @@ export async function generateOpenAiJson({ system, prompt, purpose = "text", too
   catch (error) { if (error instanceof OpenAiError) throw error; throw new OpenAiError("La IA no devolvió JSON válido.", 422); }
 }
 
-export async function generateOpenAiImage({ prompt, size = "1024x1536", request = fetch }: { prompt: string; size?: "1024x1024" | "1024x1536" | "1536x1024"; request?: typeof fetch }) {
+export async function generateOpenAiImage({ prompt, size = "1024x1536", quality = "low", images = [], timeoutMs = 180_000, request = fetch }: { prompt: string; size?: "1024x1024" | "1024x1536" | "1536x1024"; quality?: "low" | "medium" | "high"; images?: { bytes: Buffer; mimeType: string }[]; timeoutMs?: number; request?: typeof fetch }) {
   const { key, model } = configuration("image");
-  const response = await request("https://api.openai.com/v1/images/generations", { method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" }, signal: AbortSignal.timeout(120_000), body: JSON.stringify({ model, prompt, size, quality: "low", output_format: "webp" }) });
+  const init = { method: "POST", headers: { Authorization: `Bearer ${key}` } as Record<string, string>, signal: AbortSignal.timeout(timeoutMs) };
+  let response: Response;
+  if (images.length) {
+    // Con imágenes de referencia (p. ej. el logo) hay que usar /edits, que solo acepta multipart.
+    const form = new FormData();
+    for (const [key, value] of Object.entries({ model, prompt, size, quality, output_format: "webp" })) form.append(key, value);
+    images.forEach((image, index) => form.append("image[]", new Blob([new Uint8Array(image.bytes)], { type: image.mimeType }), `reference-${index}.${image.mimeType.split("/")[1]}`));
+    response = await request("https://api.openai.com/v1/images/edits", { ...init, body: form });
+  }
+  else response = await request("https://api.openai.com/v1/images/generations", { ...init, headers: { ...init.headers, "Content-Type": "application/json" }, body: JSON.stringify({ model, prompt, size, quality, output_format: "webp" }) });
   const body = await response.json().catch(() => null) as { data?: { b64_json?: unknown }[] } | null;
   const base64 = body?.data?.[0]?.b64_json;
   if (!response.ok || typeof base64 !== "string") throw new OpenAiError(message(body, "OpenAI no devolvió una imagen."), 502);

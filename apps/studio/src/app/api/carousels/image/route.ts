@@ -10,7 +10,7 @@ export async function POST(request: Request) {
   try {
     // Unsplash se registra igual que OpenAI aunque no cueste: interesa saber cuántas imágenes
     // salen de cada fuente, y su consumo va vacío para que no sume gasto.
-    const image = await trackGeneration({ operation: "carousel-image", provider: parsed.data.source, model: parsed.data.source === "openai" ? openAiModel("image") : null }, async () => {
+    const image = await trackGeneration({ operation: "carousel-image", provider: parsed.data.source === "illustration" ? "openai" : parsed.data.source, model: parsed.data.source === "unsplash" ? null : openAiModel("image") }, async () => {
       const created = await createRemoteImage(parsed.data);
       return { value: created, usage: created.usage };
     });

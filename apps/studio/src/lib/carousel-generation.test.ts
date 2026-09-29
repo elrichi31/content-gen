@@ -8,6 +8,14 @@ assert.equal(document.slides.length, 3, "conserva el número solicitado de slide
 assert.equal(new Set(document.slides.map((slide) => slide.id)).size, 3, "asigna IDs nuevos y únicos");
 assert.throws(() => normalizeGeneratedCarousel({ ...valid, slides: valid.slides.slice(0, 2) }, input), /exactamente/, "una cantidad incorrecta se rechaza");
 assert.throws(() => parseGeneratedCarousel("{", input), /no es un CarouselDocument/, "JSON inválido se rechaza antes de guardar");
+import { pickVariant } from "./carousel-generation.ts";
+assert.equal(pickVariant("list", "bento", 0), "bento", "respeta la variante que eligió la IA");
+assert.equal(pickVariant("list", "inventada", 1), "numbered", "una variante desconocida se reparte por posición");
 assert.match(buildCarouselPrompt({ ...input, brandName: "Norte", primaryColor: "#0a8f52" }), /Norte.*#0a8f52/, "la marca se incorpora al contexto de IA");
 assert.match(buildCarouselPrompt({ ...input, language: "es", context: "Lanzamiento regional" }), /Idioma: es.*Lanzamiento regional/, "idioma y contexto llegan al prompt");
+import { repairSlide } from "./carousel-generation.ts";
+assert.deepEqual(repairSlide({ layout: "statGrid", title: "Datos", stats: [{ value: "73%", label: "abren" }] }).listItems, [{ emoji: "73%", text: "abren" }], "recoge «stats» como listItems");
+assert.equal(repairSlide({ layout: "list", title: "Vacía" }).layout, "content", "un layout sin su contenido pasa a content");
+assert.equal(repairSlide({ layout: "split", heading: "Hola", imageQuery: "office desk" }).imagePrompt, "office desk", "imageQuery se guarda como imagePrompt");
+assert.match(buildCarouselPrompt({ ...input }), /No uses los layouts split/, "sin fuente de imágenes no pide layouts con foto");
 console.log("Generación de carrusel: contrato, cantidad exacta y JSON inválido verificados.");

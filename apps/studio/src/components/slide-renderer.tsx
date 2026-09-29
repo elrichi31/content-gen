@@ -1,5 +1,7 @@
 "use client"
 
+import { createContext, useContext } from "react"
+
 import type { Slide, BrandSettings } from "@/lib/slide-types"
 import { colorThemes, fontThemes, buildBgStyle, type FontThemeId, type BgStyleId } from "@/lib/themes"
 import { CoverLayout }        from "./slides/cover"
@@ -27,20 +29,11 @@ export { imageOverlayVariants } from "./slides/image-overlay"
 export { timelineVariants }     from "./slides/timeline"
 export { statGridVariants }     from "./slides/stat-grid"
 
-const IMAGE_LAYOUTS = new Set<string>(["imageOverlay"])
+/** Aspecto común a todo el carrusel. Lo pone el editor alrededor de la vista previa. */
+export type SlideLook = { surface: "light" | "dark" | "brand"; decor: boolean }
+export const SlideLookContext = createContext<SlideLook>({ surface: "dark", decor: false })
 
-function slideHasImage(slide: Slide) {
-  return (
-    !!slide.imageUrl &&
-    (IMAGE_LAYOUTS.has(slide.layout) ||
-      slide.layout === "split" ||
-      slide.imagePosition === "background" ||
-      (slide.layout === "content" &&
-        (slide.layoutVariant === "image-right" || slide.layoutVariant === "image-left")))
-  )
-}
-
-function renderLayout(slide: Slide, primary: string, bgStyle: BgStyleId, bgBuilder: typeof buildBgStyle, fontTheme: FontThemeId, extra: Pick<LayoutProps, "brand" | "tall" | "alt">, editable?: boolean, onUpdateField?: (field: keyof Slide, value: string) => void, onUpdateListItem?: (index: number, text: string) => void) {
+function renderLayout(slide: Slide, primary: string, bgStyle: BgStyleId, bgBuilder: typeof buildBgStyle, fontTheme: FontThemeId, extra: Pick<LayoutProps, "brand" | "tall" | "alt" | "surface" | "decor" | "seed">, editable?: boolean, onUpdateField?: (field: keyof Slide, value: string) => void, onUpdateListItem?: (index: number, text: string) => void) {
   // Per-slide bgStyle override — AI can set this for variety within a carousel
   const effectiveBgStyle = (slide.bgStyleOverride as BgStyleId | undefined) ?? bgStyle
   const p: LayoutProps = { slide, primary, bgStyle: effectiveBgStyle, bgBuilder, fontTheme, ...extra, editable, onUpdateField, onUpdateListItem }
@@ -90,70 +83,24 @@ export function SlideRenderer({
   onUpdateField,
   onUpdateListItem,
 }: SlideRendererProps) {
-  // El cierre ya muestra la marca como botón; repetirla abajo sería ruido.
-  const hasBrand = brand && (brand.logoUrl || brand.name) && slide.layout !== "cta"
+  // El cierre ya muestra la marca como botón; repetirla abajo sería ruido. La firma va fuera de la
+  // superficie del slide, así que lleva su propio fondo: sin él heredaba el color de la app y no se veía.
+  const look = useContext(SlideLookContext)
   const tall = platform === "tiktok"
   // Ritmo: cada tercer slide toma el color de marca, para que no haya rachas largas de tinta.
   const alt = index !== undefined && index % 3 === 2
   const primary = activePrimary ?? colorThemes.green.primary
   const fontFamily = fontThemes[fontTheme]?.family ?? fontThemes.poster.family
-  const hasImage = slideHasImage(slide)
-  const isBgMode = slide.imagePosition === "background"
-
-  // Compute brand badge position so it never overlaps text content.
-  // For split/content-with-image: pin to the image half so text side stays clean.
-  // For everything else: sit at the very bottom edge of the slide.
-  const isImageSplit =
-    hasImage &&
-    !isBgMode &&
-    (slide.layout === "split" ||
-      (slide.layout === "content" &&
-        (slide.layoutVariant === "image-right" || slide.layoutVariant === "image-left")))
-
-  const imageOnLeft =
-    slide.layoutVariant === "image-left" || slide.imagePosition === "left"
-
-  let brandContainerStyle: React.CSSProperties
-  let brandContainerClass: string
-
-  if (isBgMode || tall) {
-    brandContainerStyle = { top: tall ? "5cqw" : "7%" }
-    brandContainerClass = "absolute left-0 right-0 flex items-center justify-center pointer-events-none"
-  } else if (isImageSplit) {
-    // Pin inside the image half so the text column stays unobstructed
-    if (imageOnLeft) {
-      brandContainerStyle = { bottom: "2cqw", left: 0, right: "50%" }
-    } else {
-      brandContainerStyle = { bottom: "2cqw", left: "50%", right: 0 }
-    }
-    brandContainerClass = "absolute flex items-center justify-center pointer-events-none"
-  } else {
-    // All other slides: very bottom edge, centered
-    brandContainerStyle = { bottom: "2cqw" }
-    brandContainerClass = "absolute left-0 right-0 flex items-center justify-center pointer-events-none"
-  }
 
   return (
     // containerType: los layouts miden en cqw (1% del ancho de este contenedor) y así escalan solos.
     <div className="relative flex h-full flex-col" style={{ fontFamily, containerType: "inline-size" }}>
       <div className="flex-1 min-h-0">
-        {renderLayout(slide, primary, bgStyle, bgBuilder, fontTheme, { brand, tall, alt }, editable, onUpdateField, onUpdateListItem)}
+        {renderLayout(slide, primary, bgStyle, bgBuilder, fontTheme, { brand, tall, alt, surface: look.surface, decor: look.decor, seed: index }, editable, onUpdateField, onUpdateListItem)}
       </div>
       {!tall && index !== undefined && total !== undefined && index < total - 1 && (
         <div aria-hidden className="pointer-events-none absolute flex items-center justify-center text-white" style={{ right: "4cqw", bottom: "3.5cqw", width: "7cqw", height: "7cqw", borderRadius: "1cqw", background: "rgba(0,0,0,0.38)" }}>
           <Arrow size="4cqw" />
-        </div>
-      )}
-      {hasBrand && (
-        <div className={brandContainerClass} style={brandContainerStyle}>
-          <div style={{ display: "flex", alignItems: "center", gap: "1.5cqw", borderRadius: "999px", padding: "1.2cqw 3cqw", ...(hasImage ? { backgroundColor: "rgba(0,0,0,0.5)" } : null) }}>
-            {brand.logoUrl && (
-              <img src={brand.logoUrl} alt="" style={{ width: "5cqw", height: "5cqw", objectFit: "contain", opacity: 0.8 }} />
-            )}
-            {brand.name && (
-              <span style={{ fontSize: "3.4cqw", fontWeight: 600, opacity: 0.8 }}>{brand.name}</span>
-            )}
-          </div>
         </div>
       )}
     </div>

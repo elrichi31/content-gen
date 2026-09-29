@@ -20,6 +20,7 @@ import { BRAND_FROM_CAMPAIGN, BrandSelect, type BrandOption } from "@/components
 import { CampaignAssetSelect } from "@/components/campaign-asset-select";
 import { useRequestedContentId } from "@/lib/use-requested-content-id";
 import { cn } from "@/lib/utils";
+import { AiProgress } from "@/components/ai-progress";
 
 type AdLayout = AdDocument["layout"];
 type AdFormat = AdDocument["format"];
@@ -302,7 +303,7 @@ export default function AdsPage() {
             </div>
             <div className="flex flex-wrap gap-3">
               <Button disabled={generating || topic.trim().length < 3} onClick={() => void generate()}>
-                <Sparkles className="h-4 w-4" /> {generating ? "Generando…" : "Generar con IA"}
+                {generating ? <AiProgress label="Generando" estimateMs={12_000} state="composing" /> : <><Sparkles className="h-4 w-4" /> Generar con IA</>}
               </Button>
               <Button variant="outline" onClick={() => go(3)}>Escribirlo yo</Button>
             </div>

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { AiProgress } from "@/components/ai-progress";
 
 type Caption = { text: string; hashtags: string[] };
 type Stored = { revision: number; document: { data: unknown } };
@@ -66,7 +67,7 @@ export function VideoCaptionPanel({
       </div>
 
       <Button type="button" variant="outline" size="sm" className="w-full" disabled={busy !== ""} onClick={() => void call("generate", { action: "generate" })}>
-        <Wand2 className="h-4 w-4" /> {busy === "generate" ? "Generando…" : "Generar con IA"}
+        {busy === "generate" ? <AiProgress label="Generando" estimateMs={10_000} state="composing" /> : <><Wand2 className="h-4 w-4" /> Generar con IA</>}
       </Button>
 
       <div className="space-y-1.5">

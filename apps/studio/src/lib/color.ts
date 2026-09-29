@@ -61,10 +61,12 @@ export function contrast(a: string, b: string) {
 export function readableOn(color: string, background: string, min = 4.5) {
   const c = rgb(color);
   if (!c || contrast(color, background) >= min) return color;
+  // Sobre fondo claro se oscurece hacia negro; sobre oscuro, se aclara hacia blanco.
+  const target = contrast(background, "#000000") > contrast(background, "#ffffff") ? 0 : 255;
   for (let mix = 0.08; mix <= 1; mix += 0.08) {
-    const lifted = c.map((v) => Math.round(v + (255 - v) * mix)) as [number, number, number];
+    const lifted = c.map((v) => Math.round(v + (target - v) * mix)) as [number, number, number];
     const hex = `#${lifted.map((v) => v.toString(16).padStart(2, "0")).join("")}`;
     if (contrast(hex, background) >= min) return hex;
   }
-  return "#ffffff";
+  return target ? "#ffffff" : "#000000";
 }

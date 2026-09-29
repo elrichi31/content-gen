@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { AiProgress } from "@/components/ai-progress";
 
 // Presets y sugerencias del asistente original.
 const DURATION_PRESETS = [30, 45, 60, 90];
@@ -143,7 +144,7 @@ export function TopicForm({
       {error ? <p className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p> : null}
 
       <Button type="button" className="w-full" disabled={loading || !topic.trim() || !campaignId} onClick={() => void submit()}>
-        <Sparkles className="h-4 w-4" /> {loading ? "Generando guion…" : "Generar guion →"}
+        {loading ? <AiProgress label="Generando guion" estimateMs={25_000} state="composing" /> : <><Sparkles className="h-4 w-4" /> Generar guion →</>}
       </Button>
       {campaignId ? null : <p className="text-center text-xs text-muted-foreground">Selecciona una campaña para empezar.</p>}
     </div>

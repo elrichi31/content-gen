@@ -8,6 +8,7 @@ export const bigNumberVariants = [
   { id: 'default',    label: 'Centrado'   },
   { id: 'horizontal', label: 'Horizontal' },
   { id: 'full',       label: 'Full'       },
+  { id: 'outline',    label: 'Contorno'   },
 ]
 
 /** Una cifra que se lee antes que cualquier otra cosa. Se respeta el texto tal cual: «3s» no pasa a «3S». */
@@ -32,6 +33,16 @@ export function BigNumberLayout(p: LayoutProps) {
           <div style={{ width: "0.6cqw", alignSelf: "stretch", background: c.accent, flexShrink: 0 }} />
           <div style={{ flex: 1, minWidth: 0 }}>{label(4.8)}</div>
         </div>
+      </Slab>
+    )
+  }
+
+  // Cifra gigante solo en contorno, a sangre, con la etiqueta abajo.
+  if (variant === 'outline') {
+    return (
+      <Slab p={p} tone={tone} style={{ justifyContent: "space-between", gap: "5cqw" }}>
+        {number(92, 62, 90, { color: "transparent", WebkitTextStroke: `0.7cqw ${c.accent}`, marginLeft: "-1cqw" })}
+        <div style={{ borderTop: `0.6cqw solid ${c.accent}`, paddingTop: "4cqw" }}>{label(5.4, { maxWidth: "76cqw" })}</div>
       </Slab>
     )
   }

@@ -4,26 +4,35 @@ import { useRef, useState } from "react";
 import { ImagePlus, Sparkles, Search, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { CampaignAssetSelect } from "@/components/campaign-asset-select";
+import { AiProgress } from "@/components/ai-progress";
 
-type Source = "openai" | "unsplash" | "upload";
-type DomainSource = "dalle" | "unsplash" | "upload";
+type Source = "openai" | "unsplash" | "upload" | "illustration";
+type DomainSource = "dalle" | "unsplash" | "upload" | "illustration";
 
-const domainSource: Record<Source, DomainSource> = { openai: "dalle", unsplash: "unsplash", upload: "upload" };
+const SOURCES: { value: Source; label: string }[] = [{ value: "unsplash", label: "Unsplash" }, { value: "illustration", label: "Ilustración" }, { value: "openai", label: "IA" }, { value: "upload", label: "Subir" }];
+const domainSource: Record<Source, DomainSource> = { openai: "dalle", unsplash: "unsplash", upload: "upload", illustration: "illustration" };
 
 export function CarouselImagePanel({
   imageUrl,
   campaignId,
+  suggestion = "",
+  color,
   onApply,
 }: {
+  /** Color del carrusel: las ilustraciones salen en esa paleta. */
+  color?: string;
   imageUrl?: string;
   campaignId?: string;
+  /** Búsqueda de partida: la que dejó la IA al generar, o el título del slide. */
+  suggestion?: string;
   onApply: (url: string, source: DomainSource) => void;
 }) {
   const [source, setSource] = useState<Source>("unsplash");
-  const [prompt, setPrompt] = useState("");
+  const [prompt, setPrompt] = useState(suggestion);
+  // Al cambiar de slide cambia la sugerencia; se adopta mientras no se haya escrito otra cosa.
+  const [lastSuggestion, setLastSuggestion] = useState(suggestion);
+  if (suggestion !== lastSuggestion) { setLastSuggestion(suggestion); setPrompt(suggestion); }
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
@@ -35,7 +44,7 @@ export function CarouselImagePanel({
       const response = await fetch("/api/carousels/image", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ source, prompt, ...(campaignId ? { campaignId } : {}) }),
+        body: JSON.stringify({ source, prompt, ...(color ? { color } : {}), ...(campaignId ? { campaignId } : {}) }),
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error ?? "No se pudo obtener la imagen.");
@@ -64,40 +73,29 @@ export function CarouselImagePanel({
   }
 
   return (
-    <div className="space-y-3 rounded-lg border border-border/60 bg-background/40 p-3">
-      <div className="flex items-center gap-2">
-        <ImagePlus className="h-4 w-4 text-primary" />
-        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Imagen del slide</p>
-      </div>
-
+    <div className="space-y-2.5">
       {imageUrl ? (
-        <div className="relative overflow-hidden rounded-md border border-border/60">
-          <img src={imageUrl} alt="Imagen del slide" className="h-24 w-full object-cover" />
-          <Button
-            type="button"
-            variant="secondary"
-            size="icon-sm"
-            className="absolute right-1.5 top-1.5"
-            aria-label="Quitar imagen"
-            onClick={() => onApply("", "upload")}
-          >
+        <div className="relative overflow-hidden rounded-md border border-border">
+          <img src={imageUrl} alt="Foto del slide" className="h-28 w-full object-cover" />
+          <Button type="button" variant="secondary" size="icon-sm" className="absolute right-1.5 top-1.5" aria-label="Quitar foto" onClick={() => onApply("", "upload")}>
             <X className="h-3.5 w-3.5" />
           </Button>
         </div>
-      ) : null}
+      ) : (
+        <div className="flex h-16 items-center justify-center gap-2 rounded-md border border-dashed border-border text-xs text-muted-foreground">
+          <ImagePlus className="h-4 w-4" /> Este slide aún no tiene foto
+        </div>
+      )}
 
-      <div className="space-y-1.5">
-        <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Fuente</Label>
-        <Select value={source} onValueChange={(value) => { setSource(value as Source); setError(""); }}>
-          <SelectTrigger aria-label="Fuente de imagen" className="h-8"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="unsplash">Buscar (Unsplash)</SelectItem>
-            <SelectItem value="openai">Generar (OpenAI)</SelectItem>
-            <SelectItem value="upload">Subir archivo</SelectItem>
-          </SelectContent>
-        </Select>
+      <div role="radiogroup" aria-label="Fuente de la foto" className="grid grid-cols-4 rounded-lg border border-border p-0.5">
+        {SOURCES.map((option) => (
+          <button key={option.value} type="button" role="radio" aria-checked={source === option.value} onClick={() => { setSource(option.value); setError(""); }}
+            className={`rounded-md px-2 py-1 text-xs font-medium transition-colors ${source === option.value ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground"}`}>
+            {option.label}
+          </button>
+        ))}
       </div>
-      <CampaignAssetSelect campaignId={campaignId} value={imageUrl?.startsWith("/api/assets/") ? imageUrl.slice("/api/assets/".length) : null} onChange={(id) => onApply(id ? `/api/assets/${id}` : "", "upload")} />
+      {campaignId ? <CampaignAssetSelect campaignId={campaignId} value={imageUrl?.startsWith("/api/assets/") ? imageUrl.slice("/api/assets/".length) : null} onChange={(id) => onApply(id ? `/api/assets/${id}` : "", "upload")} /> : null}
 
       {source === "upload" ? (
         <>
@@ -114,22 +112,23 @@ export function CarouselImagePanel({
         </>
       ) : (
         <>
-          <Input
-            aria-label={source === "openai" ? "Descripción de imagen" : "Búsqueda de imagen"}
-            value={prompt}
-            onChange={(event) => setPrompt(event.target.value)}
-            placeholder={source === "openai" ? "Describe la imagen a generar" : "Busca una foto…"}
-            className="h-8"
-          />
-          <Button type="button" variant="outline" size="sm" className="w-full" disabled={loading || prompt.trim().length < 3} onClick={() => void generate()}>
-            {source === "openai" ? <Sparkles className="h-4 w-4" /> : <Search className="h-4 w-4" />}
-            {loading ? (source === "openai" ? "Generando…" : "Buscando…") : source === "openai" ? "Generar" : "Buscar"}
-          </Button>
+          <div className="flex gap-1.5">
+            <Input
+              aria-label={source !== "unsplash" ? "Descripción de la imagen" : "Búsqueda de la foto"}
+              value={prompt}
+              onChange={(event) => setPrompt(event.target.value)}
+              onKeyDown={(event) => { if (event.key === "Enter" && prompt.trim().length >= 3 && !loading) void generate(); }}
+              placeholder={source === "unsplash" ? "Busca una foto…" : "Describe la escena"}
+              className="h-8 flex-1"
+            />
+            <Button type="button" variant="outline" size="sm" aria-label={source === "unsplash" ? "Buscar foto" : "Generar imagen"} disabled={loading || prompt.trim().length < 3} onClick={() => void generate()}>
+              {loading ? (source === "unsplash" ? "…" : <AiProgress label="" estimateMs={20_000} state="shaping" />) : source === "unsplash" ? <Search className="h-4 w-4" /> : <Sparkles className="h-4 w-4" />}
+            </Button>
+          </div>
         </>
       )}
 
       {error ? <p className="text-xs text-destructive">{error}</p> : null}
-      <p className="text-[10px] leading-relaxed text-muted-foreground">Se aplica a los layouts <b>split</b> e <b>imageOverlay</b>.</p>
     </div>
   );
 }

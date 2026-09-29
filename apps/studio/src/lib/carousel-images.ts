@@ -2,7 +2,19 @@ import { emptyUsage, imageUsage } from "@content-gen/domain/cost";
 import { z } from "zod";
 import { openAiRequest } from "./openai.ts";
 
-export const carouselImageInputSchema = z.object({ source: z.enum(["openai", "unsplash"]), prompt: z.string().trim().min(3).max(500), campaignId: z.string().min(1).optional() });
+export const carouselImageInputSchema = z.object({
+  source: z.enum(["openai", "unsplash", "illustration"]), prompt: z.string().trim().min(3).max(500), campaignId: z.string().min(1).optional(),
+  /** Color principal del carrusel, para que la ilustración salga en la paleta de la marca. */
+  color: z.string().trim().max(60).optional(),
+});
+
+/**
+ * Ilustración plana en la paleta de la marca, con fondo transparente para que se asiente sobre el slide.
+ * Es la alternativa a unDraw: su licencia no permite buscarlas ni descargarlas desde una aplicación.
+ */
+export function buildIllustrationPrompt(subject: string, color = "#2f7d40") {
+  return `Flat vector illustration, modern minimal style: simple geometric shapes, friendly stylized people with no facial details, clean solid fills, no gradients, no outlines. Limited palette: ${color} as the single accent color, dark charcoal #2f2e41 for hair and details, light gray #e6e6e6 and skin tones. Isolated subject centered with generous empty margin, transparent background, no floor shadow blob, no text, no letters, no logos. Subject: ${subject}`;
+}
 const maxImageBytes = 10 * 1024 * 1024;
 
 export async function limitedImageBytes(response: Response) {
@@ -15,15 +27,19 @@ export async function limitedImageBytes(response: Response) {
 }
 
 export async function createRemoteImage(input: z.infer<typeof carouselImageInputSchema>, request: typeof fetch = fetch) {
-  if (input.source === "openai") {
+  if (input.source === "openai" || input.source === "illustration") {
     const key = process.env.OPENAI_API_KEY; const model = process.env.OPENAI_IMAGE_MODEL || "gpt-image-2";
     if (!key) throw new Error("Falta configurar OPENAI_API_KEY.");
-    const response = await openAiRequest("image", request, "https://api.openai.com/v1/images/generations", { method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" }, signal: AbortSignal.timeout(120_000), body: JSON.stringify({ model, prompt: input.prompt, size: "1024x1536", quality: "low", output_format: "webp" }) });
+    const illustration = input.source === "illustration";
+    const payload = illustration
+      ? { model, prompt: buildIllustrationPrompt(input.prompt, input.color), size: "1024x1024", quality: "low", background: "transparent", output_format: "webp" }
+      : { model, prompt: input.prompt, size: "1024x1536", quality: "low", output_format: "webp" };
+    const response = await openAiRequest("image", request, "https://api.openai.com/v1/images/generations", { method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" }, signal: AbortSignal.timeout(120_000), body: JSON.stringify(payload) });
     const body = await response.json().catch(() => null) as { data?: { b64_json?: unknown }[]; error?: { message?: unknown } } | null;
     const image = body?.data?.[0]?.b64_json;
     if (!response.ok || typeof image !== "string") throw new Error(typeof body?.error?.message === "string" ? `OpenAI: ${body.error.message}` : "OpenAI no devolvió una imagen.");
     const bytes = Buffer.from(image, "base64"); if (bytes.length > maxImageBytes) throw new Error("La imagen supera el límite de 10 MB.");
-    return { bytes, mimeType: "image/webp", filename: "openai-image.webp", model, usage: imageUsage(1) };
+    return { bytes, mimeType: "image/webp", filename: illustration ? "illustration.webp" : "openai-image.webp", model, usage: imageUsage(1) };
   }
   const key = process.env.UNSPLASH_ACCESS_KEY;
   if (!key) throw new Error("Falta configurar UNSPLASH_ACCESS_KEY.");

@@ -22,8 +22,11 @@ export function storedZip(files: { name: string; bytes: Buffer }[]) {
   const directory = Buffer.concat(centrals); const footer = Buffer.alloc(22); footer.writeUInt32LE(0x06054b50, 0); footer.writeUInt16LE(files.length, 8); footer.writeUInt16LE(files.length, 10); footer.writeUInt32LE(directory.length, 12); footer.writeUInt32LE(offset, 16); return Buffer.concat([...locals, directory, footer]);
 }
 
-export async function exportCarousel(value: unknown, format: "png" | "zip") {
-  const document = carouselDocumentSchema.parse(value); const files = await Promise.all(document.slides.map(async (_, index) => ({ name: `slide-${String(index + 1).padStart(2, "0")}.png`, bytes: await renderCarouselPng(document, index) })));
+/** PNG que capturó el navegador («data:image/png;base64,…»); cualquier otra cosa se descarta. */
+const decodePng = (dataUrl?: string) => dataUrl?.startsWith("data:image/png;base64,") ? Buffer.from(dataUrl.slice(22), "base64") : undefined;
+
+export async function exportCarousel(value: unknown, format: "png" | "zip", images: string[] = []) {
+  const document = carouselDocumentSchema.parse(value); const files = await Promise.all(document.slides.map(async (_, index) => ({ name: `slide-${String(index + 1).padStart(2, "0")}.png`, bytes: decodePng(images[index]) ?? await renderCarouselPng(document, index) })));
   files.push({ name: "caption.txt", bytes: Buffer.from([document.caption.text, ...document.caption.hashtags].filter(Boolean).join("\n")) });
   return format === "png" ? files[0].bytes : storedZip(files);
 }

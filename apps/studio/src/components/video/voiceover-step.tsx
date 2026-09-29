@@ -8,6 +8,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { AiProgress } from "@/components/ai-progress";
 
 type Voice = { voice_id: string; name: string; labels: Record<string, string> };
 type Persisted = { revision: number; document: { data: unknown } };
@@ -105,7 +106,7 @@ export function VoiceoverStep({
               <p className="text-xs text-muted-foreground">{document.targetDurationSeconds}s objetivo · ~{Math.round(WORDS_PER_SECOND * 0.98 * 60)} palabras por minuto</p>
             </div>
             <Button type="button" variant="outline" size="sm" disabled={busy !== ""} onClick={() => void generateScript()}>
-              <Wand2 className="h-4 w-4" /> {busy === "script" ? "Generando…" : hasScript ? "Regenerar guion" : "Generar guion de voz"}
+              {busy === "script" ? <AiProgress label="Generando" estimateMs={15_000} state="composing" /> : <><Wand2 className="h-4 w-4" /> {hasScript ? "Regenerar guion" : "Generar guion de voz"}</>}
             </Button>
           </div>
 
@@ -158,7 +159,7 @@ export function VoiceoverStep({
 
           <div className="flex flex-wrap gap-2">
             <Button type="button" disabled={busy !== "" || !voiceId || !hasScript || unsaved} onClick={() => void generateAudio()}>
-              <AudioLines className="h-4 w-4" /> {busy === "audio-all" ? "Generando voz…" : "Generar voz de las escenas que faltan"}
+              {busy === "audio-all" ? <AiProgress label="Generando voz" estimateMs={30_000} state="listening" /> : <><AudioLines className="h-4 w-4" /> Generar voz de las escenas que faltan</>}
             </Button>
           </div>
           {unsaved ? <p className="text-xs text-muted-foreground">Guarda el guion de voz antes de generar el audio.</p> : null}
