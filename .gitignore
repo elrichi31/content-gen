@@ -20,6 +20,7 @@ storage/
 
 # Tool and operating-system noise
 .claude/
+.impeccable/
 *.log
 .DS_Store
 Thumbs.db
