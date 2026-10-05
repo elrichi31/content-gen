@@ -6,6 +6,7 @@ import { copyFile, readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { clearInterval, setInterval } from "node:timers";
 import pg from "pg";
+import { runHyperframesRender } from "./hyperframes.mjs";
 
 const jobArgumentIndex = process.argv.indexOf("--job");
 const jobPath = jobArgumentIndex === -1 ? undefined : process.argv[jobArgumentIndex + 1];
@@ -163,9 +164,11 @@ async function processNext(jobId) {
     const heartbeat = setInterval(() => progress.report({}), 15_000);
     heartbeat.unref();
     try {
-      if (!["StandardVideo", "TimelineVideo"].includes(job.compositionId)) throw new Error("La composición de video no está registrada.");
+      if (!["StandardVideo", "TimelineVideo", "HyperframesVideo"].includes(job.compositionId)) throw new Error("La composición de video no está registrada.");
       mkdirSync(dirname(outputPath), { recursive: true });
-      await runRemotionRender(job, outputPath, (patch) => progress.report(patch));
+      const onUpdate = (patch) => progress.report(patch);
+      if (job.compositionId === "HyperframesVideo") await runHyperframesRender(job, outputPath, { database, mediaRoot, onUpdate });
+      else await runRemotionRender(job, outputPath, onUpdate);
       await progress.flush();
       const latest = await latestOf(job.id);
       if (latest.status === "cancelled") return console.log(JSON.stringify({ id: latest.id, status: "cancelled" }));

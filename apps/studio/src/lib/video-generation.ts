@@ -3,7 +3,7 @@ import {
   VIDEO_DEFAULTS, videoDocumentSchema, type AccentPair, type VideoDocument, type VideoSceneKey, type VideoTemplateId,
 } from "@content-gen/domain/video";
 import { z } from "zod";
-import { generateOpenAiJson, OpenAiError } from "./openai.ts";
+import { generateOpenAiJson, generateOpenAiText, OpenAiError, webSearchTool } from "./openai.ts";
 import {
   buildTimelineUserPrompt, buildUserPrompt, normalizeHookStyle, normalizeNiche,
   SYSTEM_PROMPT, TIMELINE_SYSTEM_PROMPT, type PromptDirection,
@@ -17,6 +17,8 @@ export const videoGenerationInputSchema = z.object({
   context: z.string().trim().max(12000).default(""),
   targetDurationSeconds: z.number().int().min(15).max(180).default(DEFAULT_TARGET_DURATION),
   campaignId: z.string().min(1).optional(),
+  /** Buscar en internet datos y fuentes del tema antes de redactar el guion. */
+  webSearch: z.boolean().default(true),
 });
 export type VideoGenerationInput = z.infer<typeof videoGenerationInputSchema>;
 type VideoGenerationRequest = z.input<typeof videoGenerationInputSchema> & { brandName?: string; primaryColor?: string };
@@ -95,17 +97,56 @@ export function normalizeTimelineVideoScript(value: unknown, input: VideoGenerat
   catch { throw new VideoGenerationError("La IA no devolvió un VideoDocument timeline válido.", 422); }
 }
 
+const RESEARCH_SYSTEM = [
+  "Eres investigador para guiones de videos cortos de divulgación (TikTok, Reels).",
+  "Buscas en internet, priorizas fuentes primarias, oficiales y recientes, y anotas cada dato (cifra, fecha, caso real) con la fuente que lo respalda.",
+  "Si algo no lo encuentras verificado, lo dices en vez de estimarlo.",
+].join(" ");
+
+/**
+ * Paso 1 del guion: el modelo busca en internet sobre el tema y vuelve con notas y fuentes.
+ * Va aparte porque la Responses API no admite `web_search` junto al modo JSON del paso 2.
+ */
+export async function researchVideoTopic(input: VideoGenerationInput, request: typeof fetch = fetch) {
+  const { text, sources, usage, model } = await generateOpenAiText({
+    system: RESEARCH_SYSTEM,
+    prompt: [
+      `Investiga para un video de ${input.targetDurationSeconds} segundos sobre: ${input.topic}`,
+      input.context ? `Contexto que dio el usuario (verifícalo y compleméntalo):\n${input.context.slice(0, 4000)}` : "",
+      `Idioma de las notas: ${input.language}.`,
+      "Devuelve notas en texto plano, máximo 400 palabras: hechos concretos, cifras con su fecha, casos reales recientes y qué fuente respalda cada uno. Marca lo que no hayas podido verificar.",
+    ].filter(Boolean).join("\n"),
+    purpose: "research",
+    tools: [webSearchTool({ contextSize: "medium" })],
+    timeoutMs: 300_000,
+    request,
+  });
+  return { notes: text, sources, usage, model };
+}
+export type VideoResearch = Awaited<ReturnType<typeof researchVideoTopic>>;
+
+/** Las notas entran como contexto (la «única fuente de datos» del prompt) detrás del del usuario. */
+export const withResearchContext = (context: string, research: VideoResearch | null) =>
+  // El bloque de contexto se recorta a 12000 caracteres: se reserva sitio para las notas.
+  research ? [context.slice(0, 9000), `INVESTIGACION EN INTERNET (datos con fuente; no los contradigas ni inventes otros):\n${research.notes}`].filter(Boolean).join("\n\n") : context;
+
+/** Lo que se guarda en el documento: las notas (las usa también el guion de voz) y las fuentes. */
+export const researchField = (research: VideoResearch | null) => research ? { research: { notes: research.notes, sources: research.sources } } : {};
+
 async function run(templateId: VideoTemplateId, input: VideoGenerationRequest, request: typeof fetch) {
-  const resolved = { ...input, ...videoGenerationInputSchema.parse(input) };
+  const parsed = { ...input, ...videoGenerationInputSchema.parse(input) };
   const timeline = templateId === "timeline";
   try {
+    const research = parsed.webSearch ? await researchVideoTopic(parsed, request) : null;
+    const resolved = { ...parsed, context: withResearchContext(parsed.context, research) };
     const result = await generateOpenAiJson({
       system: timeline ? TIMELINE_SYSTEM_PROMPT : SYSTEM_PROMPT,
       prompt: timeline ? buildTimelineVideoPrompt(resolved) : buildStandardVideoPrompt(resolved),
       purpose: "script",
       request,
     });
-    return { ...result, document: timeline ? normalizeTimelineVideoScript(result.value, resolved) : normalizeStandardVideoScript(result.value, resolved) };
+    const document = timeline ? normalizeTimelineVideoScript(result.value, resolved) : normalizeStandardVideoScript(result.value, resolved);
+    return { ...result, research, document: videoDocumentSchema.parse({ ...document, ...researchField(research) }) };
   } catch (error) {
     if (error instanceof VideoGenerationError) throw error;
     if (error instanceof OpenAiError) throw new VideoGenerationError(error.message, error.status);

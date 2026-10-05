@@ -19,26 +19,34 @@ const SUGGESTIONS = [
   "Vulnerabilidades en móviles", "Espionaje corporativo",
 ];
 
-export type TopicFormValues = { topic: string; context: string; targetDurationSeconds: number; templateId: "standard" | "timeline" };
+export type TopicFormValues = { topic: string; context: string; targetDurationSeconds: number; templateId: "standard" | "timeline" | "explainer" };
 
+const VIDEO_TEMPLATES = [["standard", "Estándar", "7 escenas temáticas"], ["timeline", "Timeline", "Cronología de eventos"]] as const;
+
+/** `templates` y `description` permiten reutilizarlo en el video educativo, que tiene una sola plantilla. */
 export function TopicForm({
   campaigns,
   campaignId,
   onCampaign,
   initial,
   onScript,
+  templates = VIDEO_TEMPLATES,
+  description = "La IA generará el guion completo con la estructura de 7 escenas lista para Remotion.",
 }: {
   campaigns: { id: string; name: string }[];
   campaignId: string;
   onCampaign: (id: string) => void;
   initial: TopicFormValues;
   onScript: (document: VideoDocument, values: TopicFormValues) => void;
+  templates?: readonly (readonly [TopicFormValues["templateId"], string, string])[];
+  description?: string;
 }) {
   const [topic, setTopic] = useState(initial.topic);
   const [context, setContext] = useState(initial.context);
   const [contextFileName, setContextFileName] = useState("");
   const [targetDurationSeconds, setTargetDuration] = useState(initial.targetDurationSeconds);
   const [templateId, setTemplateId] = useState(initial.templateId);
+  const [webSearch, setWebSearch] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
@@ -55,7 +63,7 @@ export function TopicForm({
       const response = await fetch("/api/videos/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ topic, templateId, targetDurationSeconds, ...(context.trim() ? { context } : {}), ...(campaignId ? { campaignId } : {}) }),
+        body: JSON.stringify({ topic, templateId, targetDurationSeconds, webSearch, ...(context.trim() ? { context } : {}), ...(campaignId ? { campaignId } : {}) }),
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(typeof payload.error === "string" ? payload.error : "Error desconocido");
@@ -71,7 +79,7 @@ export function TopicForm({
     <div className="max-w-xl space-y-4">
       <div>
         <h2 className="text-2xl font-bold tracking-tight text-foreground">¿Sobre qué es el video?</h2>
-        <p className="mt-1 text-sm text-muted-foreground">La IA generará el guion completo con la estructura de 7 escenas lista para Remotion.</p>
+        <p className="mt-1 text-sm text-muted-foreground">{description}</p>
       </div>
 
       <div className="space-y-1.5">
@@ -127,11 +135,11 @@ export function TopicForm({
         </CardContent>
       </Card>
 
-      <Card>
+      {templates.length > 1 ? <Card>
         <CardContent className="space-y-2">
           <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Tipo de composición</p>
           <div className="flex gap-2">
-            {([["standard", "Estándar", "7 escenas temáticas"], ["timeline", "Timeline", "Cronología de eventos"]] as const).map(([value, title, hint]) => (
+            {templates.map(([value, title, hint]) => (
               <Button key={value} type="button" variant={templateId === value ? "default" : "outline"} className="h-auto flex-1 flex-col items-start gap-0.5 px-3 py-2 text-left" onClick={() => setTemplateId(value)}>
                 <span className="text-sm font-semibold">{title}</span>
                 <span className="text-[10px] font-normal opacity-70">{hint}</span>
@@ -139,12 +147,17 @@ export function TopicForm({
             ))}
           </div>
         </CardContent>
-      </Card>
+      </Card> : null}
+
+      <label className="flex items-start gap-2 text-sm text-muted-foreground">
+        <input type="checkbox" aria-label="Buscar en internet datos y fuentes" className="mt-0.5 h-4 w-4 accent-primary" checked={webSearch} onChange={(event) => setWebSearch(event.target.checked)} />
+        <span>Buscar en internet datos y fuentes antes de escribir el guion <span className="block text-[10px] opacity-70">Tarda un poco más, pero las cifras y casos salen respaldados.</span></span>
+      </label>
 
       {error ? <p className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p> : null}
 
       <Button type="button" className="w-full" disabled={loading || !topic.trim() || !campaignId} onClick={() => void submit()}>
-        {loading ? <AiProgress label="Generando guion" estimateMs={25_000} state="composing" /> : <><Sparkles className="h-4 w-4" /> Generar guion →</>}
+        {loading ? <AiProgress label={webSearch ? "Investigando y generando guion" : "Generando guion"} estimateMs={webSearch ? 70_000 : 25_000} state="composing" /> : <><Sparkles className="h-4 w-4" /> Generar guion →</>}
       </Button>
       {campaignId ? null : <p className="text-center text-xs text-muted-foreground">Selecciona una campaña para empezar.</p>}
     </div>

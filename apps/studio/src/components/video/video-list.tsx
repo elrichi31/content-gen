@@ -61,7 +61,7 @@ export function VideoList({
                   <p className="truncate text-sm font-semibold text-foreground">{document.title}</p>
                   <p className="truncate font-mono text-xs text-muted-foreground">{document.slug}</p>
                   <p className="text-xs text-muted-foreground">
-                    {document.templateId === "timeline" ? "Timeline" : "Estándar"} · {document.targetDurationSeconds}s · {campaignNames[item.campaignId] ?? "sin campaña"}
+                    {document.templateId === "timeline" ? "Timeline" : document.templateId === "explainer" ? "Educativo" : "Estándar"} · {document.targetDurationSeconds}s · {campaignNames[item.campaignId] ?? "sin campaña"}
                   </p>
                   <p className="text-xs text-muted-foreground">{withImage}/{document.scenes.length} imágenes · {withAudio}/{document.scenes.length} voces</p>
                   <div className="flex flex-wrap gap-2 pt-1">

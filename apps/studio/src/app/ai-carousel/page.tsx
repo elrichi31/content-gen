@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Notice, noticeError, type NoticeState } from "@/components/ui/notice";
 import { AiProgress } from "@/components/ai-progress";
+import { CAROUSEL_MODES, ModeSwitch } from "@/components/mode-switch";
 import { BRAND_FROM_CAMPAIGN, BrandSelect, type BrandOption } from "@/components/brand-select";
 
 type Slide = { headline: string; body: string; url: string | null; error: string | null };
@@ -65,8 +66,9 @@ export default function AiCarouselPage() {
   return (
     <PageShell>
       <div className="mb-6">
-        <p className="text-xs font-semibold uppercase tracking-widest text-primary">Crear / Carrusel IA</p>
-        <h1 className="text-2xl font-semibold">Carrusel 100% IA</h1>
+        <ModeSwitch modes={CAROUSEL_MODES} current="/ai-carousel" className="mb-3" />
+        <p className="text-xs font-semibold uppercase tracking-widest text-primary">Crear / Carrusel</p>
+        <h1 className="text-2xl font-semibold">Carrusel con imágenes IA</h1>
         <p className="text-sm text-muted-foreground">La IA dibuja cada slide completa, con el texto, el color y el logo de la marca. Costo aprox. ${(count * PROVIDERS[provider].price).toFixed(2)} USD por carrusel.</p>
       </div>
       <Card className="mb-6">

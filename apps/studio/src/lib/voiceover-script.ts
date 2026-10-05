@@ -155,7 +155,8 @@ export async function generateVoiceoverScript(document: VideoDocument, request: 
   try {
     const result = await generateOpenAiJson({
       system: document.templateId === "timeline" ? TIMELINE_VOICEOVER_SYSTEM_PROMPT : VOICEOVER_SYSTEM_PROMPT,
-      prompt: buildVoiceoverPrompt(document),
+      // Las notas de la búsqueda en internet del guion respaldan también la narración.
+      prompt: buildVoiceoverPrompt(document, (document as { research?: { notes?: unknown } }).research?.notes as string | undefined),
       purpose: "voiceoverScript",
       request,
     });

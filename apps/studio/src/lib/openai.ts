@@ -5,10 +5,10 @@ import { normalizeResponsesUsage } from "@content-gen/domain/cost";
  * investigar necesita el modelo bueno porque decide qué buscar y qué creerse; ordenar unas notas
  * ya escritas en JSON, no. Ambos caen al modelo de texto si no se configuran.
  */
-export type OpenAiPurpose = "text" | "script" | "voiceoverScript" | "research" | "structuring" | "image";
+export type OpenAiPurpose = "text" | "script" | "voiceoverScript" | "research" | "structuring" | "explainer" | "image";
 
-const modelEnv: Record<OpenAiPurpose, string> = { text: "OPENAI_TEXT_MODEL", script: "OPENAI_SCRIPT_MODEL", voiceoverScript: "OPENAI_VOICEOVER_SCRIPT_MODEL", research: "OPENAI_RESEARCH_MODEL", structuring: "OPENAI_STRUCTURING_MODEL", image: "OPENAI_IMAGE_MODEL" };
-const defaults: Record<OpenAiPurpose, string> = { text: "gpt-5.6-sol", script: "gpt-5.6-sol", voiceoverScript: "gpt-5.6-sol", research: "gpt-5.6-terra", structuring: "gpt-5.6-luna", image: "gpt-image-2" };
+const modelEnv: Record<OpenAiPurpose, string> = { text: "OPENAI_TEXT_MODEL", script: "OPENAI_SCRIPT_MODEL", voiceoverScript: "OPENAI_VOICEOVER_SCRIPT_MODEL", research: "OPENAI_RESEARCH_MODEL", structuring: "OPENAI_STRUCTURING_MODEL", explainer: "OPENAI_EXPLAINER_MODEL", image: "OPENAI_IMAGE_MODEL" };
+const defaults: Record<OpenAiPurpose, string> = { text: "gpt-5.6-sol", script: "gpt-5.6-sol", voiceoverScript: "gpt-5.6-sol", research: "gpt-5.6-terra", structuring: "gpt-5.6-luna", explainer: "gpt-5.6-terra", image: "gpt-image-2" };
 
 /**
  * Investigar y estructurar **no** heredan `OPENAI_TEXT_MODEL`. Son los dos pasos del radar, que
@@ -18,7 +18,7 @@ const defaults: Record<OpenAiPurpose, string> = { text: "gpt-5.6-sol", script: "
  * Por defecto investigar usa `terra` (2,5× más barato que `sol`) y estructurar `luna` (25×),
  * porque ordenar unas notas ya escritas en JSON no necesita el modelo bueno.
  */
-const INDEPENDENT_PURPOSES = new Set<OpenAiPurpose>(["research", "structuring"]);
+const INDEPENDENT_PURPOSES = new Set<OpenAiPurpose>(["research", "structuring", "explainer"]);
 
 export class OpenAiError extends Error {
   readonly status: number;

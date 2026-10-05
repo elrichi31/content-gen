@@ -75,7 +75,8 @@ export type AccentPair = z.infer<typeof accentPairSchema>;
 
 const scene = z.object({
   id: videoSlugSchema,
-  kind: z.enum(["intro", "layers", "phase", "reality", "close", "event", "today"]),
+  // `explainer`: escena del video educativo. Su plantilla no fija claves ni número de escenas.
+  kind: z.enum(["intro", "layers", "phase", "reality", "close", "event", "today", "explainer"]),
   durationFrames: z.number().int().positive(),
   accent: accentPairSchema.optional(),
   imageAssetId: z.string().uuid().nullable().optional(),

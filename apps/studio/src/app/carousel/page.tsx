@@ -22,6 +22,7 @@ import { ThinkingOrb } from "thinking-orbs";
 import { colorThemes } from "@/lib/themes";
 import { useRadarTopic } from "@/lib/use-radar-topic";
 import { useRequestedContentId } from "@/lib/use-requested-content-id";
+import { CAROUSEL_MODES, ModeSwitch } from "@/components/mode-switch";
 
 type Slide = typeof carouselFixture.slides[number];
 type Campaign = { id: string; name: string; brief: string | { topic: string; audience: string; tone: string }; brandKitId: string | null };
@@ -361,12 +362,13 @@ export default function CarouselPage() {
       <AppSidebar />
       <div className="overflow-hidden pt-14 md:pl-64 md:pt-0">
         <main className="mx-auto h-[calc(100vh-3.5rem)] w-full max-w-[1800px] px-3 pb-3 pt-3 sm:px-4 sm:pb-4 sm:pt-4 md:h-screen">
-          <div className="grid h-full min-w-0 grid-cols-1 gap-3 lg:grid-cols-[360px_minmax(0,1fr)] xl:grid-cols-[360px_minmax(0,1fr)_360px] 2xl:grid-cols-[400px_minmax(0,1fr)_400px]">
+          <ModeSwitch modes={CAROUSEL_MODES} current="/carousel" className="mb-3 lg:hidden" />
+          <div className="grid h-[calc(100%-2.5rem)] min-w-0 grid-cols-1 gap-3 lg:h-full lg:grid-cols-[360px_minmax(0,1fr)] xl:grid-cols-[360px_minmax(0,1fr)_360px] 2xl:grid-cols-[400px_minmax(0,1fr)_400px]">
 
             <WorkspacePanel className="hidden lg:block">
               <div className="flex h-full flex-col overflow-y-auto p-5">
                 <div className="space-y-1.5">
-                  <p className="text-xs font-semibold uppercase tracking-widest text-primary">Carrusel</p>
+                  <div className="flex items-center justify-between gap-2"><p className="text-xs font-semibold uppercase tracking-widest text-primary">Carrusel</p><ModeSwitch modes={CAROUSEL_MODES} current="/carousel" /></div>
                   <h1 className="text-base font-semibold text-foreground">Una idea, diez formas.</h1>
                   <p className="text-xs leading-relaxed text-muted-foreground">Genera con IA, edita sobre la pieza y guarda en la biblioteca central.</p>
                 </div>

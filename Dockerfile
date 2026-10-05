@@ -5,11 +5,12 @@ FROM node:24-bookworm-slim
 ENV NEXT_TELEMETRY_DISABLED=1
 
 # Librerías que necesita Chrome Headless Shell, con el que Remotion renderiza el video
-# (lista de https://www.remotion.dev/docs/docker) más CA y una fuente base.
+# (lista de https://www.remotion.dev/docs/docker) más CA y una fuente base. HyperFrames usa ese
+# mismo Chrome, pero necesita un FFmpeg completo del sistema (el que trae Remotion no escribe .m4a).
 RUN apt-get update && apt-get install -y --no-install-recommends \
       libnss3 libdbus-1-3 libatk1.0-0 libgbm-dev libasound2 libxrandr2 libxkbcommon-dev libxfixes3 \
       libxcomposite1 libxdamage1 libatk-bridge2.0-0 libpango-1.0-0 libcairo2 libcups2 \
-      ca-certificates fonts-liberation \
+      ca-certificates fonts-liberation ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

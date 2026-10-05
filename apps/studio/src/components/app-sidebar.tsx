@@ -28,7 +28,8 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { authClient } from "@/lib/auth-client";
 import { cn } from "@/lib/utils";
 
-type NavItem = { href: string; label: string; icon: LucideIcon; disabled?: boolean; badge?: string };
+// `also`: rutas hermanas (otro modo de la misma herramienta) que marcan la entrada como activa.
+type NavItem = { href: string; label: string; icon: LucideIcon; disabled?: boolean; badge?: string; also?: string[] };
 type NavGroup = { title?: string; items: NavItem[] };
 
 const GROUPS: NavGroup[] = [
@@ -40,10 +41,9 @@ const GROUPS: NavGroup[] = [
   {
     title: "Crear",
     items: [
-      { href: "/carousel", label: "Carrusel", icon: GalleryHorizontal },
-      { href: "/ai-carousel", label: "Carrusel IA", icon: Sparkles, badge: "Beta" },
+      { href: "/carousel", label: "Carrusel", icon: GalleryHorizontal, also: ["/ai-carousel"] },
       { href: "/ads", label: "Anuncio", icon: Megaphone, badge: "Beta" },
-      { href: "/video", label: "Video", icon: Clapperboard, badge: "Beta" },
+      { href: "/video", label: "Video", icon: Clapperboard, badge: "Beta", also: ["/explainer"] },
       { href: "/articles", label: "Artículo", icon: FileText, badge: "Beta" },
     ],
   },
@@ -82,7 +82,7 @@ function SidebarNav({ pathname, onNavigate }: { pathname: string; onNavigate?: (
             </p>
           ) : null}
           {group.items.map((item) => {
-            const active = !item.disabled && isActive(pathname, item.href);
+            const active = !item.disabled && [item.href, ...(item.also ?? [])].some((href) => isActive(pathname, href));
             const content = (
               <>
                 <item.icon className="h-[18px] w-[18px] shrink-0" strokeWidth={1.5} />

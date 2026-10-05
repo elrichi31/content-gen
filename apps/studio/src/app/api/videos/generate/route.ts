@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { finishGenerationRun, beginGenerationRun, GenerationRunError } from "@/lib/generation-runs";
+import { finishGenerationRun, beginGenerationRun, GenerationRunError, trackGeneration } from "@/lib/generation-runs";
+import { EXPLAINER_TEMPLATE_ID, generateExplainerScriptRun } from "@/lib/explainer";
 import { openAiModel } from "@/lib/openai";
 import { generateStandardVideoScriptRun, generateTimelineVideoScriptRun, videoGenerationInputSchema, VideoGenerationError } from "@/lib/video-generation";
 import { campaignSchema } from "@content-gen/domain/schemas";
@@ -30,9 +31,13 @@ export async function POST(request: Request) {
   const contentItemId = typeof body?.contentItemId === "string" && body.contentItemId ? body.contentItemId : null;
   const startedAt = Date.now(); let run: Awaited<ReturnType<typeof beginGenerationRun>> | undefined;
   try {
-    if (contentItemId) run = await beginGenerationRun({ contentItemId, operation: body?.templateId === "timeline" ? "video-timeline-script" : "video-standard-script", model: openAiModel("script") });
+    if (contentItemId) run = await beginGenerationRun({ contentItemId, operation: `video-${body?.templateId === "timeline" || body?.templateId === EXPLAINER_TEMPLATE_ID ? body.templateId : "standard"}-script`, model: openAiModel(body?.templateId === EXPLAINER_TEMPLATE_ID ? "explainer" : "script") });
     const generationInput = { ...input.data, brandName: brand?.name, primaryColor: brand?.primaryColor };
-    const generated = body?.templateId === "timeline" ? await generateTimelineVideoScriptRun(generationInput) : await generateStandardVideoScriptRun(generationInput);
+    const generated = body?.templateId === EXPLAINER_TEMPLATE_ID ? await generateExplainerScriptRun(generationInput)
+      : body?.templateId === "timeline" ? await generateTimelineVideoScriptRun(generationInput) : await generateStandardVideoScriptRun(generationInput);
+    // La búsqueda usa otro modelo (el de investigar): se registra como operación aparte para que su costo cuente bien.
+    const { research } = generated;
+    if (contentItemId && research) await trackGeneration({ contentItemId, operation: "video-research", model: research.model }, async () => ({ value: null, usage: research.usage }));
     return NextResponse.json({ document: generated.document, ...(run ? { generationRun: await finishGenerationRun(run.id, { durationMs: Date.now() - startedAt, usage: generated.usage }) } : {}) });
   } catch (error) {
     if (run) await finishGenerationRun(run.id, { durationMs: Date.now() - startedAt, error: error instanceof Error ? error.message : "Error desconocido" });

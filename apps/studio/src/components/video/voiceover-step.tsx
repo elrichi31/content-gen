@@ -22,17 +22,22 @@ const MODELS = [
 
 const voiceoverOf = (scene: VideoDocument["scenes"][number]) => typeof scene.content.voiceover === "string" ? scene.content.voiceover : "";
 const countWords = (text: string) => text.trim() ? text.trim().split(/\s+/).length : 0;
+// Las plantillas fijas tienen nombre por clave; las escenas del video educativo usan su título.
+const sceneLabel = (scene: VideoDocument["scenes"][number]) => SCENE_LABELS[scene.id as VideoSceneKey] ?? (typeof scene.content.title === "string" ? scene.content.title : scene.id);
 
+/** `canGenerateScript={false}` oculta la generación del guion de voz (el educativo ya trae la narración). */
 export function VoiceoverStep({
   contentItemId,
   revision,
   document,
   onPersisted,
+  canGenerateScript = true,
 }: {
   contentItemId: string;
   revision: number;
   document: VideoDocument;
   onPersisted: (content: Persisted) => void;
+  canGenerateScript?: boolean;
 }) {
   const [voices, setVoices] = useState<Voice[]>([]);
   const [voiceId, setVoiceId] = useState("");
@@ -105,9 +110,11 @@ export function VoiceoverStep({
               <p className="text-sm font-semibold text-foreground">Guion de voz en off</p>
               <p className="text-xs text-muted-foreground">{document.targetDurationSeconds}s objetivo · ~{Math.round(WORDS_PER_SECOND * 0.98 * 60)} palabras por minuto</p>
             </div>
-            <Button type="button" variant="outline" size="sm" disabled={busy !== ""} onClick={() => void generateScript()}>
-              {busy === "script" ? <AiProgress label="Generando" estimateMs={15_000} state="composing" /> : <><Wand2 className="h-4 w-4" /> {hasScript ? "Regenerar guion" : "Generar guion de voz"}</>}
-            </Button>
+            {canGenerateScript ? (
+              <Button type="button" variant="outline" size="sm" disabled={busy !== ""} onClick={() => void generateScript()}>
+                {busy === "script" ? <AiProgress label="Generando" estimateMs={15_000} state="composing" /> : <><Wand2 className="h-4 w-4" /> {hasScript ? "Regenerar guion" : "Generar guion de voz"}</>}
+              </Button>
+            ) : null}
           </div>
 
           <div className="space-y-3">
@@ -116,7 +123,7 @@ export function VoiceoverStep({
               return (
                 <div key={scene.id} className="space-y-1.5">
                   <div className="flex items-center justify-between">
-                    <Label htmlFor={`voz-${scene.id}`} className="text-[10px] uppercase tracking-wider text-muted-foreground">{SCENE_LABELS[scene.id as VideoSceneKey] ?? scene.id}</Label>
+                    <Label htmlFor={`voz-${scene.id}`} className="text-[10px] uppercase tracking-wider text-muted-foreground">{sceneLabel(scene)}</Label>
                     <span className="font-mono text-[10px] text-muted-foreground">{countWords(draft)} palabras{scene.audioAssetId ? " · audio ✓" : ""}</span>
                   </div>
                   <Textarea id={`voz-${scene.id}`} rows={2} value={draft} onChange={(event) => setDrafts((current) => ({ ...current, [scene.id]: event.target.value }))} placeholder="Lo que narra la voz en esta escena." />
@@ -169,9 +176,9 @@ export function VoiceoverStep({
               <p className="text-sm font-semibold text-primary">Audio por escena ✓ {withAudio}/{document.scenes.length}</p>
               {document.scenes.filter((scene) => scene.audioAssetId).map((scene) => (
                 <div key={scene.id} className="flex items-center gap-2">
-                  <span className="w-28 shrink-0 text-xs text-muted-foreground">{SCENE_LABELS[scene.id as VideoSceneKey] ?? scene.id}</span>
+                  <span className="w-28 shrink-0 text-xs text-muted-foreground">{sceneLabel(scene)}</span>
                   <audio controls preload="metadata" src={`/api/assets/${scene.audioAssetId}`} className="h-8 w-full" />
-                  <Button type="button" variant="outline" size="icon-sm" aria-label={`Regenerar voz de ${SCENE_LABELS[scene.id as VideoSceneKey] ?? scene.id}`} disabled={busy !== "" || !voiceId} onClick={() => void generateAudio(scene.id)}>
+                  <Button type="button" variant="outline" size="icon-sm" aria-label={`Regenerar voz de ${sceneLabel(scene)}`} disabled={busy !== "" || !voiceId} onClick={() => void generateAudio(scene.id)}>
                     <AudioLines className="h-3.5 w-3.5" />
                   </Button>
                 </div>

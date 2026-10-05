@@ -7,6 +7,25 @@ import { Button } from "@/components/ui/button";
 
 const oneLine = (value: unknown) => typeof value === "string" ? value.replace(/\n/g, " · ") : "";
 
+/** Fuentes que encontró la búsqueda en internet del guion, para revisar en qué se apoya antes de publicar. */
+export function ResearchSources({ document }: { document: VideoDocument }) {
+  const sources = (document as { research?: { sources?: { url: string; title: string }[] } }).research?.sources ?? [];
+  if (!sources.length) return null;
+  return (
+    <div className="rounded-xl border border-border bg-muted/30 p-4">
+      <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Fuentes consultadas ({sources.length})</p>
+      <ul className="mt-2 space-y-1">
+        {sources.map((source) => (
+          <li key={source.url} className="truncate text-xs">
+            <a href={source.url} target="_blank" rel="noreferrer" className="text-primary underline-offset-2 hover:underline">{source.title}</a>
+            <span className="ml-2 text-muted-foreground">{URL.canParse(source.url) ? new URL(source.url).hostname : ""}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 export function ScriptPreview({ document, busy, onContinue }: { document: VideoDocument; busy: boolean; onContinue: () => void }) {
   const [expanded, setExpanded] = useState<string | null>(null);
 
@@ -48,6 +67,8 @@ export function ScriptPreview({ document, busy, onContinue }: { document: VideoD
           );
         })}
       </div>
+
+      <ResearchSources document={document} />
 
       <Button type="button" className="w-full" disabled={busy} onClick={onContinue}>
         <ImagePlus className="h-4 w-4" /> {busy ? "Guardando el video…" : "Generar imágenes →"}

@@ -35,6 +35,24 @@ assert.equal(document.scenes[0].content.imagePrompt, "Hyper-realistic cinematic 
 assert.deepEqual(document.scenes.map((item) => item.durationFrames / 30), [4, 9, 10, 11, 10, 10, 6], "reparte los 60s con las proporciones del legacy");
 assert.deepEqual(document.scenes[1].content.terminal, ["> audio = segundos", "> modelo = voz clonada"], "conserva las líneas de terminal");
 
+// Búsqueda en internet: primero investiga (web_search, sin modo JSON), luego redacta (JSON, sin herramientas).
+const calls: { tools?: unknown[]; text?: unknown; input: { content: string }[] }[] = [];
+const researched = await generateStandardVideoScript(input, async (_url, init) => {
+  const body = JSON.parse(String(init?.body)); calls.push(body);
+  return new Response(JSON.stringify(body.tools
+    ? { output: [{ content: [{ type: "output_text", text: "El FBI reportó 2.300 casos en 2025.", annotations: [{ type: "url_citation", url: "https://www.ic3.gov/report?utm_source=openai", title: "IC3 Report" }] }] }] }
+    : { output_text: JSON.stringify(standardPayload) }));
+});
+assert.equal(calls.length, 2);
+assert.deepEqual(calls[0].tools, [{ type: "web_search", search_context_size: "medium" }]);
+assert.equal(calls[0].text, undefined, "la búsqueda no pide modo JSON: la API lo rechaza");
+assert.equal(calls[1].tools, undefined);
+assert.match(calls[1].input[1].content, /INVESTIGACION EN INTERNET[\s\S]*2\.300 casos en 2025/, "el guion se redacta sobre las notas");
+assert.deepEqual((researched as { research?: unknown }).research, { notes: "El FBI reportó 2.300 casos en 2025.", sources: [{ url: "https://www.ic3.gov/report", title: "IC3 Report" }] }, "guarda notas y fuentes limpias");
+calls.length = 0;
+await generateStandardVideoScript({ ...input, webSearch: false }, async (_url, init) => { calls.push(JSON.parse(String(init?.body))); return new Response(JSON.stringify({ output_text: JSON.stringify(standardPayload) })); });
+assert.equal(calls.length, 1, "sin búsqueda, una sola llamada");
+
 const event = (year: string) => ({ event: "PRIMER CASO", year, headline: `AÑO\n${year}`, impact: "Un caso documentado cambia la conversación." });
 const timelinePayload = { ...standardPayload, scenes: { intro, event1: event("2019"), event2: event("2021"), event3: event("2023"), event4: event("2026"), today: standardPayload.scenes.reality, close: standardPayload.scenes.close } };
 const timeline = normalizeTimelineVideoScript(timelinePayload, input);

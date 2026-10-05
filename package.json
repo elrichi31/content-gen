@@ -15,6 +15,8 @@
     "verify": "node scripts/verify.mjs",
     "test:worker": "npm run test:job --workspace=@content-gen/render-worker",
     "test:worker-progress": "node apps/render-worker/src/worker.test.mjs",
+    "test:hyperframes": "node apps/render-worker/src/hyperframes.test.mjs",
+    "test:explainer": "node --experimental-strip-types apps/studio/src/lib/explainer.test.ts",
     "worker:once": "node --env-file-if-exists=.env.local --env-file-if-exists=.env apps/render-worker/src/worker.mjs --once",
     "test:domain": "node --experimental-strip-types packages/domain/src/schemas.test.ts",
     "test:carousel": "node --experimental-strip-types packages/domain/src/carousel.test.ts",

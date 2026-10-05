@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Film, Plus } from "lucide-react";
 import { videoDocumentSchema, type VideoDocument } from "@content-gen/domain/video";
 import { PageShell } from "@/components/page-shell";
+import { ModeSwitch, VIDEO_MODES } from "@/components/mode-switch";
 import { Button } from "@/components/ui/button";
 import { Notice, noticeError, noticeOk, type NoticeState } from "@/components/ui/notice";
 import { useRadarTopic } from "@/lib/use-radar-topic";
@@ -21,6 +22,7 @@ type Campaign = { id: string; name: string };
 type View = "wizard" | "videos" | "editor";
 type Persisted = { revision: number; document: { data: unknown } };
 
+const isExplainer = (item: StoredVideo) => (item.document.data as { templateId?: unknown } | null)?.templateId === "explainer";
 const EMPTY_FORM: TopicFormValues = { topic: "", context: "", targetDurationSeconds: 45, templateId: "standard" };
 
 export default function VideoPage() {
@@ -55,7 +57,9 @@ export default function VideoPage() {
   useEffect(() => {
     if (!requestedId || contentId === requestedId) return;
     const item = videos.find((entry) => entry.id === requestedId);
-    if (item) openEditor(item);
+    // La biblioteca enlaza todo video a /video; los educativos tienen su propio editor.
+    if (item && isExplainer(item)) window.location.replace(`/explainer?id=${item.id}`);
+    else if (item) openEditor(item);
     else if (videos.length) setNotice(noticeError("Ese video no está disponible: puede estar archivado."));
   }, [requestedId, videos]);
 
@@ -120,6 +124,7 @@ export default function VideoPage() {
     <PageShell>
       <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
         <div>
+          <ModeSwitch modes={VIDEO_MODES} current="/video" className="mb-3" />
           <p className="text-xs font-semibold uppercase tracking-widest text-primary">Video / Generador</p>
           <h1 className="mt-2 text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">Video Generator</h1>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">Guion, imágenes, voz y render en el mismo flujo de cinco pasos del proyecto original.</p>
@@ -183,7 +188,7 @@ export default function VideoPage() {
       ) : null}
 
       {view === "videos" ? (
-        <VideoList videos={videos} campaignNames={campaignNames} onEdit={(item) => openEditor(item)} onRegenerate={(topic) => startNew(topic)} onNew={() => startNew()} />
+        <VideoList videos={videos.filter((item) => !isExplainer(item))} campaignNames={campaignNames} onEdit={(item) => openEditor(item)} onRegenerate={(topic) => startNew(topic)} onNew={() => startNew()} />
       ) : null}
 
       {view === "editor" && document ? (

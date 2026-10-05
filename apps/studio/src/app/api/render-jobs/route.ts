@@ -45,10 +45,13 @@ export async function POST(request: Request) {
   if (!content || content.type !== "video") return NextResponse.json({ error: "El video no existe o está archivado." }, { status: 400 });
   const document = videoDocumentSchema.safeParse(JSON.parse(content.document_json).document.data);
   if (!document.success) return NextResponse.json({ error: document.error.flatten() }, { status: 400 });
-  const compositionId = document.data.templateId === "timeline" ? "TimelineVideo" : "StandardVideo";
+  // `engine: "hyperframes"` usa el motor HTML de HyperFrames; si no, Remotion con la plantilla del documento.
+  // El video educativo solo existe en HyperFrames: sus escenas son animaciones HTML.
+  const { engine, ...jobInput } = input as { engine?: unknown };
+  const compositionId = engine === "hyperframes" || document.data.templateId === "explainer" ? "HyperframesVideo" :document.data.templateId === "timeline" ? "TimelineVideo" : "StandardVideo";
   const hasAssets = document.data.scenes.some((scene) => scene.imageAssetId || scene.audioAssetId);
   const inputProps = { document: document.data, ...(hasAssets ? { assetBaseUrl: new URL(request.url).origin } : {}) };
-  const parsed = renderJobSchema.safeParse({ ...input, id: randomUUID(), schemaVersion: 1, compositionId, inputProps, status: "queued", progress: 0, outputAssetId: null, createdAt: now, completedAt: null, error: null });
+  const parsed = renderJobSchema.safeParse({ ...jobInput, id: randomUUID(), schemaVersion: 1, compositionId, inputProps, status: "queued", progress: 0, outputAssetId: null, createdAt: now, completedAt: null, error: null });
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   const inserted = await withDatabase(async (database) => {
     await database.exec("BEGIN;");

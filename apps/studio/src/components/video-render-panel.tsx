@@ -11,7 +11,8 @@ const label: Record<Status, string> = { queued: "En cola", processing: "Renderiz
 const tone: Record<Status, string> = { queued: "text-muted-foreground", processing: "text-primary", completed: "text-primary", failed: "text-destructive", cancelled: "text-muted-foreground" };
 const active = (job: RenderJob | null) => job !== null && (job.status === "queued" || job.status === "processing");
 
-export function VideoRenderPanel({ contentItemId, unsavedChanges }: { contentItemId: string; unsavedChanges: boolean }) {
+/** `hyperframesOnly`: el video educativo no tiene versión en Remotion, solo se ofrece HyperFrames. */
+export function VideoRenderPanel({ contentItemId, unsavedChanges, hyperframesOnly = false }: { contentItemId: string; unsavedChanges: boolean; hyperframesOnly?: boolean }) {
   const [job, setJob] = useState<RenderJob | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -52,7 +53,7 @@ export function VideoRenderPanel({ contentItemId, unsavedChanges }: { contentIte
     }
   }
 
-  const render = () => call(() => fetch("/api/render-jobs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contentItemId }) }));
+  const render = (engine?: "hyperframes") => call(() => fetch("/api/render-jobs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contentItemId, engine }) }));
   const act = (action: "cancel" | "retry") => call(() => fetch(`/api/render-jobs/${job!.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action }) }));
 
   return (
@@ -95,9 +96,16 @@ export function VideoRenderPanel({ contentItemId, unsavedChanges }: { contentIte
       ) : null}
 
       <div className="flex flex-wrap gap-2">
-        <Button type="button" variant="outline" size="sm" disabled={!contentItemId || busy || active(job)} onClick={() => void render()}>
-          <Film className="h-4 w-4" /> {active(job) ? "Render en curso" : "Renderizar MP4"}
-        </Button>
+        {hyperframesOnly && !active(job) ? null : (
+          <Button type="button" variant="outline" size="sm" disabled={!contentItemId || busy || active(job)} onClick={() => void render()}>
+            <Film className="h-4 w-4" /> {active(job) ? "Render en curso" : "Renderizar MP4"}
+          </Button>
+        )}
+        {active(job) ? null : (
+          <Button type="button" variant="outline" size="sm" disabled={!contentItemId || busy} onClick={() => void render("hyperframes")}>
+            <Film className="h-4 w-4" /> Renderizar con HyperFrames
+          </Button>
+        )}
         {active(job) ? (
           <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void act("cancel")}>
             <Ban className="h-4 w-4" /> Cancelar
