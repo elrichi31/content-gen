@@ -110,7 +110,7 @@ export default function AutomationsPage() {
   const toggle = (item: Item) => attempt(async () => { await api(`${base(item)}/${item.id}`, "PATCH", { active: !item.active }); await refresh(); });
   const remove = (item: Item) => attempt(async () => { if (!window.confirm(`¿Borrar «${item.name}»? El contenido y los costos registrados se conservarán.`)) return; await api(`${base(item)}/${item.id}`, "DELETE"); await refresh(); });
 
-  return <PageShell className="flex max-w-none flex-col overflow-hidden">
+  return <PageShell className="flex h-full max-w-none flex-col overflow-hidden">
     <PageHeading title="Automatizaciones" description="Búsquedas del radar y carruseles en borrador. Revisa cada ejecución; nada se publica solo." actions={<><Button variant="outline" onClick={() => setEditor({ type: "budget" })}><Wallet className="size-4" />Presupuesto</Button><Button variant="outline" onClick={() => setEditor({ type: "radar", row: null })} disabled={Boolean(optionsError)}><Radar className="size-4" />Automatizar radar</Button><Button onClick={() => setEditor({ type: "carousel", row: null })} disabled={Boolean(optionsError)}><Plus className="size-4" />Nuevo carrusel</Button></>} />
     {notice ? <Notice notice={notice} onDismiss={() => setNotice(null)} /> : null}
     {loadError || optionsError ? <div role="alert" className="mb-3 flex shrink-0 flex-wrap items-center gap-2 text-sm text-destructive"><p>{loadError || optionsError}</p><Button variant="outline" size="sm" onClick={() => { void refresh(); void loadOptions(); }}>Reintentar</Button></div> : null}
