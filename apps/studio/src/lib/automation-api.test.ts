@@ -1,0 +1,31 @@
+import assert from "node:assert/strict";
+import { registerHooks } from "node:module";
+registerHooks({ resolve(s,c,next) {if(s === "next/server")return next("next/server.js",c);try{return next(s,c);}catch(error){if(s.startsWith(".")&&!/\.[a-z]+$/.test(s))return next(`${s}.ts`,c);throw error;}} });
+import { createTestDatabase } from "../../../../scripts/test-db.mjs";
+const db=await createTestDatabase();process.env.DATABASE_URL=db.url;
+try {
+ const budget=await import("../app/api/budget/route.ts");
+ const radar=await import("../app/api/radar/automations/route.ts");
+ const item=await import("../app/api/radar/automations/[id]/route.ts");
+ const history=await import("../app/api/automation-runs/route.ts");
+ const req=(path:string,body:unknown)=>new Request(`http://localhost${path}`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+ const config={timezone:"America/Bogota",limits:{day:2,week:10,month:40},blockAutomations:true};
+ assert.equal((await budget.PATCH(req('/api/budget',config))).status,200);
+ assert.deepEqual((await (await budget.GET()).json()).settings,config);
+ assert.equal((await budget.PATCH(req('/api/budget',{...config,limits:{day:-2}}))).status,400);
+ assert.deepEqual((await (await budget.GET()).json()).settings,config,"error no borra presupuesto");
+ const created=await radar.POST(new Request('http://localhost/api/radar/automations',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:'Fixture',frequency:'day',time:'12:00',scan:{verticals:['IA'],maxTopics:5,maxSearches:3}})}));
+ assert.equal(created.status,201);
+ const row=await created.json();assert.equal(row.active,false);
+ const context={params:Promise.resolve({id:row.id})};
+ assert.equal((await item.PATCH(req('/api/radar/automations/'+row.id,{active:true}),context)).status,200);
+ assert.equal((await (await radar.GET()).json())[0].active,true);
+ const {executeAutomation}=await import('./automation-execution.ts');
+ await executeAutomation(row.id,'radar',false,async()=>({message:'3 temas guardados',summary:{kept:3}}));
+ const runs=await history.GET(new Request('http://localhost/api/automation-runs?automationId='+row.id));
+ assert.equal(runs.status,200);assert.equal((await runs.json())[0].result.summary.kept,3);
+ assert.equal((await history.GET(new Request('http://localhost/api/automation-runs?automationId=unknown'))).status,404);
+ assert.equal((await item.DELETE(req('/api/radar/automations/'+row.id,{}),context)).status,204);
+ assert.equal((await (await radar.GET()).json()).length,0);
+ console.log('Automation APIs: configuración, validación, radar CRUD e historial verificados con base aislada.');
+} finally {await db.drop();}

@@ -237,11 +237,16 @@ const antes = calls.length;
 const frenada = await scanRadar({ automatic: true }, { request: fakeFetch, now: new Date("2026-08-21T10:00:00.000Z") });
 assert.equal(frenada.run.status, "skipped", "la corrida automática no arranca con el presupuesto agotado");
 assert.equal(calls.length, antes, "y sobre todo: no llama a la API, que es de lo que se trata");
-assert.match(frenada.run.error ?? "", /Presupuesto del mes agotado/, "queda registrado por qué no corrió");
+assert.match(frenada.run.error ?? "", /presupuesto mensual/, "queda registrado por qué no corrió");
 
 const manual = await scanRadar({}, { request: fakeFetch, now: new Date("2026-08-22T10:00:00.000Z") });
 assert.equal(manual.run.status, "completed", "la manual sí corre: un tope que bloquea el trabajo deliberado acaba desactivado");
 assert.equal(manual.summary.overBudget, true, "pero avisa de que se pasó del presupuesto");
+const { saveBudgetSettings } = await import("./budget-settings.ts");
+await saveBudgetSettings({ timezone: "UTC", limits: { day: null, week: null, month: 0.0001 }, blockAutomations: false });
+const unblocked = await scanRadar({ automatic: true }, { request: fakeFetch, now: new Date("2026-08-23T10:00:00.000Z") });
+assert.equal(unblocked.run.status, "completed", "desactivar el freno desde la app también lo desactiva para el radar");
+await saveBudgetSettings({ timezone: "UTC", limits: { day: null, week: null, month: null }, blockAutomations: true });
 delete process.env.COST_BUDGET_MONTHLY;
 
 /* ------------------------ Orden de la revision ------------------------ */

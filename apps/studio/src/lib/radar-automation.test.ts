@@ -1,0 +1,32 @@
+import assert from "node:assert/strict";
+import { createTestDatabase } from "../../../../scripts/test-db.mjs";
+const db=await createTestDatabase(); process.env.DATABASE_URL=db.url;
+try {
+ const { nextRadarRun, radarAutomationInputSchema, createRadarAutomation, updateRadarAutomation, runRadarAutomation, runDueRadarAutomations, listRadarAutomations }=await import("./radar-automation.ts");
+ const now=new Date("2026-10-06T10:00:00Z");
+ const input={name:"Radar diario",active:false,frequency:"day",time:"12:00",weekday:1,monthDay:31,scan:{verticals:["IA"],focus:"Agentes",maxTopics:5,maxSearches:3}};
+ assert.equal(nextRadarRun(input,now),"2026-10-06T12:00:00.000Z");
+ assert.equal(nextRadarRun({...input,frequency:"week"},now),"2026-10-12T12:00:00.000Z");
+ assert.equal(nextRadarRun({...input,frequency:"month"},new Date("2026-02-01T00:00:00Z")),"2026-02-28T12:00:00.000Z");
+ assert.equal(radarAutomationInputSchema.safeParse({...input,scan:{verticals:[]}}).success,false,"subconjunto explícito antes de gastar");
+ const row=await createRadarAutomation(input,now);
+ assert.equal(row.active,false);
+ let calls=0;
+ const scan=async (request: unknown)=>{calls++; assert.equal((request as {automatic:boolean}).automatic,true); return {runId:"radar-run",summary:{kept:3,found:5,repeated:1,rejected:1}};};
+ await runDueRadarAutomations(new Date("2026-10-07T13:00:00Z"),scan);
+ assert.equal(calls,0,"pausada no genera");
+ await updateRadarAutomation(row.id,{active:true},now);
+ await runDueRadarAutomations(new Date("2026-10-06T11:00:00Z"),scan);
+ assert.equal(calls,0,"no arranca antes de tiempo");
+ await runDueRadarAutomations(new Date("2026-10-06T13:00:00Z"),scan);
+ assert.equal(calls,1);
+ const [after]=await listRadarAutomations();
+ assert.equal(after.nextRunAt,"2026-10-07T12:00:00.000Z");
+ assert.equal(after.lastExecution?.result.runId,"radar-run");
+ await runDueRadarAutomations(new Date("2026-10-06T13:01:00Z"),scan);
+ assert.equal(calls,1,"un tick no repite la búsqueda");
+ await assert.rejects(()=>runRadarAutomation(row.id,{automatic:true,now:new Date("2026-10-07T13:00:00Z"),scan:async()=>{throw new Error("sin proveedor");}}),/sin proveedor/);
+ assert.equal((await listRadarAutomations())[0].lastExecution?.status,"failed");
+ assert.equal((await listRadarAutomations())[0].nextRunAt,"2026-10-08T12:00:00.000Z","fallo no genera tormenta de reintentos");
+ console.log("Radar automation: persistencia, planificación UTC, mes corto, pausa, ejecución, historial y no repetición verificados (proveedor simulado).");
+} finally {await db.drop();}

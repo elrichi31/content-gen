@@ -1,0 +1,30 @@
+import assert from "node:assert/strict";
+import { createTestDatabase } from "../../../../scripts/test-db.mjs";
+const db = await createTestDatabase();
+process.env.DATABASE_URL = db.url;
+process.env.COST_BUDGET_MONTHLY = "10";
+try {
+  const { getBudgetSettings, saveBudgetSettings, budgetStatus, assertAutomationBudget, budgetPeriodRange } = await import("./budget-settings.ts");
+  assert.equal((await getBudgetSettings()).limits.month, 10);
+  const saved = await saveBudgetSettings({ timezone: "America/Bogota", limits: { day: 1, week: 5, month: 20 }, blockAutomations: true });
+  assert.deepEqual(await getBudgetSettings(), saved, "configuración persistida, no solo estado de cliente");
+  const now = new Date("2026-10-06T16:00:00Z");
+  assert.deepEqual(budgetPeriodRange("day", now, saved.timezone), { from: "2026-10-06T05:00:00.000Z", to: "2026-10-07T05:00:00.000Z" });
+  assert.equal(budgetPeriodRange("week", now, saved.timezone).from, "2026-10-05T05:00:00.000Z");
+  assert.equal(budgetPeriodRange("month", now, saved.timezone).to, "2026-11-01T05:00:00.000Z");
+  await db.query("INSERT INTO generation_runs (id,schema_version,operation,provider,status,cost_amount,data_json,created_at) VALUES ('spent',1,'fixture','openai','completed',1.2,'{}',$1),('unknown',1,'fixture','openai','failed',NULL,'{}',$1),('old',1,'fixture','openai','completed',99,'{}','2026-09-01T00:00:00Z')", [now.toISOString()]);
+  const status = await budgetStatus(now);
+  assert.equal(status.periods.day.used, 1.2);
+  assert.equal(status.periods.day.remaining, -0.2);
+  assert.equal(status.periods.day.unknown, 1);
+  assert.equal(status.periods.month.used, 1.2);
+  await assert.rejects(() => assertAutomationBudget(now), /presupuesto/i);
+  await assert.rejects(() => saveBudgetSettings({ ...saved, limits: { ...saved.limits, day: -1 } }), /inválid/i);
+  await assert.rejects(() => saveBudgetSettings({ ...saved, timezone: "Not/AZone" }), /inválid/i);
+  await saveBudgetSettings({ ...saved, limits: { day: null, week: null, month: null } });
+  await assertAutomationBudget(now);
+  assert.equal((await getBudgetSettings()).limits.month, null, "desactivar no reactiva el fallback de entorno");
+  const dst = budgetPeriodRange("day", new Date("2026-03-08T16:00:00Z"), "America/New_York");
+  assert.equal((Date.parse(dst.to)-Date.parse(dst.from))/3600000, 23, "día de cambio de horario");
+  console.log("Budget settings: persistencia, límites, zonas, DST, desconocidos y bloqueo verificados.");
+} finally { await db.drop(); }

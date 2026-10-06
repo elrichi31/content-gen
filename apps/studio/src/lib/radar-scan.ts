@@ -3,6 +3,7 @@ import { addUsage, emptyUsage, priceUsage, totalCost, type Usage } from "@conten
 import { dedupeTopics, normalizeGeneratedTopic, RadarTopicError, type RadarRejection, type RadarTopic } from "@content-gen/domain/radar";
 import { todayLocal } from "@content-gen/domain/schedule";
 import { monthSpend } from "./generation-costs.ts";
+import { assertAutomationBudget, BudgetError } from "./budget-settings.ts";
 import { trackGeneration } from "./generation-runs.ts";
 import { openAiModel } from "./openai.ts";
 import { observeRadarWithJev, type JevRadarResult } from "./jev-radar.ts";
@@ -66,10 +67,14 @@ export async function scanRadar(input: unknown = {}, { request = fetch, now = ne
   // sí, porque un tope que bloquea el trabajo deliberado acaba desactivado.
   const spend = await monthSpend();
   const overBudget = spend.budget !== null && spend.amount >= spend.budget;
-  if (overBudget && automatic) {
-    const run = await beginRadarRun({ verticals: [], windowDays });
-    const skipped = await finishRadarRun(run.id, { status: "skipped", error: `Presupuesto del mes agotado: ${spend.amount} de ${spend.budget}. La corrida automática no se ejecuta.` });
-    return { run: skipped, topics: [], summary: { found: 0, kept: 0, repeated: 0, rejected: 0, insufficientSources: 0, unverified: 0, failedVerticals: [] as string[], searches: { requested: 0, performed: 0 }, skipped: true as const, overBudget } };
+  if (automatic) {
+    try { await assertAutomationBudget(); }
+    catch (error) {
+      if (!(error instanceof BudgetError)) throw error;
+      const run = await beginRadarRun({ verticals: [], windowDays });
+      const skipped = await finishRadarRun(run.id, { status: "skipped", error: error.message });
+      return { run: skipped, topics: [], summary: { found: 0, kept: 0, repeated: 0, rejected: 0, insufficientSources: 0, unverified: 0, failedVerticals: [] as string[], searches: { requested: 0, performed: 0 }, skipped: true as const, overBudget: true } };
+    }
   }
 
   const watchlist = (await listWatchlist({ onlyActive: true }))

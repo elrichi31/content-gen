@@ -21,6 +21,7 @@
     "@radix-ui/react-tabs": "1.1.13",
     "@radix-ui/react-tooltip": "1.2.8",
     "@remotion/player": "4.0.509",
+    "@xyflow/react": "^12.12.0",
     "better-auth": "^1.7.5",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

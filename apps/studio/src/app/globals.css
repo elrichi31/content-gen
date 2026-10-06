@@ -1,5 +1,24 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
+@import '@xyflow/react/dist/style.css';
+
+/* El flujo hereda los mismos tokens que el estudio, en ambos temas. */
+.automation-flow {
+  --xy-background-color: var(--background);
+  --xy-node-color: var(--foreground);
+  --xy-node-background-color: var(--card);
+  --xy-node-border: 1px solid var(--border);
+  --xy-node-boxshadow-hover: none;
+  --xy-edge-stroke: var(--muted-foreground);
+  --xy-controls-button-background-color: var(--card);
+  --xy-controls-button-background-color-hover: var(--accent);
+  --xy-controls-button-color: var(--foreground);
+  --xy-controls-button-border-color: var(--border);
+  --xy-attribution-background-color: var(--card);
+  --xy-background-pattern-dots-color: var(--border);
+}
+.react-flow__node-step { width: 230px; height: 155px; }
+main, main div, [data-slot='sheet-content'] { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
 
 @custom-variant dark (&:is(.dark *));
 

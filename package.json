@@ -18,6 +18,8 @@
     "test:hyperframes": "node apps/render-worker/src/hyperframes.test.mjs",
     "test:mcp-oauth": "node --experimental-strip-types apps/studio/src/lib/mcp/oauth.test.ts",
     "test:automation": "node --experimental-strip-types apps/studio/src/lib/carousel-automation.test.ts",
+    "test:automation-runtime": "node --experimental-strip-types apps/studio/src/lib/budget-settings.test.ts && node --experimental-strip-types apps/studio/src/lib/automation-execution.test.ts && node --experimental-strip-types apps/studio/src/lib/radar-automation.test.ts && node --experimental-strip-types apps/studio/src/lib/automation-integration.test.ts && node --experimental-strip-types apps/studio/src/lib/automation-api.test.ts",
+    "test:automation-ui": "node apps/studio/tests/automation-ui.test.mjs",
     "test:explainer": "node --experimental-strip-types apps/studio/src/lib/explainer.test.ts",
     "worker:once": "node --env-file-if-exists=.env.local --env-file-if-exists=.env apps/render-worker/src/worker.mjs --once",
     "test:domain": "node --experimental-strip-types packages/domain/src/schemas.test.ts",

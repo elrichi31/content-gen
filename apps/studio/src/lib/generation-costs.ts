@@ -3,6 +3,7 @@ import { isUntariffed, summarizeUsage } from "./cost-analytics.ts";
 import { contentTitle } from "./content-title.ts";
 import { withDatabase } from "./db.ts";
 import { loadPricing } from "./pricing.ts";
+import { getBudgetSettings } from "./budget-settings.ts";
 
 export class CostReportError extends Error {
   readonly status: number;
@@ -92,7 +93,7 @@ export async function costReport({ month = currentMonth() }: { month?: string } 
     }
   }
 
-  const budget = monthlyBudget();
+  const budget = (await getBudgetSettings()).limits.month;
   return {
     month,
     ...summarizeUsage(rows, month),
@@ -158,7 +159,7 @@ export async function monthSpend({ month = currentMonth() }: { month?: string } 
     .get(from, to) as { total: number });
   // Las operaciones del radar ya están en generation_runs; radar_runs agrega lo mismo. Se toma el
   // mayor de los dos en vez de sumarlos, que contaría el gasto del radar por partida doble.
-  return { month, amount: round(Math.max(rows.total, radar.total)), budget: monthlyBudget() };
+  return { month, amount: round(Math.max(rows.total, radar.total)), budget: (await getBudgetSettings()).limits.month };
 }
 
 /** Suma de importes ya congelados, para cuando haga falta agregarlos fuera del informe. */

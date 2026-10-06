@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import { priceUsage, type Usage } from "@content-gen/domain/cost";
 import { generationRunSchema } from "@content-gen/domain/schemas";
 import { withDatabase } from "./db.ts";
+import { automationContext } from "./automation-execution.ts";
+import { assertAutomationBudget } from "./budget-settings.ts";
 import { loadPricing } from "./pricing.ts";
 
 export class GenerationRunError extends Error {
@@ -16,6 +18,8 @@ type Provider = "openai" | "gemini" | "unsplash" | "elevenlabs" | "typesafe" | "
  * radar no pertenece a ninguna pieza y es justamente el gasto que interesa medir aparte.
  */
 export async function beginGenerationRun({ contentItemId = null, radarTopicId = null, operation, model, provider = "openai" }: { contentItemId?: string | null; radarTopicId?: string | null; operation: string; model: string | null; provider?: Provider }) {
+  const context = automationContext.getStore();
+  if (context?.automatic) await assertAutomationBudget();
   const now = new Date().toISOString();
   const run = generationRunSchema.parse({ id: randomUUID(), schemaVersion: 1, contentItemId, radarTopicId, provider, status: "running", createdAt: now, completedAt: null, error: null, operation, model, durationMs: null, usage: null, cost: null });
   await withDatabase(async (database) => {
@@ -24,8 +28,8 @@ export async function beginGenerationRun({ contentItemId = null, radarTopicId = 
       if (!content) throw new GenerationRunError("La pieza para registrar la generación no existe o está archivada.", 404);
     }
     await database
-      .prepare("INSERT INTO generation_runs (id, schema_version, content_item_id, radar_topic_id, operation, provider, status, cost_amount, data_json, created_at, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL)")
-      .run(run.id, run.schemaVersion, run.contentItemId, run.radarTopicId, run.operation, run.provider, run.status, JSON.stringify(run), now);
+      .prepare("INSERT INTO generation_runs (id, schema_version, content_item_id, radar_topic_id, operation, provider, status, cost_amount, data_json, created_at, completed_at, automation_run_id) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL, ?)")
+      .run(run.id, run.schemaVersion, run.contentItemId, run.radarTopicId, run.operation, run.provider, run.status, JSON.stringify(run), now, context?.runId ?? null);
   });
   return run;
 }

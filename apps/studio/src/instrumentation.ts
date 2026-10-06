@@ -6,7 +6,15 @@
 export async function register() {
   if (process.env.NEXT_RUNTIME !== "nodejs" || process.env.AUTOMATIONS_DISABLED === "1") return;
   const { runDueAutomations } = await import("./lib/carousel-automation");
-  const tick = () => void runDueAutomations().catch((error) => console.error("[automatizaciones]", error));
+  const { runDueRadarAutomations } = await import("./lib/radar-automation");
+  let busy = false;
+  const tick = async () => {
+    if (busy) return;
+    busy = true;
+    try { await runDueRadarAutomations(); await runDueAutomations(); }
+    catch (error) { console.error("[automatizaciones]", error); }
+    finally { busy = false; }
+  };
   setTimeout(tick, 60_000);
   setInterval(tick, 15 * 60_000);
 }

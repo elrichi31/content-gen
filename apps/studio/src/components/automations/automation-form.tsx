@@ -76,6 +76,7 @@ export function AutomationForm({ editing, rules, campaigns, brands, verticals, o
   const [topics, setTopics] = useState(editing?.topics.join("\n") ?? "");
   const [radarVertical, setRadarVertical] = useState(editing?.radarVertical ?? NO_RADAR);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
 
   const topicList = [...new Set(topics.split("\n").map((line) => line.trim()).filter(Boolean))];
   const used = editing ? topicList.filter((item) => editing.usedTopics.includes(item)).length : 0;
@@ -89,6 +90,7 @@ export function AutomationForm({ editing, rules, campaigns, brands, verticals, o
     event.preventDefault();
     if (missing) return;
     setSaving(true);
+    setError("");
     try {
       await onSubmit({
         name: name.trim(), ruleId, campaignId, kind, slides, imageSource, provider, daysAhead,
@@ -96,17 +98,18 @@ export function AutomationForm({ editing, rules, campaigns, brands, verticals, o
         topics: topicList,
         radarVertical: radarVertical === NO_RADAR ? null : radarVertical,
       });
-    } finally { setSaving(false); }
+    } catch (error) { setError(error instanceof Error ? error.message : "No se pudo guardar la automatización."); }
+    finally { setSaving(false); }
   }
 
   return (
-    <form onSubmit={submit} className="flex min-h-full flex-col">
-      <div className="border-b border-border px-5 pb-5 pt-6 pr-12">
+    <form onSubmit={submit} className="flex h-full min-h-0 flex-col">
+      <div className="shrink-0 border-b border-border px-5 pb-5 pt-6 pr-12">
         <SheetTitle className="text-base">{editing ? "Editar automatización" : "Nueva automatización"}</SheetTitle>
         <p className="mt-1 text-sm text-muted-foreground">Rellena los huecos libres de una pauta con carruseles en borrador. Nunca publica.</p>
       </div>
 
-      <div className="flex-1">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
         <Section title="Nombre">
           <Input aria-label="Nombre" value={name} onChange={(event) => setName(event.target.value)} placeholder="Tips semanales de Instagram" autoFocus={!editing} />
         </Section>
@@ -207,12 +210,13 @@ export function AutomationForm({ editing, rules, campaigns, brands, verticals, o
         </Section>
       </div>
 
-      <div className="sticky bottom-0 space-y-3 border-t border-border bg-background px-5 py-4">
+      <div className="shrink-0 space-y-3 border-t border-border bg-background px-5 py-4">
         <p className="text-xs text-muted-foreground">
           ≈ <span className="font-medium tabular-nums text-foreground">{money(perCarousel)}</span> por carrusel
           {rule ? <> · ≈ <span className="font-medium tabular-nums text-foreground">{money(perMonth)}</span> al mes con esta pauta</> : null}
         </p>
         {missing ? <p className="text-xs text-muted-foreground">{missing}</p> : null}
+        {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
         <div className="flex gap-2">
           <Button type="button" variant="outline" className="flex-1" onClick={onCancel}>Cancelar</Button>
           <Button type="submit" className="flex-1" disabled={Boolean(missing) || saving}>{saving ? "Guardando…" : editing ? "Guardar cambios" : "Crear automatización"}</Button>

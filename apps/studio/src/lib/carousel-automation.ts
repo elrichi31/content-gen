@@ -5,6 +5,7 @@ import { addDays, todayLocal } from "@content-gen/domain/schedule";
 import { AutomationError, automationInputSchema, imagesToDocument, nextListTopic, nextOpenSlot, type Automation } from "./carousel-automation-rules.ts";
 import { createEditableCarousel, drawAiCarousel, prepareAiCarousel } from "./carousel-pipeline.ts";
 import { withDatabase } from "./db.ts";
+import { executeAutomation, listAutomationRuns } from "./automation-execution.ts";
 import { linkTopicToContent, listTopics, setTopicStatus } from "./radar.ts";
 import { createPost, getRule, listPosts, updatePost } from "./schedule.ts";
 
@@ -111,6 +112,10 @@ export type RunOutcome = { status: "created" | "idle"; message: string; contentI
 
 /** Rellena el siguiente hueco libre de la automatización con un carrusel en borrador. */
 export async function runAutomation(id: string, now = new Date()): Promise<RunOutcome> {
+  return executeAutomation(id, "carousel", false, () => runCarouselWork(id, now));
+}
+
+async function runCarouselWork(id: string, now = new Date()): Promise<RunOutcome> {
   if (running.has(id)) throw new AutomationError("Esta automatización ya se está ejecutando.", 409);
   running.add(id);
   const automation = await getAutomation(id).catch((error) => { running.delete(id); throw error; });
@@ -155,7 +160,7 @@ export async function listAutomationsWithStatus(now = new Date()) {
   return Promise.all(automations.map(async (automation) => {
     const rule = await getRule(automation.ruleId).catch(() => null);
     const slot = rule ? nextOpenSlot(rule, posts, automation.daysAhead, now) : null;
-    return { ...automation, nextSlot: slot ? { date: slot.date, time: slot.time } : null, horizonEnd: addDays(today, automation.daysAhead - 1) };
+    return { ...automation, lastExecution: (await listAutomationRuns(automation.id, 1))[0] ?? null, nextSlot: slot ? { date: slot.date, time: slot.time } : null, horizonEnd: addDays(today, automation.daysAhead - 1) };
   }));
 }
 
@@ -163,6 +168,6 @@ export async function listAutomationsWithStatus(now = new Date()) {
 export async function runDueAutomations(now = new Date()) {
   for (const automation of await listAutomations()) {
     if (!automation.active) continue;
-    await runAutomation(automation.id, now).catch((error) => console.error(`[automatizaciones] ${automation.name}:`, error instanceof Error ? error.message : error));
+    await executeAutomation(automation.id, "carousel", true, () => runCarouselWork(automation.id, now)).catch((error) => console.error(`[automatizaciones] ${automation.name}:`, error instanceof Error ? error.message : error));
   }
 }
