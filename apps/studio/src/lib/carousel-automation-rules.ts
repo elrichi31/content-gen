@@ -1,5 +1,5 @@
 import { carouselDocumentSchema, type CarouselDocument } from "@content-gen/domain/carousel";
-import { addDays, buildCalendar, todayLocal, type PublishingRule, type ScheduledPost, type Slot } from "@content-gen/domain/schedule";
+import { buildCalendar, todayLocal, type PublishingRule, type ScheduledPost, type Slot } from "@content-gen/domain/schedule";
 import { z } from "zod";
 
 /** Reglas de las automatizaciones de carruseles, sin base ni IA: lo que se puede probar solo. */
@@ -26,8 +26,8 @@ export const automationInputSchema = z.object({
   topics: z.array(topic).max(200).default([]),
   /** Vertical del radar del que tirar cuando la lista se acaba. Nulo: solo la lista. */
   radarVertical: z.string().trim().min(1).nullable().default(null),
-  /** Hasta cuántos días por delante se rellenan huecos. */
-  daysAhead: z.number().int().min(1).max(30).default(7),
+  /** Compatibilidad con configuraciones anteriores: solo se genera el día de publicación. */
+  daysAhead: z.number().int().min(1).max(30).default(1).transform(() => 1),
 }).refine((value) => value.topics.length > 0 || value.radarVertical, { message: "Pon temas en la lista o elige un vertical del radar.", path: ["topics"] });
 
 export type Automation = z.infer<typeof automationInputSchema> & {
@@ -43,11 +43,11 @@ export type Automation = z.infer<typeof automationInputSchema> & {
 
 /* ------------------------------ Lógica pura ------------------------------ */
 
-/** Primer hueco de la pauta, desde ahora y hasta `daysAhead` días, que no tenga pieza asignada. */
-export function nextOpenSlot(rule: PublishingRule, posts: ScheduledPost[], daysAhead: number, now = new Date()): Slot | null {
+/** Primer hueco libre de hoy, antes de su hora. La antelación antigua se ignora. */
+export function nextOpenSlot(rule: PublishingRule, posts: ScheduledPost[], _daysAhead: number, now = new Date()): Slot | null {
   const today = todayLocal(now);
   const clock = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
-  const days = buildCalendar({ rules: [rule], posts, startDate: today, endDate: addDays(today, daysAhead - 1) });
+  const days = buildCalendar({ rules: [rule], posts, startDate: today, endDate: today });
   return days.flatMap((day) => day.slots).find((slot) =>
     slot.ruleId === rule.id
     && !(slot.date === today && slot.time <= clock)

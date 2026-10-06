@@ -43,9 +43,22 @@ export async function createRemoteImage(input: z.infer<typeof carouselImageInput
   }
   const key = process.env.UNSPLASH_ACCESS_KEY;
   if (!key) throw new Error("Falta configurar UNSPLASH_ACCESS_KEY.");
-  const search = await request(`https://api.unsplash.com/search/photos?per_page=1&query=${encodeURIComponent(input.prompt)}`, { headers: { Authorization: `Client-ID ${key}` }, signal: AbortSignal.timeout(30_000) });
-  const result = await search.json().catch(() => null) as { results?: { urls?: { regular?: unknown } }[] } | null; const url = result?.results?.[0]?.urls?.regular;
-  if (!search.ok || typeof url !== "string" || new URL(url).hostname !== "images.unsplash.com") throw new Error("Unsplash no encontró una imagen segura para esa búsqueda.");
+  const query = input.prompt.trim();
+  const simplified = query.split(/\s+/).slice(0, 2).join(" ");
+  let url: unknown;
+  for (const keywords of [...new Set([query, simplified])]) {
+    const search = await request(`https://api.unsplash.com/search/photos?per_page=1&query=${encodeURIComponent(keywords)}`, { headers: { Authorization: `Client-ID ${key}` }, signal: AbortSignal.timeout(30_000) });
+    if (!search.ok) {
+      if (search.status === 401 || search.status === 403) throw new Error("Unsplash rechazó la credencial o el acceso. Revisa UNSPLASH_ACCESS_KEY y los límites de la aplicación.");
+      throw new Error(`Unsplash no pudo buscar imágenes (HTTP ${search.status}).`);
+    }
+    const result = await search.json().catch(() => null) as { results?: { urls?: { regular?: unknown } }[] } | null;
+    if (!result || !Array.isArray(result.results)) throw new Error("Unsplash devolvió una respuesta de búsqueda no válida.");
+    if (!result.results.length) continue;
+    url = result.results[0]?.urls?.regular;
+    break;
+  }
+  if (typeof url !== "string" || new URL(url).hostname !== "images.unsplash.com" || new URL(url).protocol !== "https:") throw new Error("Unsplash no encontró una imagen segura para esa búsqueda.");
   const image = await request(url, { redirect: "error", signal: AbortSignal.timeout(30_000) }); const mimeType = image.headers.get("content-type")?.split(";")[0] ?? "";
   if (!image.ok || !["image/jpeg", "image/png", "image/webp"].includes(mimeType)) throw new Error("Unsplash devolvió un archivo de imagen no válido.");
   // Unsplash no cobra por imagen: el consumo va vacío para que no aparezca como gasto.

@@ -66,7 +66,7 @@ export function AutomationForm({ editing, rules, campaigns, brands, verticals, o
 }) {
   const [name, setName] = useState(editing?.name ?? "");
   const [ruleId, setRuleId] = useState(editing?.ruleId ?? rules[0]?.id ?? "");
-  const [daysAhead, setDaysAhead] = useState(editing?.daysAhead ?? 7);
+
   const [campaignId, setCampaignId] = useState(editing?.campaignId ?? campaigns[0]?.id ?? "");
   const [brandChoice, setBrandChoice] = useState(editing?.brandKitId ?? BRAND_FROM_CAMPAIGN);
   const [kind, setKind] = useState<Kind>(editing?.kind ?? "editable");
@@ -93,7 +93,7 @@ export function AutomationForm({ editing, rules, campaigns, brands, verticals, o
     setError("");
     try {
       await onSubmit({
-        name: name.trim(), ruleId, campaignId, kind, slides, imageSource, provider, daysAhead,
+        name: name.trim(), ruleId, campaignId, kind, slides, imageSource, provider, daysAhead: 1,
         brandKitId: brandChoice === BRAND_FROM_CAMPAIGN ? null : brandChoice,
         topics: topicList,
         radarVertical: radarVertical === NO_RADAR ? null : radarVertical,
@@ -114,7 +114,7 @@ export function AutomationForm({ editing, rules, campaigns, brands, verticals, o
           <Input aria-label="Nombre" value={name} onChange={(event) => setName(event.target.value)} placeholder="Tips semanales de Instagram" autoFocus={!editing} />
         </Section>
 
-        <Section title="Cuándo" hint="Cada hueco libre de la pauta recibe un carrusel. Los huecos que ya tienen pieza no se tocan.">
+        <Section title="Cuándo" hint="Se genera el mismo día de publicación, antes de la hora de la pauta. Los huecos que ya tienen pieza no se tocan.">
           {rules.length === 0 ? (
             <p className="rounded-md bg-surface-secondary px-3 py-2.5 text-sm text-muted-foreground">
               Aún no hay pautas. <Link href="/schedule" className="font-medium text-primary underline-offset-4 hover:underline">Crea una en el Cronograma</Link> (por ejemplo, Instagram lunes, miércoles y viernes a las 19:00).
@@ -128,13 +128,7 @@ export function AutomationForm({ editing, rules, campaigns, brands, verticals, o
               </Select>
             </div>
           )}
-          <div className="flex items-center justify-between gap-4">
-            <Label htmlFor="automation-days" className="text-sm font-normal text-foreground">Preparar con antelación</Label>
-            <div className="flex items-center gap-2">
-              <Input id="automation-days" type="number" min={1} max={30} value={daysAhead} onChange={(event) => setDaysAhead(Math.min(30, Math.max(1, Number(event.target.value) || 7)))} className="w-16 text-right tabular-nums" />
-              <span className="text-sm text-muted-foreground">días</span>
-            </div>
-          </div>
+          <p className="text-xs text-muted-foreground">El servidor revisa cada 15 minutos. No prepara publicaciones de días futuros.</p>
         </Section>
 
         <Section title="Qué carrusel">

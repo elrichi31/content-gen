@@ -26,7 +26,7 @@ const WITHOUT_PHOTO = { split: "content", imageOverlay: "cover" } as const;
 
 /** Pone las fotos en los slides que las llevan, en paralelo; una que falla no tumba el carrusel. */
 async function attachImages(document: CarouselDocument, source: "unsplash" | "openai" | "illustration", campaignId?: string, color?: string) {
-  let missing = 0;
+  const imageErrors: string[] = [];
   const slides = await Promise.all(document.slides.map(async (slide) => {
     if (!PHOTO_LAYOUTS.has(slide.layout)) return slide;
     try {
@@ -38,9 +38,13 @@ async function attachImages(document: CarouselDocument, source: "unsplash" | "op
       const asset = await storeAsset({ ...image, campaignId: campaignId ?? null });
       return { ...slide, imageUrl: `/api/assets/${asset.id}`, imageSource: SOURCE_TAG[source], imagePosition: slide.layout === "imageOverlay" ? "background" as const : slide.imagePosition ?? "right" as const };
     }
-    catch { missing++; return { ...slide, layout: WITHOUT_PHOTO[slide.layout as keyof typeof WITHOUT_PHOTO], layoutVariant: undefined }; }
+    catch (error) {
+      imageErrors.push(error instanceof Error ? error.message : "No se pudo cargar la foto.");
+      const layout = WITHOUT_PHOTO[slide.layout as keyof typeof WITHOUT_PHOTO];
+      return { ...slide, layout, layoutVariant: layout === "cover" ? "centered" : "default", imageUrl: undefined };
+    }
   }));
-  return { missing, document: { ...document, slides, generation: document.generation ? { ...document.generation, withImages: true, imageSource: SOURCE_TAG[source] } : undefined } };
+  return { missing: imageErrors.length, imageErrors, document: { ...document, slides, generation: document.generation ? { ...document.generation, withImages: slides.some((slide) => Boolean(slide.imageUrl)), imageSource: SOURCE_TAG[source] } : undefined } };
 }
 
 /** Lee la campaña y su marca. `undefined` sin campaña; lanza si la campaña no existe. */
@@ -53,6 +57,7 @@ async function campaignWithBrand(campaignId: string | undefined) {
 
 /** Carrusel editable: guion con layouts y, si se pide, fotos. `raw` es la misma solicitud que recibe la API. */
 export async function createEditableCarousel(raw: Record<string, unknown> | null) {
+  if (raw?.imageSource === "unsplash" && !process.env.UNSPLASH_ACCESS_KEY) throw new GenerationError("Falta configurar UNSPLASH_ACCESS_KEY para generar las fotos del carrusel.", 503);
   const campaignId = typeof raw?.campaignId === "string" ? raw.campaignId : undefined;
   const stored = await campaignWithBrand(campaignId);
   // La marca elegida a mano manda sobre la de la campaña; aporta audiencia y tono si la solicitud no los trae.
@@ -69,9 +74,9 @@ export async function createEditableCarousel(raw: Record<string, unknown> | null
     return { value: generated.document, usage: generated.usage };
   });
   const source = parsed.data.imageSource;
-  if (source === "none") return { document, missingPhotos: 0 };
+  if (source === "none") return { document, missingPhotos: 0, imageErrors: [] as string[] };
   const withPhotos = await attachImages(document, source, parsed.data.campaignId, brand?.primaryColor);
-  return { document: withPhotos.document, missingPhotos: withPhotos.missing };
+  return { document: withPhotos.document, missingPhotos: withPhotos.missing, imageErrors: withPhotos.imageErrors };
 }
 
 /**

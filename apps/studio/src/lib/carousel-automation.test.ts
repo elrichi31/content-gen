@@ -9,11 +9,12 @@ const post = (date: string, contentItemId: string | null, status: ScheduledPost[
 const monday10am = new Date(2026, 9, 5, 10, 0);
 
 assert.equal(nextOpenSlot(rule, [], 7, monday10am)?.date, "2026-10-05", "hoy cuenta si la hora aún no pasó");
-assert.equal(nextOpenSlot(rule, [], 7, new Date(2026, 9, 5, 20, 0))?.date, "2026-10-07", "un hueco de hoy ya pasado se salta");
-assert.equal(nextOpenSlot(rule, [post("2026-10-05", "c1")], 7, monday10am)?.date, "2026-10-07", "un hueco con pieza no se toca");
+assert.equal(nextOpenSlot(rule, [], 7, new Date(2026, 9, 5, 20, 0)), null, "una hora pasada no adelanta generaciones futuras");
+assert.equal(nextOpenSlot(rule, [post("2026-10-05", "c1")], 14, monday10am), null, "un hueco cubierto no adelanta la generación del miércoles");
+assert.equal(nextOpenSlot(rule, [], 14, new Date(2026, 9, 6, 10, 0)), null, "martes no genera carruseles para días futuros aunque una configuración antigua tenga 14 días");
 const reserved = nextOpenSlot(rule, [post("2026-10-05", null)], 7, monday10am);
 assert.equal(reserved?.post?.id, "p-2026-10-05", "un hueco reservado sin pieza se rellena");
-assert.equal(nextOpenSlot(rule, [post("2026-10-05", null, "omitida")], 7, monday10am)?.date, "2026-10-07", "un hueco omitido a propósito no se rellena");
+assert.equal(nextOpenSlot(rule, [post("2026-10-05", null, "omitida")], 7, monday10am), null, "un hueco omitido no se rellena ni adelanta días futuros");
 assert.equal(nextOpenSlot(rule, [post("2026-10-05", "a"), post("2026-10-07", "b")], 3, monday10am), null, "fuera del horizonte no hay huecos");
 assert.equal(nextOpenSlot({ ...rule, active: false }, [], 7, monday10am), null, "una pauta pausada no genera huecos");
 

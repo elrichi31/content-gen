@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { CarouselDocument } from "@content-gen/domain/carousel";
 import { topicBrief } from "@content-gen/domain/radar";
-import { addDays, todayLocal } from "@content-gen/domain/schedule";
+import { todayLocal } from "@content-gen/domain/schedule";
 import { AutomationError, automationInputSchema, imagesToDocument, nextListTopic, nextOpenSlot, type Automation } from "./carousel-automation-rules.ts";
 import { createEditableCarousel, drawAiCarousel, prepareAiCarousel } from "./carousel-pipeline.ts";
 import { withDatabase } from "./db.ts";
@@ -90,12 +90,11 @@ async function pickTopic(automation: Automation): Promise<PickedTopic | null> {
 
 async function generate(automation: Automation, picked: PickedTopic) {
   if (automation.kind === "editable") {
-    const { document } = await createEditableCarousel({ topic: picked.title.slice(0, 240), ...(picked.context ? { context: picked.context } : {}), slideCount: automation.slides, campaignId: automation.campaignId, imageSource: automation.imageSource, ...(automation.brandKitId ? { brandKitId: automation.brandKitId } : {}) });
-    return document;
+    return createEditableCarousel({ topic: picked.title.slice(0, 240), ...(picked.context ? { context: picked.context } : {}), slideCount: automation.slides, campaignId: automation.campaignId, imageSource: automation.imageSource, ...(automation.brandKitId ? { brandKitId: automation.brandKitId } : {}) });
   }
   const { input, brand } = await prepareAiCarousel({ topic: [picked.title, picked.context].filter(Boolean).join("\n\n").slice(0, 500), slides: automation.slides, provider: automation.provider, ...(automation.brandKitId ? { brandKitId: automation.brandKitId } : {}) }, automation.campaignId);
   const drawn = await drawAiCarousel(input, brand, { campaignId: automation.campaignId });
-  return imagesToDocument(picked.title, drawn.slides);
+  return { document: imagesToDocument(picked.title, drawn.slides), missingPhotos: 0, imageErrors: [] as string[] };
 }
 
 async function insertCarousel(campaignId: string, document: CarouselDocument) {
@@ -108,7 +107,7 @@ async function insertCarousel(campaignId: string, document: CarouselDocument) {
 // ponytail: candado en memoria, vale con un solo proceso de Next; con varias réplicas, pasar a pg_try_advisory_lock.
 const running = new Set<string>();
 
-export type RunOutcome = { status: "created" | "idle"; message: string; contentItemId?: string };
+export type RunOutcome = { status: "created" | "idle"; message: string; contentItemId?: string; missingPhotos?: number; imageErrors?: string[] };
 
 /** Rellena el siguiente hueco libre de la automatización con un carrusel en borrador. */
 export async function runAutomation(id: string, now = new Date()): Promise<RunOutcome> {
@@ -127,13 +126,14 @@ async function runCarouselWork(id: string, now = new Date()): Promise<RunOutcome
   try {
     const rule = await getRule(automation.ruleId);
     const today = todayLocal(now);
-    const posts = await listPosts({ startDate: today, endDate: addDays(today, automation.daysAhead) });
+    const posts = await listPosts({ startDate: today, endDate: today });
     const slot = nextOpenSlot(rule, posts, automation.daysAhead, now);
-    if (!slot) return await finish({ status: "idle", message: `Sin huecos libres en los próximos ${automation.daysAhead} días.` });
+    if (!slot) return await finish({ status: "idle", message: "Sin huecos pendientes para hoy antes de su hora de publicación." });
     const picked = await pickTopic(automation);
     if (!picked) return await finish({ status: "idle", message: "Se acabaron los temas: agrega más a la lista o elige un vertical del radar con temas." }, true);
 
-    const contentItemId = await insertCarousel(automation.campaignId, await generate(automation, picked));
+    const generated = await generate(automation, picked);
+    const contentItemId = await insertCarousel(automation.campaignId, generated.document);
     const notes = `Borrador generado por la automatización «${automation.name}».`;
     const title = picked.title.slice(0, 200);
     if (slot.post) await updatePost(slot.post.id, { contentItemId, notes, title });
@@ -142,7 +142,8 @@ async function runCarouselWork(id: string, now = new Date()): Promise<RunOutcome
       await setTopicStatus(picked.radarTopicId, "usado");
       await linkTopicToContent({ topicId: picked.radarTopicId, contentItemId, format: "carousel" });
     }
-    return await finish({ status: "created", message: `Carrusel «${picked.title}» para el ${slot.date} a las ${slot.time}.`, contentItemId }, false, picked.radarTopicId ? undefined : picked.title);
+    const warning = generated.missingPhotos ? ` ${generated.missingPhotos} foto(s) no llegaron; esos slides quedaron con texto. ${[...new Set(generated.imageErrors)].join(" ")}` : "";
+    return await finish({ status: "created", message: `Carrusel «${picked.title}» para el ${slot.date} a las ${slot.time}.${warning}`, contentItemId, missingPhotos: generated.missingPhotos, imageErrors: generated.imageErrors }, generated.missingPhotos > 0, picked.radarTopicId ? undefined : picked.title);
   } catch (error) {
     await finish({ status: "idle", message: error instanceof Error ? error.message : "Falló la ejecución." }, true);
     throw error;
@@ -155,12 +156,11 @@ async function runCarouselWork(id: string, now = new Date()): Promise<RunOutcome
 export async function listAutomationsWithStatus(now = new Date()) {
   const automations = await listAutomations();
   const today = todayLocal(now);
-  const horizon = Math.max(1, ...automations.map((automation) => automation.daysAhead));
-  const posts = await listPosts({ startDate: today, endDate: addDays(today, horizon) });
+  const posts = await listPosts({ startDate: today, endDate: today });
   return Promise.all(automations.map(async (automation) => {
     const rule = await getRule(automation.ruleId).catch(() => null);
     const slot = rule ? nextOpenSlot(rule, posts, automation.daysAhead, now) : null;
-    return { ...automation, lastExecution: (await listAutomationRuns(automation.id, 1))[0] ?? null, nextSlot: slot ? { date: slot.date, time: slot.time } : null, horizonEnd: addDays(today, automation.daysAhead - 1) };
+    return { ...automation, daysAhead: 1, lastExecution: (await listAutomationRuns(automation.id, 1))[0] ?? null, nextSlot: slot ? { date: slot.date, time: slot.time } : null, horizonEnd: today };
   }));
 }
 
