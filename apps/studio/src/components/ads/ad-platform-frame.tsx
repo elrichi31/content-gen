@@ -2,13 +2,15 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { AdDocument } from "@content-gen/domain/ad";
-import { InstagramPreview, InstagramStoryPreview, TikTokPreview } from "@/components/preview/social-preview";
+import { CleanPreview, InstagramPreview, InstagramStoryPreview, TikTokPreview } from "@/components/preview/social-preview";
+import { useCleanPreview } from "@/components/preview/use-clean-preview";
 import { AdRenderer } from "./ad-renderer";
 
 type Platform = "instagram" | "tiktok";
 const ratio: Record<AdDocument["format"], number> = { story: 16 / 9, square: 1, landscape: 9 / 16 };
 
 export function AdPlatformFrame({ ad, platform, profileName, logoUrl }: { ad: AdDocument; platform: Platform; profileName?: string; logoUrl?: string | null }) {
+  const [clean] = useCleanPreview();
   const container = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(358);
   useEffect(() => {
@@ -21,7 +23,7 @@ export function AdPlatformFrame({ ad, platform, profileName, logoUrl }: { ad: Ad
   const height = width * ratio[ad.format];
   const creative = <div className="w-full shrink-0" style={{ aspectRatio: `1 / ${ratio[ad.format]}` }}><AdRenderer ad={ad} w={width} h={height} /></div>;
   const shared = { profileName, logoUrl, sponsored: true, cta: ad.cta, caption: { text: ad.headline || ad.compHeadline || ad.featHeadline || ad.quote, hashtags: [] } };
-  return <div ref={container} className="w-full min-w-0 max-w-[360px]">
-    {platform === "tiktok" ? <TikTokPreview {...shared}><div className="flex h-full w-full items-center bg-black">{creative}</div></TikTokPreview> : ad.format === "story" ? <InstagramStoryPreview {...shared}>{creative}</InstagramStoryPreview> : <InstagramPreview {...shared} mediaRatio={`1 / ${ratio[ad.format]}`}>{creative}</InstagramPreview>}
+  return <div ref={container} className={`w-full min-w-0 ${clean ? "max-w-[520px]" : "max-w-[360px]"}`}>
+    {clean ? <CleanPreview mediaRatio={`1 / ${ratio[ad.format]}`}>{creative}</CleanPreview> : platform === "tiktok" ? <TikTokPreview {...shared}><div className="flex h-full w-full items-center bg-black">{creative}</div></TikTokPreview> : ad.format === "story" ? <InstagramStoryPreview {...shared}>{creative}</InstagramStoryPreview> : <InstagramPreview {...shared} mediaRatio={`1 / ${ratio[ad.format]}`}>{creative}</InstagramPreview>}
   </div>;
 }

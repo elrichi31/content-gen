@@ -6,6 +6,7 @@ import { TikTokFrame } from "@/components/preview/tiktok-frame";
 import { colorThemes, type BgStyleId, type FontThemeId } from "@/lib/themes";
 import type { BrandSettings, Slide } from "@/lib/slide-types";
 import { SlideLookContext, SlideRenderer } from "@/components/slide-renderer";
+import { useCleanPreview } from "@/components/preview/use-clean-preview";
 
 export type CarouselTheme = keyof typeof colorThemes;
 export type CarouselFont = FontThemeId;
@@ -63,6 +64,7 @@ export function CarouselFrame({
   onUpdateListItem?: (index: number, text: string) => void;
   onCaptionChange?: (caption: CarouselDocument["caption"]) => void;
 }) {
+  const [clean] = useCleanPreview();
   const primary = accentColor ?? colorThemes[theme].primary;
   const shared = {
     slides: document.slides as Slide[],
@@ -82,7 +84,7 @@ export function CarouselFrame({
 
   return (
     <SlideLookContext.Provider value={{ surface, decor }}>
-      <div className="w-full max-w-[360px]">
+      <div className={`w-full ${clean ? "max-w-[520px]" : "max-w-[360px]"}`}>
         {platform === "instagram" ? <InstagramFrame {...shared} /> : <TikTokFrame {...shared} />}
       </div>
     </SlideLookContext.Provider>

@@ -1,15 +1,18 @@
 "use client";
 
 import { useRef, useState, type CSSProperties, type ReactNode, type PointerEvent, type KeyboardEvent } from "react";
-import { BatteryFull, Bookmark, ChevronDown, ChevronLeft, ChevronRight, Clapperboard, Heart, Home, MessageCircle, MoreHorizontal, Moon, Music2, Plus, Radio, Search, Send, Signal, Users, Wifi, X } from "lucide-react";
+import { BatteryFull, Bookmark, ChevronDown, ChevronLeft, ChevronRight, Clapperboard, Heart, Home, Image as ImageIcon, MessageCircle, MoreHorizontal, Moon, Smartphone, Music2, Plus, Radio, Search, Send, Signal, Users, Wifi, X } from "lucide-react";
 import type { PostCaption } from "@/lib/slide-types";
 import { CaptionEditor, formatCaptionHashtags } from "./caption-editor";
+import { useCleanPreview } from "./use-clean-preview";
 
 export function TikTokPreview({ children, profileName = "tu.cuenta", logoUrl, caption, onCaptionChange, activeSlide = 0, totalSlides = 1, onSlideChange, sponsored = false, cta }: SocialPreviewProps) {
+  const [clean] = useCleanPreview();
   const [liked, setLiked] = useState(false);
   const [saved, setSaved] = useState(false);
   const [followed, setFollowed] = useState(false);
   const { move, ...navigation } = usePhotoNavigation(activeSlide, totalSlides, onSlideChange);
+  if (clean) return <CleanPreview caption={caption} onCaptionChange={onCaptionChange} activeSlide={activeSlide} totalSlides={totalSlides} onSlideChange={onSlideChange} mediaRatio="9 / 16">{children}</CleanPreview>;
   return <div className="w-full min-w-0 max-w-[360px]" data-social-preview="tiktok">
     <section aria-label="Vista simulada de TikTok" className="overflow-hidden rounded-[22px] border border-[#888]/25 bg-black text-white" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>
       <StatusBar />
@@ -52,13 +55,15 @@ export function TikTokPreview({ children, profileName = "tu.cuenta", logoUrl, ca
       </div>
       <HomeIndicator />
     </section>
-    <PreviewTools caption={caption} onCaptionChange={onCaptionChange} />
+    <PreviewTools caption={caption} onCaptionChange={onCaptionChange}><MockupToggle /></PreviewTools>
   </div>;
 }
 
 
 export function InstagramStoryPreview({ children, profileName = "tu.cuenta", logoUrl, cta }: SocialPreviewProps) {
+  const [clean] = useCleanPreview();
   const [liked, setLiked] = useState(false);
+  if (clean) return <CleanPreview mediaRatio="9 / 16">{children}</CleanPreview>;
   return <div className="w-full min-w-0 max-w-[360px]" data-social-preview="instagram-story">
     <section aria-label="Vista simulada de Instagram Stories" className="overflow-hidden rounded-[22px] border border-[#888]/25 bg-black text-white" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>
       <StatusBar />
@@ -77,7 +82,7 @@ export function InstagramStoryPreview({ children, profileName = "tu.cuenta", log
       </div>
       <HomeIndicator />
     </section>
-    <p className="mt-2 text-[10px] text-muted-foreground">Vista simulada · interfaz de ejemplo</p>
+    <PreviewTools label="Vista simulada · interfaz de ejemplo"><MockupToggle /></PreviewTools>
   </div>;
 }
 
@@ -170,10 +175,10 @@ function PreviewCaption({ caption, profileName, overlay = false, hashtagColor = 
   </div>;
 }
 
-function PreviewTools({ caption, onCaptionChange, children }: Pick<SocialPreviewProps, "caption" | "onCaptionChange"> & { children?: ReactNode }) {
+function PreviewTools({ caption, onCaptionChange, label = "Vista simulada · interacciones de ejemplo", children }: Pick<SocialPreviewProps, "caption" | "onCaptionChange"> & { label?: string; children?: ReactNode }) {
   return <div className="mt-2 text-foreground">
     <div className="flex items-center justify-between gap-2">
-      <span className="text-[10px] leading-relaxed text-muted-foreground">Vista simulada · interacciones de ejemplo</span>{children}
+      <span className="text-[10px] leading-relaxed text-muted-foreground">{label}</span>{children && <div className="flex shrink-0 items-center gap-1.5">{children}</div>}
     </div>
     {caption !== undefined && <details className="mt-2 border-t border-border pt-2 text-xs">
       <summary className="w-fit cursor-pointer rounded text-muted-foreground focus-visible:outline-2 focus-visible:outline-primary">{onCaptionChange ? "Editar descripción" : "Copiar descripción"}</summary>
@@ -183,10 +188,12 @@ function PreviewTools({ caption, onCaptionChange, children }: Pick<SocialPreview
 }
 
 export function InstagramPreview({ children, profileName = "tu.cuenta", logoUrl, caption, onCaptionChange, activeSlide = 0, totalSlides = 1, onSlideChange, sponsored = false, cta, mediaRatio = "4 / 5" }: SocialPreviewProps & { mediaRatio?: string }) {
+  const [clean] = useCleanPreview();
   const [dark, setDark] = useState(false);
   const [liked, setLiked] = useState(false);
   const [saved, setSaved] = useState(false);
   const { move, ...navigation } = usePhotoNavigation(activeSlide, totalSlides, onSlideChange);
+  if (clean) return <CleanPreview caption={caption} onCaptionChange={onCaptionChange} activeSlide={activeSlide} totalSlides={totalSlides} onSlideChange={onSlideChange} mediaRatio={mediaRatio}>{children}</CleanPreview>;
   const palette = { background: dark ? "#000" : "#fff", color: dark ? "#f5f5f5" : "#111", fontFamily: "Arial, Helvetica, sans-serif" } satisfies CSSProperties;
   return <div className="w-full min-w-0 max-w-[360px]" data-social-preview="instagram">
     <section aria-label="Vista simulada de Instagram" className="overflow-hidden rounded-[22px] border border-[#888]/25" style={palette}>
@@ -225,6 +232,31 @@ export function InstagramPreview({ children, profileName = "tu.cuenta", logoUrl,
       </div>
       <HomeIndicator />
     </section>
-    <PreviewTools caption={caption} onCaptionChange={onCaptionChange}><button type="button" aria-label={`Ver Instagram en modo ${dark ? "claro" : "oscuro"}`} aria-pressed={dark} onClick={() => setDark(!dark)} className="flex items-center gap-1 rounded border border-border px-1.5 py-1 text-[10px] focus-visible:outline-2 focus-visible:outline-primary"><Moon size={12} />{dark ? "Oscuro" : "Claro"}</button></PreviewTools>
+    <PreviewTools caption={caption} onCaptionChange={onCaptionChange}><button type="button" aria-label={`Ver Instagram en modo ${dark ? "claro" : "oscuro"}`} aria-pressed={dark} onClick={() => setDark(!dark)} className="flex items-center gap-1 rounded border border-border px-1.5 py-1 text-[10px] focus-visible:outline-2 focus-visible:outline-primary"><Moon size={12} />{dark ? "Oscuro" : "Claro"}</button><MockupToggle /></PreviewTools>
+  </div>;
+}
+
+const toolButton = "flex items-center gap-1 rounded border border-border px-1.5 py-1 text-[10px] focus-visible:outline-2 focus-visible:outline-primary";
+
+/** Alterna entre el mockup de la red social y las imágenes solas; se recuerda en este navegador. */
+export function MockupToggle() {
+  const [clean, setClean] = useCleanPreview();
+  return <button type="button" aria-pressed={clean} title={clean ? "Ver dentro de Instagram o TikTok" : "Ver solo las imágenes, sin la interfaz de la red social"} onClick={() => setClean(!clean)} className={toolButton}>
+    {clean ? <><Smartphone size={12} />Ver en la app</> : <><ImageIcon size={12} />Solo imágenes</>}
+  </button>;
+}
+
+/** Las imágenes solas, más grandes y sin la interfaz de la red social, con la misma navegación. */
+export function CleanPreview({ children, caption, onCaptionChange, activeSlide = 0, totalSlides = 1, onSlideChange, mediaRatio = "4 / 5" }: Pick<SocialPreviewProps, "children" | "caption" | "onCaptionChange" | "activeSlide" | "totalSlides" | "onSlideChange"> & { mediaRatio?: string }) {
+  const { move, ...navigation } = usePhotoNavigation(activeSlide, totalSlides, onSlideChange);
+  const tall = mediaRatio === "9 / 16";
+  return <div className={`w-full min-w-0 ${tall ? "max-w-[420px]" : "max-w-[520px]"}`} data-social-preview="clean">
+    <div {...navigation} tabIndex={totalSlides > 1 ? 0 : undefined} aria-label={`Imagen ${activeSlide + 1} de ${totalSlides}`} className={`group relative isolate w-full overflow-hidden rounded-lg border border-[#888]/25 shadow-sm ${focus}`} data-preview-media="clean" style={{ aspectRatio: mediaRatio, touchAction: "pan-y" }}>
+      {children}
+      {totalSlides > 1 && <span aria-hidden="true" className="pointer-events-none absolute right-3 top-3 z-10 rounded-full bg-black/65 px-2 py-1 text-[10px] font-medium text-white">{activeSlide + 1}/{totalSlides}</span>}
+      {onSlideChange && <PhotoArrows active={activeSlide} total={totalSlides} move={move} />}
+    </div>
+    <div className="mt-1 text-foreground"><PhotoNavigation active={activeSlide} total={totalSlides} onChange={onSlideChange} maxVisible={15} /></div>
+    <PreviewTools caption={caption} onCaptionChange={onCaptionChange} label="Solo imágenes · sin la interfaz de la red social"><MockupToggle /></PreviewTools>
   </div>;
 }
