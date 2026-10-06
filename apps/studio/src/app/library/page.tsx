@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ScheduledPost } from "@content-gen/domain/schedule";
-import { Copy, Archive, CalendarPlus, PencilLine, RotateCcw, GalleryHorizontal, Megaphone, Clapperboard, FileText, type LucideIcon } from "lucide-react";
+import { Copy, Archive, CalendarPlus, PencilLine, RotateCcw, GalleryHorizontal, Megaphone, Clapperboard, FileText, ArrowDownWideNarrow, ArrowUpNarrowWide, type LucideIcon } from "lucide-react";
 import { ContentScheduleSheet, ScheduledBadge, type SchedulableItem } from "@/components/content-schedule-sheet";
 import { nowInZone, useStudioTimezone } from "@/components/schedule-shared";
 import { PageShell, PageHeading } from "@/components/page-shell";
@@ -16,12 +16,38 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 type Option = { id: string; name: string };
-type Item = { id: string; revision: number; type: string; campaignId: string; campaignName: string; brandKitId: string | null; archivedAt: string | null; exportCount: number; document?: { data?: { title?: unknown; headline?: unknown } } };
+type Item = { id: string; revision: number; type: string; createdAt: string; updatedAt: string; campaignId: string; campaignName: string; brandKitId: string | null; archivedAt: string | null; exportCount: number; document?: { data?: { title?: unknown; headline?: unknown } } };
 
 const typeIcon: Record<string, LucideIcon> = { carousel: GalleryHorizontal, ad: Megaphone, video: Clapperboard };
 const typeLabel = CONTENT_TYPE_LABEL;
 const editorPath: Record<string, string> = { carousel: "/carousel", ad: "/ads", video: "/video", article: "/articles" };
 const itemTitle = contentTitle;
+
+type ChipOption = { value: string; label: string };
+const typeChips: ChipOption[] = [{ value: "all", label: "Todos" }, ...Object.entries(typeLabel).map(([value, label]) => ({ value, label }))];
+const statusChips: ChipOption[] = [{ value: "active", label: "Activos" }, { value: "archived", label: "Archivados" }, { value: "all", label: "Todos" }];
+const agendaChips: ChipOption[] = [{ value: "all", label: "Todos" }, { value: "scheduled", label: "Programados" }, { value: "unscheduled", label: "Sin programar" }];
+const sortChips: ChipOption[] = [{ value: "newest", label: "Más recientes" }, { value: "oldest", label: "Más antiguos" }, { value: "edited", label: "Última edición" }];
+const createdFormat = new Intl.DateTimeFormat("es", { day: "numeric", month: "short", year: "numeric" });
+
+function ChipGroup({ label, options, value, onChange }: { label: string; options: ChipOption[]; value: string; onChange: (value: string) => void }) {
+  return (
+    <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label={label}>
+      <span className="mr-1 text-xs font-medium text-muted-foreground">{label}</span>
+      {options.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          aria-pressed={value === option.value}
+          onClick={() => onChange(option.value)}
+          className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${value === option.value ? "border-primary bg-primary/15 text-primary" : "border-border/60 text-muted-foreground hover:border-border hover:text-foreground"}`}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 export default function LibraryPage() {
   const [items, setItems] = useState<Item[]>([]);
@@ -32,6 +58,8 @@ export default function LibraryPage() {
   const [brandKitId, setBrandKitId] = useState("all");
   const [status, setStatus] = useState("active");
   const [q, setQ] = useState("");
+  const [agenda, setAgenda] = useState("all");
+  const [sort, setSort] = useState("newest");
   const zone = useStudioTimezone();
   const [scheduled, setScheduled] = useState<Map<string, ScheduledPost[]>>(new Map());
   const [scheduling, setScheduling] = useState<SchedulableItem | null>(null);
@@ -66,6 +94,13 @@ export default function LibraryPage() {
     return () => window.clearTimeout(timer);
   }, [type, campaignId, brandKitId, status, q]);
 
+  // Agenda y orden se resuelven en el cliente: la agenda viene del calendario, no de content_items.
+  const visible = useMemo(() => {
+    const filtered = agenda === "all" ? items : items.filter((item) => scheduled.has(item.id) === (agenda === "scheduled"));
+    const time = (item: Item) => Date.parse(sort === "edited" ? item.updatedAt : item.createdAt) || 0;
+    return [...filtered].sort((a, b) => sort === "oldest" ? time(a) - time(b) : time(b) - time(a));
+  }, [items, scheduled, agenda, sort]);
+
   async function duplicate(id: string) {
     await fetch(`/api/content-items/${id}/duplicate`, { method: "POST" });
     await refresh();
@@ -81,61 +116,52 @@ export default function LibraryPage() {
 
   return (
     <PageShell>
-      <PageHeading title="Todo el contenido" description="Filtra por tipo, campaña, marca y estado. Duplica, archiva o restaura sin perder el documento." />
+      <PageHeading title="Todo el contenido" description="Filtra con los chips, ordena por fecha de creación y duplica, archiva o restaura sin perder el documento." />
 
-      <div className="mb-6 grid grid-cols-1 gap-4 rounded-xl border border-border/60 bg-card/50 p-4 sm:grid-cols-2 lg:grid-cols-5">
-        <div className="space-y-1.5 sm:col-span-2 lg:col-span-1">
-          <Label htmlFor="q">Buscar</Label>
-          <Input id="q" value={q} onChange={(event) => setQ(event.target.value)} placeholder="Texto o campaña" />
+      <div className="mb-6 space-y-4 rounded-xl border border-border/60 bg-card/50 p-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="q">Buscar</Label>
+            <Input id="q" value={q} onChange={(event) => setQ(event.target.value)} placeholder="Texto o campaña" />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Campaña</Label>
+            <Select value={campaignId} onValueChange={setCampaignId}>
+              <SelectTrigger aria-label="Campaña"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todas</SelectItem>
+                {campaigns.map((campaign) => <SelectItem value={campaign.id} key={campaign.id}>{campaign.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Marca</Label>
+            <Select value={brandKitId} onValueChange={setBrandKitId}>
+              <SelectTrigger aria-label="Marca"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todas</SelectItem>
+                {brands.map((brand) => <SelectItem value={brand.id} key={brand.id}>{brand.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
-        <div className="space-y-1.5">
-          <Label>Tipo</Label>
-          <Select value={type} onValueChange={setType}>
-            <SelectTrigger aria-label="Tipo"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos</SelectItem>
-              <SelectItem value="carousel">Carrusel</SelectItem>
-              <SelectItem value="ad">Anuncio</SelectItem>
-              <SelectItem value="video">Video</SelectItem>
-            </SelectContent>
-          </Select>
+        <div className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-center lg:gap-x-6">
+          <ChipGroup label="Tipo" options={typeChips} value={type} onChange={setType} />
+          <ChipGroup label="Agenda" options={agendaChips} value={agenda} onChange={setAgenda} />
+          <ChipGroup label="Estado" options={statusChips} value={status} onChange={setStatus} />
         </div>
-        <div className="space-y-1.5">
-          <Label>Campaña</Label>
-          <Select value={campaignId} onValueChange={setCampaignId}>
-            <SelectTrigger aria-label="Campaña"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todas</SelectItem>
-              {campaigns.map((campaign) => <SelectItem value={campaign.id} key={campaign.id}>{campaign.name}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-1.5">
-          <Label>Marca</Label>
-          <Select value={brandKitId} onValueChange={setBrandKitId}>
-            <SelectTrigger aria-label="Marca"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todas</SelectItem>
-              {brands.map((brand) => <SelectItem value={brand.id} key={brand.id}>{brand.name}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-1.5">
-          <Label>Estado</Label>
-          <Select value={status} onValueChange={setStatus}>
-            <SelectTrigger aria-label="Estado"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="active">Activos</SelectItem>
-              <SelectItem value="archived">Archivados</SelectItem>
-              <SelectItem value="all">Todos</SelectItem>
-            </SelectContent>
-          </Select>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/60 pt-3">
+          <ChipGroup label="Ordenar" options={sortChips} value={sort} onChange={setSort} />
+          <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            {sort === "oldest" ? <ArrowUpNarrowWide className="h-3.5 w-3.5" /> : <ArrowDownWideNarrow className="h-3.5 w-3.5" />}
+            {visible.length} pieza{visible.length === 1 ? "" : "s"}
+          </span>
         </div>
       </div>
 
-      {items.length ? (
+      {visible.length ? (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {items.map((item) => {
+          {visible.map((item) => {
             const Icon = typeIcon[item.type] ?? FileText;
             return (
               <Card key={item.id} className="gap-4 py-5 transition-colors hover:border-border">
@@ -155,6 +181,7 @@ export default function LibraryPage() {
                       {itemTitle(item)}
                     </Link>
                     <p className="text-sm text-muted-foreground">{item.campaignName}</p>
+                    {Date.parse(item.createdAt) ? <p className="text-xs text-muted-foreground/80">Creado el {createdFormat.format(new Date(item.createdAt))}</p> : null}
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {item.archivedAt ? (
