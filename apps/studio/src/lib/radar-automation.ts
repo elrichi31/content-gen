@@ -65,7 +65,7 @@ type Scanner=(input: unknown)=>Promise<Record<string,unknown>>;
 export async function runRadarAutomation(id: string,{automatic=false,now=new Date(),scan}: {automatic?:boolean;now?:Date;scan?:Scanner}={}) {
   return executeAutomation(id,"radar",automatic,async()=> {
     const current=await getRadarAutomation(id);
-    if (automatic && (!current.active || current.nextRunAt > now.toISOString())) return {status:"idle",message:"La búsqueda todavía no está programada para ejecutarse."};
+    if (automatic && (!current.active || current.nextRunAt > now.toISOString())) return {status:"idle",quiet:true,message:"La búsqueda todavía no está programada para ejecutarse."};
     // Consumir el turno antes de llamar al proveedor: una caída no repite automáticamente una factura.
     await save({...current,nextRunAt:nextRadarRun(current,now),updatedAt:now.toISOString()});
     const scanner=scan??(await import("./radar-scan.ts")).scanRadar;

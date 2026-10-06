@@ -28,6 +28,12 @@ try {
   assert.equal(history[0].result.contentItemId, "draft");
   assert.equal(history[0].operations.length, 1);
   assert.ok(history[0].durationMs !== null && history[0].durationMs >= 0);
+  await executeAutomation("quiet", "carousel", true, async () => ({ status: "idle", quiet: true, message: "Nada que hacer" }));
+  assert.equal((await listAutomationRuns("quiet")).length, 0, "un chequeo programado sin trabajo no ensucia el historial");
+  await executeAutomation("quiet", "carousel", false, async () => ({ status: "idle", quiet: true, message: "Nada que hacer" }));
+  assert.equal((await listAutomationRuns("quiet")).length, 1, "una ejecución manual siempre queda registrada");
+  await db.query("INSERT INTO automation_runs (id,automation_id,kind,status,started_at,data_json) VALUES ('legacy','quiet','carousel','idle',$1,$2)", [new Date(0).toISOString(), JSON.stringify({ result: { status: "idle", message: "Sin huecos pendientes para hoy antes de su hora de publicación." }, error: null, automatic: true })]);
+  assert.equal((await listAutomationRuns("quiet")).length, 1, "oculta los chequeos vacíos guardados antes");
   await assert.rejects(() => executeAutomation("broken", "radar", false, async () => { throw new Error("fixture failure"); }), /fixture failure/);
   assert.equal((await listAutomationRuns("broken"))[0].status, "failed");
   await saveBudgetSettings({ timezone: "UTC", limits: { day: 0.01, week: null, month: null }, blockAutomations: true });

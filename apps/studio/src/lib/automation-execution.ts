@@ -32,6 +32,8 @@ export async function executeAutomation<T extends Record<string, unknown>>(autom
         if (automatic) await assertAutomationBudget();
         return work();
       });
+      // Un chequeo programado sin nada que hacer no es una ejecución: no deja fila en el historial.
+      if (automatic && result.quiet === true) { await lock.query("DELETE FROM automation_runs WHERE id=$1", [id]); return result; }
       const status = result.status === "idle" ? "idle" : "completed";
       await lock.query("UPDATE automation_runs SET status=$1,completed_at=$2,data_json=$3 WHERE id=$4", [status, new Date().toISOString(), JSON.stringify({ result, error: null, durationMs: Date.now() - start, automatic }), id]);
       return result;
@@ -45,9 +47,12 @@ export async function executeAutomation<T extends Record<string, unknown>>(autom
   }
 }
 
+/** Chequeos vacíos guardados antes de que dejaran de registrarse; se ocultan sin borrarlos. */
+const LEGACY_QUIET = "data_json LIKE '%\"automatic\":true%' AND (data_json LIKE '%Sin huecos pendientes para hoy%' OR data_json LIKE '%todavía no está programada para ejecutarse%')";
+
 export async function listAutomationRuns(automationId: string, limit = 20): Promise<AutomationExecution[]> {
   return withDatabase(async (db) => {
-    const rows = await db.prepare("SELECT id,automation_id,kind,status,started_at,completed_at,data_json FROM automation_runs WHERE automation_id=? ORDER BY started_at DESC LIMIT ?").all(automationId, Math.min(50, Math.max(1, limit))) as { id: string; automation_id: string; kind: AutomationExecution["kind"]; status: AutomationExecution["status"]; started_at: string; completed_at: string | null; data_json: string }[];
+    const rows = await db.prepare("SELECT id,automation_id,kind,status,started_at,completed_at,data_json FROM automation_runs WHERE automation_id=? AND NOT (status='idle' AND " + LEGACY_QUIET + ") ORDER BY started_at DESC LIMIT ?").all(automationId, Math.min(50, Math.max(1, limit))) as { id: string; automation_id: string; kind: AutomationExecution["kind"]; status: AutomationExecution["status"]; started_at: string; completed_at: string | null; data_json: string }[];
     if (!rows.length) return [];
     const operations = await db.prepare(`SELECT id,automation_run_id,operation,provider,status,cost_amount,data_json FROM generation_runs WHERE automation_run_id IN (${rows.map(() => "?").join(",")}) ORDER BY created_at ASC`).all(...rows.map((r) => r.id)) as { id: string; automation_run_id: string; operation: string; provider: string; status: string; cost_amount: number | null; data_json: string }[];
     return rows.map((row) => {

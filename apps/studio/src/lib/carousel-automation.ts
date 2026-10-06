@@ -107,7 +107,7 @@ async function insertCarousel(campaignId: string, document: CarouselDocument) {
 // ponytail: candado en memoria, vale con un solo proceso de Next; con varias réplicas, pasar a pg_try_advisory_lock.
 const running = new Set<string>();
 
-export type RunOutcome = { status: "created" | "idle"; message: string; contentItemId?: string; missingPhotos?: number; imageErrors?: string[] };
+export type RunOutcome = { status: "created" | "idle"; message: string; quiet?: boolean; contentItemId?: string; missingPhotos?: number; imageErrors?: string[] };
 
 /** Rellena el siguiente hueco libre de la automatización con un carrusel en borrador. */
 export async function runAutomation(id: string, now = new Date()): Promise<RunOutcome> {
@@ -128,7 +128,7 @@ async function runCarouselWork(id: string, now = new Date()): Promise<RunOutcome
     const today = todayLocal(now);
     const posts = await listPosts({ startDate: today, endDate: today });
     const slot = nextOpenSlot(rule, posts, automation.daysAhead, now);
-    if (!slot) return await finish({ status: "idle", message: "Sin huecos pendientes para hoy antes de su hora de publicación." });
+    if (!slot) return await finish({ status: "idle", quiet: true, message: "Sin huecos pendientes para hoy antes de su hora de publicación." });
     const picked = await pickTopic(automation);
     if (!picked) return await finish({ status: "idle", message: "Se acabaron los temas: agrega más a la lista o elige un vertical del radar con temas." }, true);
 
