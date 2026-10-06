@@ -1,6 +1,6 @@
 "use client"
 
-import { useLayoutEffect, useRef, type CSSProperties, type ReactNode } from "react"
+import { Fragment, useLayoutEffect, useRef, type CSSProperties, type ReactNode } from "react"
 import { ImageIcon } from "lucide-react"
 import { EditableText, shrinkToFit } from "@/components/editable-text"
 import { fitSize } from "@/components/ads/ad-style"
@@ -162,10 +162,34 @@ export const tabular: CSSProperties = { fontVariantNumeric: "tabular-nums" }
 
 export const clamp = (lines: number): CSSProperties => ({ display: "-webkit-box", WebkitLineClamp: lines, WebkitBoxOrient: "vertical", overflow: "hidden" })
 
-/** Énfasis opt-in: lo que va entre *asteriscos* se resalta; nada se resalta por su cuenta. */
-export function Marked({ text }: { text: string }) {
+/** Letras con tilde o diéresis que suben por encima de la mayúscula: en mayúsculas, todas; si no, solo las mayúsculas. */
+const TALL_ACCENT = { caps: /[À-ÖØ-Ýà-öø-ý]/, mixed: /[À-ÖØ-Ý]/ }
+
+/**
+ * Con interlineado apretado, la tilde de una mayúscula (Í, Ñ, Ü) se mete en la línea de arriba y
+ * choca con su resaltado. Delante de cada palabra con tilde va un puntal invisible que sube la línea
+ * solo por arriba y solo en esa línea: las líneas sin tildes quedan igual.
+ */
+function AccentRoom({ text, caps }: { text: string; caps: boolean }) {
+  const tall = caps ? TALL_ACCENT.caps : TALL_ACCENT.mixed
+  if (!tall.test(text)) return text
+  return <>{text.split(/(\s+)/).map((word, i) => tall.test(word)
+    ? <span key={i} style={{ whiteSpace: "nowrap" }}><span aria-hidden style={{ display: "inline-block", width: 0, height: "1.02em" }} />{word}</span>
+    : word)}</>
+}
+
+/** Énfasis opt-in: lo que va entre *asteriscos* se resalta; nada se resalta por su cuenta. `accents` deja sitio a las tildes (ver AccentRoom). */
+export function Marked({ text, accents }: { text: string; accents?: "caps" | "mixed" }) {
   const parts = text.split(/\*([^*\n]+)\*/)
-  return <>{parts.map((part, i) => i % 2 ? <mark key={i} style={{ background: "var(--em-bg, transparent)", color: "var(--em-fg, inherit)", padding: "0 0.14em", margin: "0 0.08em", borderRadius: "0.1em", boxDecorationBreak: "clone", WebkitBoxDecorationBreak: "clone" }}>{part}</mark> : part)}</>
+  const body = (part: string) => accents ? <AccentRoom text={part} caps={accents === "caps"} /> : part
+  return <>{parts.map((part, i) => i % 2 ? <mark key={i} style={{ background: "var(--em-bg, transparent)", color: "var(--em-fg, inherit)", padding: "0 0.14em", margin: "0 0.08em", borderRadius: "0.1em", boxDecorationBreak: "clone", WebkitBoxDecorationBreak: "clone" }}>{body(part)}</mark> : <Fragment key={i}>{body(part)}</Fragment>)}</>
+}
+
+/** Solo los textos de interlineado apretado (titulares) necesitan sitio extra para las tildes. */
+function accentsFor(style?: CSSProperties) {
+  const lh = style?.lineHeight
+  if (typeof lh !== "number" || lh >= 1.2) return undefined
+  return style?.textTransform === "uppercase" ? "caps" : "mixed"
 }
 
 type TextField = "title" | "subtitle" | "content" | "quote" | "quoteAuthor" | "ctaText" | "ctaSubtext" | "bigNumber" | "bigNumberLabel"
@@ -180,7 +204,7 @@ export function Txt({ p, field, as: Tag = "p", style, lines, multiline }: { p: L
   const s = lines ? { ...style, ...clamp(lines) } : style
   if (p.editable && p.onUpdateField) return <EditableText value={text} field={field} onUpdate={p.onUpdateField} style={s} multiline={multiline} />
   if (lines) return <ShrinkText as={Tag} style={s} text={text} />
-  return <Tag style={s}><Marked text={text} /></Tag>
+  return <Tag style={s}><Marked text={text} accents={accentsFor(s)} /></Tag>
 }
 
 /**
@@ -196,7 +220,7 @@ function ShrinkText({ as: Tag, style, text }: { as: "h1" | "h2" | "p" | "span"; 
     measure()
     void document.fonts?.ready.then(measure)
   })
-  return <Tag ref={ref as never} style={style}><Marked text={text} /></Tag>
+  return <Tag ref={ref as never} style={style}><Marked text={text} accents={accentsFor(style)} /></Tag>
 }
 
 /** Texto de un elemento de lista: la edición cambia solo el texto, no el emoji o el valor. */
