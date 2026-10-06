@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { TopBarClock } from "@/components/top-bar-clock";
 import { authClient } from "@/lib/auth-client";
 import { cn } from "@/lib/utils";
 
@@ -164,12 +165,15 @@ function TopBar({ pathname, onMenu }: { pathname: string; onMenu: () => void }) 
         <span className="text-muted-foreground/50">/</span>
         <span className="truncate font-medium text-foreground">{page}</span>
       </nav>
-      {session?.user ? (
-        <Link href="/account" className="ml-auto hidden items-center gap-2 rounded-full border border-border bg-card py-1 pl-1 pr-3 transition-colors hover:bg-accent sm:flex">
-          <span className="grid size-6 place-items-center rounded-full bg-primary/15 text-[10px] font-semibold text-primary">{initials(session.user.name)}</span>
-          <span className="max-w-40 truncate text-[13px] font-medium text-foreground">{session.user.name}</span>
-        </Link>
-      ) : null}
+      <div className="ml-auto flex shrink-0 items-center gap-2">
+        <TopBarClock />
+        {session?.user ? (
+          <Link href="/account" className="hidden items-center gap-2 rounded-full border border-border bg-card py-1 pl-1 pr-3 transition-colors hover:bg-accent sm:flex">
+            <span className="grid size-6 place-items-center rounded-full bg-primary/15 text-[10px] font-semibold text-primary">{initials(session.user.name)}</span>
+            <span className="max-w-40 truncate text-[13px] font-medium text-foreground">{session.user.name}</span>
+          </Link>
+        ) : null}
+      </div>
     </header>
   );
 }

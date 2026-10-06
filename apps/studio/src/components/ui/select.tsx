@@ -8,6 +8,8 @@ import { cn } from "@/lib/utils"
 
 const Select = SelectPrimitive.Root
 const SelectValue = SelectPrimitive.Value
+// Disparador sin estilos ni chevron, para selects que se ven como otra cosa (el reloj de la barra superior).
+const SelectPrimitiveTrigger = SelectPrimitive.Trigger
 
 function SelectTrigger({ className, children, ...props }: React.ComponentProps<typeof SelectPrimitive.Trigger>) {
   return (
@@ -65,4 +67,4 @@ function SelectItem({ className, children, ...props }: React.ComponentProps<type
   )
 }
 
-export { Select, SelectContent, SelectItem, SelectTrigger, SelectValue }
+export { Select, SelectContent, SelectItem, SelectPrimitiveTrigger, SelectTrigger, SelectValue }
