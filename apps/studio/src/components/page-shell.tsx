@@ -8,7 +8,10 @@ export function PageShell({ children, className }: { children: ReactNode; classN
     <div className="h-dvh overflow-hidden bg-background">
       <AppSidebar />
       <div className="h-full min-h-0 overflow-hidden pt-14 transition-[padding] duration-300 ease-[cubic-bezier(0.23,1,0.32,1)] md:pl-(--sidebar-w)">
-        <main tabIndex={0} aria-label="Área de trabajo" className={cn("mx-auto h-full w-full min-w-0 max-w-7xl overflow-x-hidden overflow-y-auto overscroll-contain px-4 py-5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:px-6 sm:py-6", className)}>{children}</main>
+        {/* El scroll vive en el ancho completo para que la barra quede en el borde y no dentro de la columna centrada. */}
+        <main tabIndex={0} aria-label="Área de trabajo" className="h-full w-full min-w-0 overflow-x-hidden overflow-y-auto overscroll-contain focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
+          <div className={cn("mx-auto w-full min-w-0 max-w-7xl px-4 py-5 sm:px-6 sm:py-6", className)}>{children}</div>
+        </main>
       </div>
     </div>
   );
