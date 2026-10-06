@@ -40,7 +40,7 @@ function page(config: OAuthConfig, title: string, content: string, csrf: string,
   // El formulario solo puede enviar a este origen y redirigir al callback de ChatGPT ya validado.
   const formAction = formRedirect ? `'self' ${new URL(formRedirect).origin}` : "'self'";
   const html = `<!doctype html><html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escape(title)} · Content Gen</title>
-<style>:root{color-scheme:light dark;--bg:#fafafa;--card:#fff;--ink:#27272a;--muted:#71717a;--line:#e4e4e7;--accent:#2563eb}@media (prefers-color-scheme:dark){:root{--bg:#18181b;--card:#1f1f23;--ink:#f4f4f5;--muted:#a1a1aa;--line:#3f3f46;--accent:#60a5fa}}
+<style>:root{color-scheme:light dark;--bg:#fafafa;--card:#fff;--ink:#27272a;--muted:#71717a;--line:#e4e4e7;--accent:#389458}@media (prefers-color-scheme:dark){:root{--bg:#0c0c0d;--card:#101012;--ink:#f5f5f5;--muted:#8b8b93;--line:#212124;--accent:#3fa863}}
 body{margin:0;padding:24px;background:var(--bg);color:var(--ink);font:14px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif}main{max-width:520px;margin:8vh auto;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:28px}
 h1{font-size:20px;line-height:1.3;margin:0 0 6px}p{margin:10px 0}.muted{color:var(--muted)}ul{padding-left:18px}li{margin:8px 0}
 button{font:inherit;padding:8px 16px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer;transition:transform .16s cubic-bezier(.23,1,.32,1)}button:active{transform:scale(.97)}

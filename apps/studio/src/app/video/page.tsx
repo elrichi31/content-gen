@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Film, Plus } from "lucide-react";
 import { videoDocumentSchema, type VideoDocument } from "@content-gen/domain/video";
-import { PageShell } from "@/components/page-shell";
+import { PageHeading, PageShell } from "@/components/page-shell";
 import { ModeSwitch, VIDEO_MODES } from "@/components/mode-switch";
 import { Button } from "@/components/ui/button";
 import { Notice, noticeError, noticeOk, type NoticeState } from "@/components/ui/notice";
@@ -122,20 +122,14 @@ export default function VideoPage() {
 
   return (
     <PageShell>
-      <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <ModeSwitch modes={VIDEO_MODES} current="/video" className="mb-3" />
-          <p className="text-xs font-semibold uppercase tracking-widest text-primary">Video / Generador</p>
-          <h1 className="mt-2 text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">Video Generator</h1>
-          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">Guion, imágenes, voz y render en el mismo flujo de cinco pasos del proyecto original.</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button type="button" variant={view === "wizard" ? "default" : "outline"} onClick={() => startNew()}><Plus className="h-4 w-4" /> Nuevo video</Button>
-          <Button type="button" variant={view === "wizard" ? "outline" : "default"} onClick={() => { setView("videos"); setNotice(null); }}><Film className="h-4 w-4" /> Mis videos</Button>
-        </div>
-      </div>
+      <ModeSwitch modes={VIDEO_MODES} current="/video" className="mb-4" />
+      <PageHeading
+        title="Video"
+        description="Guion, imágenes, voz y render en un flujo de cinco pasos."
+        actions={<><Button type="button" variant={view === "wizard" ? "default" : "outline"} onClick={() => startNew()}><Plus className="h-4 w-4" /> Nuevo video</Button><Button type="button" variant={view === "wizard" ? "outline" : "default"} onClick={() => { setView("videos"); setNotice(null); }}><Film className="h-4 w-4" /> Mis videos</Button></>}
+      />
 
-      {notice ? <Notice className="mb-4 max-w-3xl" notice={notice} onDismiss={() => setNotice(null)} /> : null}
+      {notice ? <Notice className="mb-4" notice={notice} onDismiss={() => setNotice(null)} /> : null}
 
       {view === "wizard" ? (
         <>
@@ -165,9 +159,9 @@ export default function VideoPage() {
           {step === 4 && document && contentId ? (
             <div className="space-y-6">
               <VoiceoverStep contentItemId={contentId} revision={revision} document={document} onPersisted={adopt} />
-              <div className="flex max-w-3xl gap-3">
-                <Button type="button" variant="outline" className="flex-1" onClick={() => go(3)}>Volver a imágenes</Button>
-                <Button type="button" className="flex-1" onClick={() => go(5)}>Continuar a guardar →</Button>
+              <div className="flex justify-between gap-3 border-t border-border pt-4">
+                <Button type="button" variant="outline" onClick={() => go(3)}>← Volver a imágenes</Button>
+                <Button type="button" onClick={() => go(5)}>Continuar a guardar →</Button>
               </div>
             </div>
           ) : null}

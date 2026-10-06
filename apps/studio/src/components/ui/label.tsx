@@ -1,12 +1,12 @@
-'use client'
+"use client"
 
-import * as React from 'react'
-import { Label as HeroLabel } from '@heroui/react'
+import * as React from "react"
+import * as LabelPrimitive from "@radix-ui/react-label"
 
-import { cn } from '@/lib/utils'
+import { cn } from "@/lib/utils"
 
-function Label({ className, ...props }: React.ComponentProps<typeof HeroLabel>) {
-  return <HeroLabel data-slot="label" className={cn('flex items-center gap-2 text-sm font-medium', className)} {...props} />
+function Label({ className, ...props }: React.ComponentProps<typeof LabelPrimitive.Root>) {
+  return <LabelPrimitive.Root data-slot="label" className={cn("text-[13px] font-medium leading-none text-foreground peer-disabled:cursor-not-allowed peer-disabled:opacity-70", className)} {...props} />
 }
 
 export { Label }

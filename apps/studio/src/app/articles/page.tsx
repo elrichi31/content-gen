@@ -165,7 +165,7 @@ export default function ArticlesPage() {
   return (
     <PageShell>
       <PageHeading
-        eyebrow="Blog"
+       
         title="Artículos"
         description="Escribe el artículo aquí y expórtalo como markdown al repositorio del sitio. Publicar sigue siendo un commit tuyo."
         actions={<Button onClick={startNew}><Plus className="h-4 w-4" /> Nuevo artículo</Button>}

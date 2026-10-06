@@ -1,28 +1,24 @@
-'use client'
+"use client"
 
-import * as React from 'react'
-import { Tooltip as HeroTooltip } from '@heroui/react'
+import * as React from "react"
+import * as TooltipPrimitive from "@radix-ui/react-tooltip"
 
-import { cn } from '@/lib/utils'
+import { cn } from "@/lib/utils"
 
-function TooltipProvider({ children }: { children: React.ReactNode; delayDuration?: number }) {
-  return <>{children}</>
-}
+const TooltipProvider = TooltipPrimitive.Provider
+const Tooltip = TooltipPrimitive.Root
+const TooltipTrigger = TooltipPrimitive.Trigger
 
-function Tooltip({ children, ...props }: React.ComponentProps<typeof HeroTooltip>) {
-  return <HeroTooltip {...props}>{children}</HeroTooltip>
-}
-
-function TooltipTrigger({ children, ...props }: React.ComponentProps<typeof HeroTooltip.Trigger>) {
-  return <HeroTooltip.Trigger {...props}>{children}</HeroTooltip.Trigger>
-}
-
-function TooltipContent({ className, children, showArrow = true, ...props }: React.ComponentProps<typeof HeroTooltip.Content>) {
+function TooltipContent({ className, sideOffset = 6, ...props }: React.ComponentProps<typeof TooltipPrimitive.Content>) {
   return (
-    <HeroTooltip.Content data-slot="tooltip-content" showArrow={showArrow} className={cn('text-xs', className)} {...props}>
-      {showArrow ? <HeroTooltip.Arrow /> : null}
-      {children}
-    </HeroTooltip.Content>
+    <TooltipPrimitive.Portal>
+      <TooltipPrimitive.Content
+        data-slot="tooltip-content"
+        sideOffset={sideOffset}
+        className={cn("z-50 origin-(--radix-tooltip-content-transform-origin) rounded-md border bg-popover px-2.5 py-1.5 text-xs text-popover-foreground shadow-md animate-in fade-in-0 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95", className)}
+        {...props}
+      />
+    </TooltipPrimitive.Portal>
   )
 }
 

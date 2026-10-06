@@ -10,7 +10,7 @@ import {
   ArrowRight,
   type LucideIcon,
 } from "lucide-react";
-import { PageShell } from "@/components/page-shell";
+import { PageHeading, PageShell } from "@/components/page-shell";
 import { Badge } from "@/components/ui/badge";
 
 type Tile = {
@@ -115,15 +115,7 @@ function TileCard({ tile }: { tile: Tile }) {
 export default function Home() {
   return (
     <PageShell>
-      <section className="mb-10 border-b border-border pb-6">
-        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Content Gen</p>
-        <h1 className="mt-2 max-w-3xl text-balance text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
-          Un solo estudio para todo tu contenido con IA.
-        </h1>
-        <p className="mt-2 max-w-2xl text-pretty text-sm text-muted-foreground">
-          Crea carruseles, anuncios y video que comparten campaña, marca y recursos. Elige por dónde empezar.
-        </p>
-      </section>
+      <PageHeading title="Un solo estudio para todo tu contenido" description="Carruseles, anuncios, video y artículos que comparten campaña, marca y recursos. Elige por dónde empezar." />
 
       <section className="space-y-4">
         <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Crear</h2>

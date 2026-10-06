@@ -105,8 +105,7 @@ export default function ContentPage() {
 
       <Card>
         <CardContent>
-          <p className="text-xs font-semibold uppercase tracking-widest text-primary">Biblioteca / Contenido</p>
-          <h1 className="mt-2 text-2xl font-semibold tracking-tight text-foreground">{selected ? `Editar ${selected.type}` : "Nuevo contenido"}</h1>
+          <h1 className="text-lg font-semibold tracking-tight text-foreground">{selected ? `Editar ${selected.type}` : "Nuevo contenido"}</h1>
           <p className="mt-1 text-sm text-muted-foreground">Documento versionado para carrusel, anuncio o video. Los cambios se guardan automáticamente.</p>
 
           <form className="mt-6 space-y-5" onSubmit={save}>

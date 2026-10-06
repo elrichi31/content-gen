@@ -19,7 +19,9 @@ function ChangePasswordForm() {
     setBusy(true);
     const { error } = await authClient.changePassword({ currentPassword: current, newPassword: next, revokeOtherSessions: true });
     setBusy(false);
-    if (error) return setNotice(noticeError(error.message ?? "No se pudo cambiar la contraseña."));
+    // better-auth responde en inglés; los casos habituales se dicen en castellano.
+    const known: Record<string, string> = { INVALID_PASSWORD: "La contraseña actual no es correcta.", PASSWORD_TOO_SHORT: "La contraseña nueva es demasiado corta.", PASSWORD_TOO_LONG: "La contraseña nueva es demasiado larga." };
+    if (error) return setNotice(noticeError((error.code && known[error.code]) || error.message || "No se pudo cambiar la contraseña."));
     setCurrent("");
     setNext("");
     setNotice(noticeOk("Contraseña actualizada. Se cerraron las demás sesiones abiertas."));
@@ -92,7 +94,7 @@ function CreateAccountForm() {
 export default function AccountPage() {
   return (
     <PageShell>
-      <PageHeading eyebrow="Sistema" title="Mi cuenta" description="Cambiá tu contraseña y da de alta a quien se suma al equipo." />
+      <PageHeading title="Mi cuenta" description="Cambiá tu contraseña y da de alta a quien se suma al equipo." />
       <div className="grid gap-6 lg:grid-cols-2">
         <ChangePasswordForm />
         <CreateAccountForm />

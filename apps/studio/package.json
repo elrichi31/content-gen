@@ -12,8 +12,6 @@
   "dependencies": {
     "@content-gen/domain": "0.1.0",
     "@content-gen/video-engine": "0.1.0",
-    "@heroui/react": "^3.2.6",
-    "@heroui/styles": "^3.2.6",
     "@modelcontextprotocol/sdk": "^1.32.1",
     "@radix-ui/react-dialog": "1.1.15",
     "@radix-ui/react-label": "2.1.8",
@@ -36,6 +34,7 @@
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "sharp": "^0.35.3",
+    "sonner": "^2.0.8",
     "tailwind-merge": "^3.3.1",
     "thinking-orbs": "^0.3.2"
   },

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { GraduationCap, Plus } from "lucide-react";
 import { videoDocumentSchema, type VideoDocument } from "@content-gen/domain/video";
-import { PageShell } from "@/components/page-shell";
+import { PageHeading, PageShell } from "@/components/page-shell";
 import { ModeSwitch, VIDEO_MODES } from "@/components/mode-switch";
 import { Button } from "@/components/ui/button";
 import { Notice, noticeError, type NoticeState } from "@/components/ui/notice";
@@ -103,20 +103,14 @@ export default function ExplainerPage() {
 
   return (
     <PageShell>
-      <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <ModeSwitch modes={VIDEO_MODES} current="/explainer" className="mb-3" />
-          <p className="text-xs font-semibold uppercase tracking-widest text-primary">Video / Educativo</p>
-          <h1 className="mt-2 text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">Video educativo</h1>
-          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">Explica cómo funciona algo con narración y animaciones generadas por IA, sin imágenes. Se renderiza con HyperFrames.</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button type="button" variant={view === "wizard" ? "default" : "outline"} onClick={startNew}><Plus className="h-4 w-4" /> Nuevo</Button>
-          <Button type="button" variant={view === "list" ? "default" : "outline"} onClick={() => { setView("list"); setNotice(null); }}><GraduationCap className="h-4 w-4" /> Mis videos educativos</Button>
-        </div>
-      </div>
+      <ModeSwitch modes={VIDEO_MODES} current="/explainer" className="mb-4" />
+      <PageHeading
+        title="Video educativo"
+        description="Explica cómo funciona algo con narración y animaciones generadas por IA, sin imágenes. Se renderiza con HyperFrames."
+        actions={<><Button type="button" variant={view === "wizard" ? "default" : "outline"} onClick={startNew}><Plus className="h-4 w-4" /> Nuevo</Button><Button type="button" variant={view === "list" ? "default" : "outline"} onClick={() => { setView("list"); setNotice(null); }}><GraduationCap className="h-4 w-4" /> Mis videos educativos</Button></>}
+      />
 
-      {notice ? <Notice className="mb-4 max-w-3xl" notice={notice} onDismiss={() => setNotice(null)} /> : null}
+      {notice ? <Notice className="mb-4" notice={notice} onDismiss={() => setNotice(null)} /> : null}
 
       {view === "wizard" ? (
         <>
@@ -139,9 +133,9 @@ export default function ExplainerPage() {
           {step === 3 && document && contentId ? (
             <div className="space-y-6">
               <VoiceoverStep contentItemId={contentId} revision={revision} document={document} onPersisted={adopt} canGenerateScript={false} />
-              <div className="flex max-w-3xl gap-3">
-                <Button type="button" variant="outline" className="flex-1" onClick={() => go(2)}>Volver al guion</Button>
-                <Button type="button" className="flex-1" onClick={() => go(4)}>Continuar a las animaciones →</Button>
+              <div className="flex justify-between gap-3 border-t border-border pt-4">
+                <Button type="button" variant="outline" onClick={() => go(2)}>← Volver al guion</Button>
+                <Button type="button" onClick={() => go(4)}>Continuar a las animaciones →</Button>
               </div>
             </div>
           ) : null}
@@ -149,15 +143,15 @@ export default function ExplainerPage() {
           {step === 4 && document && contentId ? (
             <div className="space-y-6">
               <ExplainerAnimationStep contentItemId={contentId} document={document} onPersisted={adopt} />
-              <div className="flex max-w-4xl gap-3">
-                <Button type="button" variant="outline" className="flex-1" onClick={() => go(3)}>Volver a la voz</Button>
-                <Button type="button" className="flex-1" onClick={() => go(5)}>Continuar al render →</Button>
+              <div className="flex justify-between gap-3 border-t border-border pt-4">
+                <Button type="button" variant="outline" onClick={() => go(3)}>← Volver a la voz</Button>
+                <Button type="button" onClick={() => go(5)}>Continuar al render →</Button>
               </div>
             </div>
           ) : null}
 
           {step === 5 && document && contentId ? (
-            <div className="max-w-xl space-y-3">
+            <div className="mx-auto max-w-2xl space-y-3">
               {document.scenes.some((scene) => typeof scene.content.animationHtml !== "string") ? <p className="text-sm text-muted-foreground">Hay escenas sin animación: en el video saldrán solo con su título.</p> : null}
               <VideoRenderPanel contentItemId={contentId} unsavedChanges={unsaved} hyperframesOnly />
             </div>

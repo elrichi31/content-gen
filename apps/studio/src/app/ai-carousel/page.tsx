@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Download, Sparkles } from "lucide-react";
-import { PageShell } from "@/components/page-shell";
+import { PageHeading, PageShell } from "@/components/page-shell";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -65,12 +65,8 @@ export default function AiCarouselPage() {
 
   return (
     <PageShell>
-      <div className="mb-6">
-        <ModeSwitch modes={CAROUSEL_MODES} current="/ai-carousel" className="mb-3" />
-        <p className="text-xs font-semibold uppercase tracking-widest text-primary">Crear / Carrusel</p>
-        <h1 className="text-2xl font-semibold">Carrusel con imágenes IA</h1>
-        <p className="text-sm text-muted-foreground">La IA dibuja cada slide completa, con el texto, el color y el logo de la marca. Costo aprox. ${(count * PROVIDERS[provider].price).toFixed(2)} USD por carrusel.</p>
-      </div>
+      <ModeSwitch modes={CAROUSEL_MODES} current="/ai-carousel" className="mb-4" />
+      <PageHeading title="Carrusel con imágenes IA" description={`La IA dibuja cada slide completa, con el texto, el color y el logo de la marca. Costo aprox. $${(count * PROVIDERS[provider].price).toFixed(2)} USD por carrusel.`} />
       <Card className="mb-6">
         <CardContent className="space-y-4 pt-6">
           <div className="space-y-1.5">

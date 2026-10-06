@@ -11,7 +11,7 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
   return (
     <PageShell>
       <PageHeading
-        eyebrow="Métricas"
+       
         title="Rendimiento"
         description="Datos de Search Console, Google Analytics y TikTok guardados en local. La sincronización reprocesa los últimos días para recoger la consolidación tardía."
       />

@@ -65,7 +65,7 @@ export default function LibraryPage() {
 
   return (
     <PageShell>
-      <PageHeading eyebrow="Biblioteca" title="Todo el contenido" description="Filtra por tipo, campaña, marca y estado. Duplica, archiva o restaura sin perder el documento." />
+      <PageHeading title="Todo el contenido" description="Filtra por tipo, campaña, marca y estado. Duplica, archiva o restaura sin perder el documento." />
 
       <div className="mb-6 grid grid-cols-1 gap-4 rounded-xl border border-border/60 bg-card/50 p-4 sm:grid-cols-2 lg:grid-cols-5">
         <div className="space-y-1.5 sm:col-span-2 lg:col-span-1">

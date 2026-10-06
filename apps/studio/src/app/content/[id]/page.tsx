@@ -64,9 +64,8 @@ export default function ContentDetailPage({ params }: { params: Promise<{ id: st
         <Link href="/library"><ArrowLeft className="h-4 w-4" /> Biblioteca</Link>
       </Button>
       <PageHeading
-        eyebrow={`${typeLabel[detail.type] ?? detail.type}${detail.campaign ? ` · ${detail.campaign.name}` : ""}`}
         title={documentTitle(detail)}
-        description={`Creado ${new Date(detail.createdAt).toLocaleString("es-EC")} · actualizado ${new Date(detail.updatedAt).toLocaleString("es-EC")}`}
+        description={`${typeLabel[detail.type] ?? detail.type}${detail.campaign ? ` · ${detail.campaign.name}` : ""} · creado ${new Date(detail.createdAt).toLocaleString("es-EC")} · actualizado ${new Date(detail.updatedAt).toLocaleString("es-EC")}`}
         actions={
           <div className="flex items-center gap-2">
             {detail.archivedAt ? <Badge variant="secondary">Archivado</Badge> : <Badge className="bg-primary/15 text-primary border-transparent">Activo</Badge>}

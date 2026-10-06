@@ -97,99 +97,101 @@ export function VoiceoverStep({
   const withAudio = document.scenes.filter((scene) => scene.audioAssetId).length;
 
   return (
-    <div className="max-w-3xl space-y-6">
+    <div className="space-y-6">
       <div>
         <h2 className="text-2xl font-bold tracking-tight text-foreground">Voz en off del video</h2>
         <p className="mt-1 text-sm text-muted-foreground">Genera la narración dentro del mismo flujo. Es opcional, pero si la creas aquí el preview y el render la usarán, y cada escena durará lo que dura su audio.</p>
       </div>
 
-      <Card>
-        <CardContent className="space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <p className="text-sm font-semibold text-foreground">Guion de voz en off</p>
-              <p className="text-xs text-muted-foreground">{document.targetDurationSeconds}s objetivo · ~{Math.round(WORDS_PER_SECOND * 0.98 * 60)} palabras por minuto</p>
+      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_380px]">
+        <Card>
+          <CardContent className="space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p className="text-sm font-semibold text-foreground">Guion de voz en off</p>
+                <p className="text-xs text-muted-foreground">{document.targetDurationSeconds}s objetivo · ~{Math.round(WORDS_PER_SECOND * 0.98 * 60)} palabras por minuto</p>
+              </div>
+              {canGenerateScript ? (
+                <Button type="button" variant="outline" size="sm" disabled={busy !== ""} onClick={() => void generateScript()}>
+                  {busy === "script" ? <AiProgress label="Generando" estimateMs={15_000} state="composing" /> : <><Wand2 className="h-4 w-4" /> {hasScript ? "Regenerar guion" : "Generar guion de voz"}</>}
+                </Button>
+              ) : null}
             </div>
-            {canGenerateScript ? (
-              <Button type="button" variant="outline" size="sm" disabled={busy !== ""} onClick={() => void generateScript()}>
-                {busy === "script" ? <AiProgress label="Generando" estimateMs={15_000} state="composing" /> : <><Wand2 className="h-4 w-4" /> {hasScript ? "Regenerar guion" : "Generar guion de voz"}</>}
-              </Button>
-            ) : null}
-          </div>
 
-          <div className="space-y-3">
-            {document.scenes.map((scene) => {
-              const draft = drafts[scene.id] ?? "";
-              return (
-                <div key={scene.id} className="space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <Label htmlFor={`voz-${scene.id}`} className="text-[10px] uppercase tracking-wider text-muted-foreground">{sceneLabel(scene)}</Label>
-                    <span className="font-mono text-[10px] text-muted-foreground">{countWords(draft)} palabras{scene.audioAssetId ? " · audio ✓" : ""}</span>
+            <div className="space-y-3">
+              {document.scenes.map((scene) => {
+                const draft = drafts[scene.id] ?? "";
+                return (
+                  <div key={scene.id} className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor={`voz-${scene.id}`} className="text-[10px] uppercase tracking-wider text-muted-foreground">{sceneLabel(scene)}</Label>
+                      <span className="font-mono text-[10px] text-muted-foreground">{countWords(draft)} palabras{scene.audioAssetId ? " · audio ✓" : ""}</span>
+                    </div>
+                    <Textarea id={`voz-${scene.id}`} rows={2} value={draft} onChange={(event) => setDrafts((current) => ({ ...current, [scene.id]: event.target.value }))} placeholder="Lo que narra la voz en esta escena." />
                   </div>
-                  <Textarea id={`voz-${scene.id}`} rows={2} value={draft} onChange={(event) => setDrafts((current) => ({ ...current, [scene.id]: event.target.value }))} placeholder="Lo que narra la voz en esta escena." />
-                </div>
-              );
-            })}
-          </div>
-
-          <Button type="button" variant="outline" size="sm" className="w-full" disabled={busy !== "" || !unsaved} onClick={() => void saveScript()}>
-            <Save className="h-4 w-4" /> {busy === "edit" ? "Guardando…" : "Guardar guion de voz"}
-          </Button>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardContent className="space-y-3">
-          <div className="flex items-center gap-2">
-            <Mic className="h-4 w-4 text-primary" />
-            <p className="text-sm font-semibold text-foreground">Configuración de voz</p>
-          </div>
-
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="voz-voice" className="text-[10px] uppercase tracking-wider text-muted-foreground">Voz</Label>
-              <Select value={voiceId} onValueChange={setVoiceId} disabled={!voices.length}>
-                <SelectTrigger id="voz-voice" className="h-8"><SelectValue placeholder={voices.length ? "Selecciona" : "Sin voces disponibles"} /></SelectTrigger>
-                <SelectContent>
-                  {voices.map((voice) => <SelectItem key={voice.voice_id} value={voice.voice_id}>{voice.name}{voice.labels?.accent ? ` · ${voice.labels.accent}` : ""}</SelectItem>)}
-                </SelectContent>
-              </Select>
+                );
+              })}
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="voz-model" className="text-[10px] uppercase tracking-wider text-muted-foreground">Modelo</Label>
-              <Select value={modelId} onValueChange={setModelId}>
-                <SelectTrigger id="voz-model" className="h-8"><SelectValue /></SelectTrigger>
-                <SelectContent>{MODELS.map((model) => <SelectItem key={model.id} value={model.id}>{model.label}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
-          </div>
 
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" disabled={busy !== "" || !voiceId || !hasScript || unsaved} onClick={() => void generateAudio()}>
-              {busy === "audio-all" ? <AiProgress label="Generando voz" estimateMs={30_000} state="listening" /> : <><AudioLines className="h-4 w-4" /> Generar voz de las escenas que faltan</>}
+            <Button type="button" variant="outline" size="sm" className="w-full" disabled={busy !== "" || !unsaved} onClick={() => void saveScript()}>
+              <Save className="h-4 w-4" /> {busy === "edit" ? "Guardando…" : "Guardar guion de voz"}
             </Button>
-          </div>
-          {unsaved ? <p className="text-xs text-muted-foreground">Guarda el guion de voz antes de generar el audio.</p> : null}
+          </CardContent>
+        </Card>
 
-          {withAudio ? (
-            <div className="space-y-2 border-t border-border/60 pt-3">
-              <p className="text-sm font-semibold text-primary">Audio por escena ✓ {withAudio}/{document.scenes.length}</p>
-              {document.scenes.filter((scene) => scene.audioAssetId).map((scene) => (
-                <div key={scene.id} className="flex items-center gap-2">
-                  <span className="w-28 shrink-0 text-xs text-muted-foreground">{sceneLabel(scene)}</span>
-                  <audio controls preload="metadata" src={`/api/assets/${scene.audioAssetId}`} className="h-8 w-full" />
-                  <Button type="button" variant="outline" size="icon-sm" aria-label={`Regenerar voz de ${sceneLabel(scene)}`} disabled={busy !== "" || !voiceId} onClick={() => void generateAudio(scene.id)}>
-                    <AudioLines className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-              ))}
+        <Card className="lg:sticky lg:top-20">
+          <CardContent className="space-y-3">
+            <div className="flex items-center gap-2">
+              <Mic className="h-4 w-4 text-primary" />
+              <p className="text-sm font-semibold text-foreground">Configuración de voz</p>
             </div>
-          ) : null}
 
-          {voicesError ? <p className="text-xs text-muted-foreground">{voicesError}</p> : null}
-          {error ? <p className="text-xs text-destructive">{error}</p> : null}
-        </CardContent>
-      </Card>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="voz-voice" className="text-[10px] uppercase tracking-wider text-muted-foreground">Voz</Label>
+                <Select value={voiceId} onValueChange={setVoiceId} disabled={!voices.length}>
+                  <SelectTrigger id="voz-voice" className="h-8"><SelectValue placeholder={voices.length ? "Selecciona" : "Sin voces disponibles"} /></SelectTrigger>
+                  <SelectContent>
+                    {voices.map((voice) => <SelectItem key={voice.voice_id} value={voice.voice_id}>{voice.name}{voice.labels?.accent ? ` · ${voice.labels.accent}` : ""}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="voz-model" className="text-[10px] uppercase tracking-wider text-muted-foreground">Modelo</Label>
+                <Select value={modelId} onValueChange={setModelId}>
+                  <SelectTrigger id="voz-model" className="h-8"><SelectValue /></SelectTrigger>
+                  <SelectContent>{MODELS.map((model) => <SelectItem key={model.id} value={model.id}>{model.label}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" disabled={busy !== "" || !voiceId || !hasScript || unsaved} onClick={() => void generateAudio()}>
+                {busy === "audio-all" ? <AiProgress label="Generando voz" estimateMs={30_000} state="listening" /> : <><AudioLines className="h-4 w-4" /> Generar voz de las escenas que faltan</>}
+              </Button>
+            </div>
+            {unsaved ? <p className="text-xs text-muted-foreground">Guarda el guion de voz antes de generar el audio.</p> : null}
+
+            {withAudio ? (
+              <div className="space-y-2 border-t border-border/60 pt-3">
+                <p className="text-sm font-semibold text-primary">Audio por escena ✓ {withAudio}/{document.scenes.length}</p>
+                {document.scenes.filter((scene) => scene.audioAssetId).map((scene) => (
+                  <div key={scene.id} className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <span className="w-full text-xs text-muted-foreground">{sceneLabel(scene)}</span>
+                    <audio controls preload="metadata" src={`/api/assets/${scene.audioAssetId}`} className="h-8 min-w-0 flex-1" />
+                    <Button type="button" variant="outline" size="icon-sm" aria-label={`Regenerar voz de ${sceneLabel(scene)}`} disabled={busy !== "" || !voiceId} onClick={() => void generateAudio(scene.id)}>
+                      <AudioLines className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
+            {voicesError ? <p className="text-xs text-muted-foreground">{voicesError}</p> : null}
+            {error ? <p className="text-xs text-destructive">{error}</p> : null}
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }

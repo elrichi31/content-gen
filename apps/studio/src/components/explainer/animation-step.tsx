@@ -64,7 +64,7 @@ export function ExplainerAnimationStep({ contentItemId, document, onPersisted }:
   const missing = document.scenes.filter((scene) => !text(scene, "animationHtml")).map((scene) => scene.id);
 
   return (
-    <div className="max-w-4xl space-y-6">
+    <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="text-2xl font-bold tracking-tight text-foreground">Animaciones</h2>
@@ -77,41 +77,43 @@ export function ExplainerAnimationStep({ contentItemId, document, onPersisted }:
       {error ? <p className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p> : null}
       <audio ref={audio} className="hidden" />
 
-      {document.scenes.map((scene, index) => {
-        const html = text(scene, "animationHtml");
-        const busy = pending.has(scene.id);
-        return (
-          <Card key={scene.id}>
-            <CardContent className="flex flex-col gap-4 sm:flex-row">
-              {html ? <AnimationPreview html={html} playKey={plays[scene.id] ?? 0} /> : (
-                <div className="flex h-[480px] w-[270px] shrink-0 items-center justify-center rounded-lg border border-dashed border-border text-xs text-muted-foreground">
-                  {busy ? <AiProgress label="Animando" estimateMs={60_000} state="composing" /> : "Sin animación"}
-                </div>
-              )}
-              <div className="min-w-0 flex-1 space-y-3">
-                <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Escena {index + 1} · {((scene.durationFrames + SIL_FRAMES) / document.fps).toFixed(1)}s{scene.audioAssetId ? " · con voz" : ""}</p>
-                  <p className="text-lg font-semibold text-foreground">{text(scene, "title")}</p>
-                </div>
-                <p className="text-sm text-muted-foreground">{text(scene, "voiceover")}</p>
-                <p className="rounded-md bg-muted/50 p-2 text-xs text-muted-foreground"><span className="font-semibold text-foreground">Animación: </span>{text(scene, "visual")}</p>
-                <div className="flex flex-wrap gap-2">
-                  {html ? <Button type="button" variant="outline" size="sm" onClick={() => play(scene)}><Play className="h-4 w-4" /> Reproducir{scene.audioAssetId ? " con voz" : ""}</Button> : null}
-                  <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void generate([scene.id])}>
-                    {busy ? <AiProgress label="Animando" estimateMs={60_000} state="composing" /> : <><RefreshCw className="h-4 w-4" /> {html ? "Regenerar desde cero" : "Generar"}</>}
-                  </Button>
-                </div>
-                {html ? (
-                  <div className="flex gap-2">
-                    <Input aria-label={`Cambios para la animación de la escena ${index + 1}`} value={feedback[scene.id] ?? ""} onChange={(event) => setFeedback((current) => ({ ...current, [scene.id]: event.target.value }))} placeholder="Qué cambiar: más grande el servidor, paquetes más rápidos…" className="h-8 text-xs" />
-                    <Button type="button" size="sm" disabled={busy || !feedback[scene.id]?.trim()} onClick={() => void generate([scene.id], true)}>Aplicar</Button>
+      <div className="grid gap-4 2xl:grid-cols-2">
+        {document.scenes.map((scene, index) => {
+          const html = text(scene, "animationHtml");
+          const busy = pending.has(scene.id);
+          return (
+            <Card key={scene.id}>
+              <CardContent className="flex flex-col gap-4 sm:flex-row">
+                {html ? <AnimationPreview html={html} playKey={plays[scene.id] ?? 0} /> : (
+                  <div className="flex h-[480px] w-[270px] shrink-0 items-center justify-center rounded-lg border border-dashed border-border text-xs text-muted-foreground">
+                    {busy ? <AiProgress label="Animando" estimateMs={60_000} state="composing" /> : "Sin animación"}
                   </div>
-                ) : null}
-              </div>
-            </CardContent>
-          </Card>
-        );
-      })}
+                )}
+                <div className="min-w-0 flex-1 space-y-3">
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Escena {index + 1} · {((scene.durationFrames + SIL_FRAMES) / document.fps).toFixed(1)}s{scene.audioAssetId ? " · con voz" : ""}</p>
+                    <p className="text-lg font-semibold text-foreground">{text(scene, "title")}</p>
+                  </div>
+                  <p className="text-sm text-muted-foreground">{text(scene, "voiceover")}</p>
+                  <p className="rounded-md bg-muted/50 p-2 text-xs text-muted-foreground"><span className="font-semibold text-foreground">Animación: </span>{text(scene, "visual")}</p>
+                  <div className="flex flex-wrap gap-2">
+                    {html ? <Button type="button" variant="outline" size="sm" onClick={() => play(scene)}><Play className="h-4 w-4" /> Reproducir{scene.audioAssetId ? " con voz" : ""}</Button> : null}
+                    <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void generate([scene.id])}>
+                      {busy ? <AiProgress label="Animando" estimateMs={60_000} state="composing" /> : <><RefreshCw className="h-4 w-4" /> {html ? "Regenerar desde cero" : "Generar"}</>}
+                    </Button>
+                  </div>
+                  {html ? (
+                    <div className="flex gap-2">
+                      <Input aria-label={`Cambios para la animación de la escena ${index + 1}`} value={feedback[scene.id] ?? ""} onChange={(event) => setFeedback((current) => ({ ...current, [scene.id]: event.target.value }))} placeholder="Qué cambiar: más grande el servidor, paquetes más rápidos…" className="h-8 text-xs" />
+                      <Button type="button" size="sm" disabled={busy || !feedback[scene.id]?.trim()} onClick={() => void generate([scene.id], true)}>Aplicar</Button>
+                    </div>
+                  ) : null}
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
     </div>
   );
 }

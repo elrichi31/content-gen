@@ -88,8 +88,7 @@ export default function BrandsPage() {
 
       <Card>
         <CardContent>
-          <p className="text-xs font-semibold uppercase tracking-widest text-primary">Biblioteca / Marcas</p>
-          <h1 className="mt-2 text-2xl font-semibold tracking-tight text-foreground">{selected ? selected.name : "Nueva marca"}</h1>
+          <h1 className="text-lg font-semibold tracking-tight text-foreground">{selected ? selected.name : "Nueva marca"}</h1>
           <p className="mt-1 text-sm text-muted-foreground">Un bloque simple para mantener los colores y la identidad que comparten tus piezas.</p>
 
           <form className="mt-6 max-w-xl space-y-5" onSubmit={save}>

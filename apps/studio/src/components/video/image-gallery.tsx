@@ -65,7 +65,7 @@ export function ImageGallery({
   }
 
   return (
-    <div className="max-w-3xl space-y-6">
+    <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-2xl font-bold tracking-tight text-foreground">Imágenes por escena</h2>
@@ -82,7 +82,7 @@ export function ImageGallery({
         </div>
       ) : null}
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-7">
         {document.scenes.map((scene) => {
           const busy = loadingKey === scene.id || (loadingAll && !scene.imageAssetId);
           return (
@@ -109,11 +109,13 @@ export function ImageGallery({
         })}
       </div>
 
-      <Button type="button" className="w-full" disabled={loadingAll || loadingKey !== null} onClick={onContinue}>
-        <AudioLines className="h-4 w-4" />
-        {ready === 0 ? "Saltar imágenes por ahora →" : ready < document.scenes.length ? `Continuar con ${ready}/${document.scenes.length} imágenes →` : "Continuar a voz en off →"}
-      </Button>
-      {ready < document.scenes.length ? <p className="text-center text-xs text-muted-foreground">Las imágenes que falten se pueden generar después desde el editor, sin perder el guion ni la voz.</p> : null}
+      <div className="flex flex-col-reverse gap-3 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-xs text-muted-foreground">{ready < document.scenes.length ? "Las imágenes que falten se pueden generar después desde el editor, sin perder el guion ni la voz." : null}</p>
+        <Button type="button" className="shrink-0" disabled={loadingAll || loadingKey !== null} onClick={onContinue}>
+          <AudioLines className="h-4 w-4" />
+          {ready === 0 ? "Saltar imágenes por ahora →" : ready < document.scenes.length ? `Continuar con ${ready}/${document.scenes.length} imágenes →` : "Continuar a voz en off →"}
+        </Button>
+      </div>
     </div>
   );
 }

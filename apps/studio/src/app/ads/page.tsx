@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { ArrowLeft, ArrowRight, Plus, Save, Sparkles } from "lucide-react";
 import type { AdDocument } from "@content-gen/domain/ad";
-import { PageShell } from "@/components/page-shell";
+import { PageHeading, PageShell } from "@/components/page-shell";
 import { adFixture } from "@/components/ads/ad-renderer";
 import { AdPlatformFrame } from "@/components/ads/ad-platform-frame";
 import { Card, CardContent } from "@/components/ui/card";
@@ -225,11 +225,7 @@ export default function AdsPage() {
 
   return (
     <PageShell>
-      <div className="mb-6">
-        <p className="text-xs font-semibold uppercase tracking-widest text-primary">Anuncios / Asistente</p>
-        <h1 className="mt-2 text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">Cinco formas de vender una idea.</h1>
-        <p className="mt-1 max-w-2xl text-sm text-muted-foreground">Sigue los pasos: elige plantilla, cuéntanos la idea, ajusta el contenido, compara el resultado y guárdalo.</p>
-      </div>
+      <PageHeading title="Anuncio" description="Elige plantilla, cuéntanos la idea, ajusta el contenido, compara el resultado y guárdalo." />
 
       <StepIndicator current={step} reached={reached} onSelect={go} steps={STEPS} />
       <Notice notice={notice} onDismiss={() => setNotice(null)} className="mb-4" />
@@ -317,7 +313,7 @@ export default function AdsPage() {
           {stage}
           <Card className="h-fit">
             <CardContent className="space-y-4">
-              <p className="text-xs font-semibold uppercase tracking-widest text-primary">Contenido</p>
+              <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Contenido</p>
               {TEXT_FIELDS[ad.layout].map(({ field, label, multiline }) => (
                 <div key={field} className="space-y-1.5">
                   <Label className="text-xs uppercase tracking-wider text-muted-foreground">{label}</Label>
@@ -363,7 +359,7 @@ export default function AdsPage() {
               ) : null}
 
               <Separator />
-              <p className="text-xs font-semibold uppercase tracking-widest text-primary">Estilo</p>
+              <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Estilo</p>
               <div className="grid grid-cols-3 gap-2">
                 {(["accentColor", "bgColor", "textColor"] as const).map((field) => (
                   <div key={field} className="space-y-1.5">
@@ -373,7 +369,7 @@ export default function AdsPage() {
                 ))}
               </div>
               <Separator />
-              <p className="text-xs font-semibold uppercase tracking-widest text-primary">Fondo</p>
+              <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Fondo</p>
               <div className="space-y-1.5">
                 <Label htmlFor="ad-bg-idea" className="text-xs uppercase tracking-wider text-muted-foreground">Cómo lo imaginas (opcional)</Label>
                 <Textarea id="ad-bg-idea" value={bgIdea} onChange={(event) => setBgIdea(event.target.value)} rows={2} placeholder="Ej.: taller de cerámica con luz de tarde, tonos cálidos" />
@@ -401,11 +397,11 @@ export default function AdsPage() {
       {step === 4 ? (
         <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
           <div className="space-y-2">
-            <p className="text-xs font-semibold uppercase tracking-widest text-primary">Plantilla</p>
+            <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Plantilla</p>
             {stage}
           </div>
           <div className="space-y-2">
-            <p className="text-xs font-semibold uppercase tracking-widest text-primary">Nano Banana</p>
+            <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Nano Banana</p>
             <div className="flex flex-col items-center gap-4 rounded-xl border border-border/60 p-6">
               <p className="max-w-sm text-center text-sm text-muted-foreground">Dibuja el anuncio completo como una imagen con IA. Cuesta unos $0.07 por intento.</p>
               <Button variant="outline" disabled={nanoBusy} onClick={() => void generateNanoBanana()}>
@@ -429,7 +425,7 @@ export default function AdsPage() {
         <Card className="max-w-2xl">
           <CardContent className="space-y-4">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-widest text-primary">Resumen</p>
+              <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Resumen</p>
               <p className="mt-1 text-lg font-semibold text-foreground">{ad.headline || ad.compHeadline || ad.featHeadline || ad.quote || ad.painHeadline}</p>
               <p className="text-sm text-muted-foreground">{layoutLabel} · {ad.format}{contentId ? " · ya guardado, se actualiza" : ""}</p>
             </div>

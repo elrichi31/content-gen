@@ -91,7 +91,7 @@ export default async function DiagnosticsPage() {
   return (
     <PageShell>
       <PageHeading
-        eyebrow="Diagnóstico local"
+       
         title="Estado del sistema"
         description="Comprobaciones del entorno activo; nunca expone claves, rutas privadas ni valores sensibles."
       />

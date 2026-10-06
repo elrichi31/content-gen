@@ -360,15 +360,15 @@ export default function CarouselPage() {
   return (
     <div className="min-h-screen bg-background">
       <AppSidebar />
-      <div className="overflow-hidden pt-14 md:pl-64 md:pt-0">
-        <main className="mx-auto h-[calc(100vh-3.5rem)] w-full max-w-[1800px] px-3 pb-3 pt-3 sm:px-4 sm:pb-4 sm:pt-4 md:h-screen">
+      <div className="overflow-hidden pt-14 transition-[padding] duration-300 ease-[cubic-bezier(0.23,1,0.32,1)] md:pl-(--sidebar-w)">
+        <main className="mx-auto h-[calc(100dvh-3.5rem)] w-full max-w-[1800px] px-3 pb-3 pt-3 sm:px-4 sm:pb-4 sm:pt-4">
           <ModeSwitch modes={CAROUSEL_MODES} current="/carousel" className="mb-3 lg:hidden" />
           <div className="grid h-[calc(100%-2.5rem)] min-w-0 grid-cols-1 gap-3 lg:h-full lg:grid-cols-[360px_minmax(0,1fr)] xl:grid-cols-[360px_minmax(0,1fr)_360px] 2xl:grid-cols-[400px_minmax(0,1fr)_400px]">
 
             <WorkspacePanel className="hidden lg:block">
               <div className="flex h-full flex-col overflow-y-auto p-5">
                 <div className="space-y-1.5">
-                  <div className="flex items-center justify-between gap-2"><p className="text-xs font-semibold uppercase tracking-widest text-primary">Carrusel</p><ModeSwitch modes={CAROUSEL_MODES} current="/carousel" /></div>
+                  <div className="flex items-center justify-between gap-2"><p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Carrusel</p><ModeSwitch modes={CAROUSEL_MODES} current="/carousel" /></div>
                   <h1 className="text-base font-semibold text-foreground">Una idea, diez formas.</h1>
                   <p className="text-xs leading-relaxed text-muted-foreground">Genera con IA, edita sobre la pieza y guarda en la biblioteca central.</p>
                 </div>
@@ -443,7 +443,7 @@ export default function CarouselPage() {
               </div>
             </WorkspacePanel>
 
-            <section className="min-h-0 min-w-0 overflow-hidden rounded-[28px] border border-border/60 bg-muted/20">
+            <section className="min-h-0 min-w-0 overflow-hidden rounded-xl border border-border bg-muted/30">
               <div className="flex h-full flex-col">
                 <div className="flex items-center gap-1 border-b border-border/30 px-3 py-2">
                   <div className="flex items-center gap-0.5">
@@ -647,7 +647,7 @@ export default function CarouselPage() {
                         ))}
                         <label title="Color personalizado" className={cn("relative flex h-7 w-7 cursor-pointer items-center justify-center overflow-hidden rounded-full border border-black/10 transition-transform hover:scale-110", customColor && "ring-2 ring-foreground ring-offset-2 ring-offset-background")} style={{ background: customColor ?? "conic-gradient(from 0deg, #f43f5e, #f59e0b, #84cc16, #06b6d4, #6366f1, #d946ef, #f43f5e)" }}>
                           <span className="sr-only">Color personalizado</span>
-                          <input type="color" className="absolute inset-0 cursor-pointer opacity-0" value={customColor ?? "#2f7d40"} onChange={(event) => { setCustomColor(event.target.value); setThemeTouched(true); }} />
+                          <input type="color" aria-label="Color personalizado" className="absolute inset-0 cursor-pointer opacity-0" value={customColor ?? "#2f7d40"} onChange={(event) => { setCustomColor(event.target.value); setThemeTouched(true); }} />
                         </label>
                         {customColor ? <code className="ml-1 text-xs text-muted-foreground">{customColor}</code> : null}
                       </div>

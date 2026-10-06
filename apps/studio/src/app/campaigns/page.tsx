@@ -108,8 +108,7 @@ export default function CampaignsPage() {
 
       <Card>
         <CardContent>
-          <p className="text-xs font-semibold uppercase tracking-widest text-primary">Biblioteca / Campañas</p>
-          <h1 className="mt-2 text-2xl font-semibold tracking-tight text-foreground">{selected ? selected.name : "Nueva campaña"}</h1>
+          <h1 className="text-lg font-semibold tracking-tight text-foreground">{selected ? selected.name : "Nueva campaña"}</h1>
           <p className="mt-1 text-sm text-muted-foreground">El brief y la marca que luego compartirán carruseles, anuncios y videos.</p>
 
           <form className="mt-6 max-w-xl space-y-5" onSubmit={save}>
@@ -158,7 +157,7 @@ export default function CampaignsPage() {
             </div>
             {selected ? (
               <div className="space-y-2 border-t border-border/60 pt-5">
-                <p className="text-xs font-semibold uppercase tracking-widest text-primary">Piezas de campaña</p>
+                <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Piezas de campaña</p>
                 {pieces.map((piece) => (
                   <Link key={piece.id} href={`/content/${piece.id}`} className="flex items-center justify-between rounded-md border border-border/60 px-3 py-2 text-sm transition-colors hover:border-border hover:text-primary">
                     <span className="capitalize">{piece.type === "ad" ? "anuncio" : piece.type}</span>

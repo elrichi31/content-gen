@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { SheetTitle } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
@@ -101,7 +102,7 @@ export function AutomationForm({ editing, rules, campaigns, brands, verticals, o
   return (
     <form onSubmit={submit} className="flex min-h-full flex-col">
       <div className="border-b border-border px-5 pb-5 pt-6 pr-12">
-        <h2 className="text-base font-semibold text-foreground">{editing ? "Editar automatización" : "Nueva automatización"}</h2>
+        <SheetTitle className="text-base">{editing ? "Editar automatización" : "Nueva automatización"}</SheetTitle>
         <p className="mt-1 text-sm text-muted-foreground">Rellena los huecos libres de una pauta con carruseles en borrador. Nunca publica.</p>
       </div>
 
