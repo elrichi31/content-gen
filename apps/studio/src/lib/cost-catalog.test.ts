@@ -1,0 +1,16 @@
+import assert from "node:assert/strict";
+import { costCatalog } from "./cost-catalog.ts";
+import { loadPricing } from "./pricing.ts";
+const entries = costCatalog(loadPricing(), "2026-10-06");
+assert.ok(entries.find(entry => entry.id === "gpt-5.6-sol"), "el catálogo mapea las llamadas a Responses");
+assert.equal(entries.find(entry => entry.id === "web-search")?.rate, loadPricing().tools.webSearchPerCall);
+assert.equal(entries.find(entry => entry.id === "eleven_v3")?.rate, 0.08, "la tarifa de v3 coincide con la fuente publicada");
+assert.equal(entries.find(entry => entry.id === "tiktok")?.metered, false, "una integración existente no equivale a consumo registrado");
+assert.equal(entries.find(entry => entry.id === "gpt-5.6-sol")?.verification, "verified");
+assert.equal(entries.find(entry => entry.id === "google-analytics")?.verification, "pending", "una cuota publicada no demuestra tarifa monetaria");
+assert.equal(entries.find(entry => entry.id === "google-analytics")?.rate, null);
+assert.equal(costCatalog(loadPricing(), "2026-11-21").find(entry => entry.id === "gpt-5.6-sol")?.verification, "review", "la promoción indica cuándo volver a verificar");
+const unknown = costCatalog(null);
+assert.ok(unknown.length > 0, "el mapa sigue disponible aunque el archivo de precios falle");
+assert.ok(unknown.every(entry => entry.rate === null));
+console.log("Cost catalog: cobertura, tarifas ausentes y estado de verificación validados.");

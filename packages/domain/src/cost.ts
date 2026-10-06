@@ -92,17 +92,31 @@ export function speechUsage(characters: number): Usage {
 /* ------------------------------- Tarifas ------------------------------- */
 
 const price = z.number().nonnegative().nullable().default(null);
+const provenanceShape = {
+  source: z.string().url().nullable().default(null),
+  verifiedAt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().default(null),
+  reviewAfter: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().default(null),
+  basis: z.enum(["usage", "output-estimate", "plan-estimate"]).default("usage"),
+  note: z.string().default(""),
+};
 
 /**
  * Precio de un modelo. `null` significa «sin tarifa cargada todavía», que no es lo mismo que
  * gratis: el importe sale nulo y la operación se marca como no tarifada en vez de valer cero.
  */
 export const modelTariffSchema = z.object({
+  ...provenanceShape,
   inputPerMillion: price,
   cachedInputPerMillion: price,
   outputPerMillion: price,
   /** Para modelos de imagen; asume el tamaño y calidad que usa la aplicación. */
   perImage: price,
+  /** Voz: tarifa publicada del modelo, no una tarifa global para toda la cuenta. */
+  perThousandCharacters: price,
+  longContextThreshold: z.number().int().positive().nullable().default(null),
+  longInputPerMillion: price,
+  longCachedInputPerMillion: price,
+  longOutputPerMillion: price,
 });
 export type ModelTariff = z.infer<typeof modelTariffSchema>;
 
@@ -111,8 +125,13 @@ export const pricingSchema = z.object({
   version: z.string().min(1).max(40),
   currency: z.string().length(3).default("USD"),
   models: z.record(z.string(), modelTariffSchema).default({}),
-  tools: z.object({ webSearchPerCall: price }).default({ webSearchPerCall: null }),
+  tools: z.object({ ...provenanceShape, webSearchPerCall: price }).default({ webSearchPerCall: null }),
   speech: z.object({ perThousandCharacters: price }).default({ perThousandCharacters: null }),
+  services: z.array(z.object({
+    id: z.string().min(1), name: z.string().min(1), provider: z.string(),
+    unit: z.string(), rate: price, metered: z.boolean(),
+    ...provenanceShape,
+  })).default([]),
 });
 export type Pricing = z.infer<typeof pricingSchema>;
 
@@ -149,12 +168,14 @@ export function priceUsage(usage: Usage, { pricing, model }: { pricing: Pricing;
   // Los cacheados vienen incluidos en el total, así que la parte a precio normal es la diferencia.
   const uncachedInput = Math.max(0, usage.inputTokens - usage.cachedInputTokens);
   const modelLabel = model ?? "(sin modelo)";
-  apply(uncachedInput, tariff?.inputPerMillion, `${modelLabel}.inputPerMillion`, 1e6);
-  apply(usage.cachedInputTokens, tariff?.cachedInputPerMillion, `${modelLabel}.cachedInputPerMillion`, 1e6);
-  apply(usage.outputTokens, tariff?.outputPerMillion, `${modelLabel}.outputPerMillion`, 1e6);
+  const long = tariff?.longContextThreshold != null && usage.inputTokens > tariff.longContextThreshold;
+  apply(uncachedInput, long ? tariff?.longInputPerMillion : tariff?.inputPerMillion, `${modelLabel}.${long ? "longInputPerMillion" : "inputPerMillion"}`, 1e6);
+  apply(usage.cachedInputTokens, long ? tariff?.longCachedInputPerMillion : tariff?.cachedInputPerMillion, `${modelLabel}.${long ? "longCachedInputPerMillion" : "cachedInputPerMillion"}`, 1e6);
+  apply(usage.outputTokens, long ? tariff?.longOutputPerMillion : tariff?.outputPerMillion, `${modelLabel}.${long ? "longOutputPerMillion" : "outputPerMillion"}`, 1e6);
   apply(usage.images, tariff?.perImage, `${modelLabel}.perImage`, 1);
   apply(usage.webSearchCalls, pricing.tools.webSearchPerCall, "tools.webSearchPerCall", 1);
-  apply(usage.characters, pricing.speech.perThousandCharacters, "speech.perThousandCharacters", 1000);
+  // La tarifa global se conserva solo como override explícito de instalaciones anteriores.
+  apply(usage.characters, pricing.speech.perThousandCharacters ?? tariff?.perThousandCharacters, `${modelLabel}.perThousandCharacters`, 1000);
 
   return { amount: missing.length ? null : round(amount), currency: pricing.currency, pricingVersion: pricing.version, missing };
 }

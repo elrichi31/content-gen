@@ -1,4 +1,5 @@
 import { totalCost, type Cost } from "@content-gen/domain/cost";
+import { isUntariffed, summarizeUsage } from "./cost-analytics.ts";
 import { contentTitle } from "./content-title.ts";
 import { withDatabase } from "./db.ts";
 import { loadPricing } from "./pricing.ts";
@@ -35,12 +36,7 @@ export function currentMonth(today = new Date()) {
   return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
 }
 
-type RunRow = { operation: string; provider: string; status: string; cost_amount: number | null; data_json: string; content_item_id: string | null };
-
-/** Un registro cerrado sin importe es un agujero contable; uno en curso todavía no lo es. */
-function isUntariffed(row: { status: string; cost_amount: number | null }) {
-  return row.status === "completed" && row.cost_amount === null;
-}
+type RunRow = { operation: string; provider: string; status: string; cost_amount: number | null; data_json: string; content_item_id: string | null; created_at: string };
 
 function round(amount: number) {
   return Math.round(amount * 1e6) / 1e6;
@@ -55,7 +51,7 @@ export async function costReport({ month = currentMonth() }: { month?: string } 
   const pricing = safePricing();
 
   const rows = await withDatabase(async (database) => await database
-    .prepare("SELECT operation, provider, status, cost_amount, data_json, content_item_id FROM generation_runs WHERE created_at >= ? AND created_at < ? ORDER BY created_at DESC")
+    .prepare("SELECT operation, provider, status, cost_amount, data_json, content_item_id, created_at FROM generation_runs WHERE created_at >= ? AND created_at < ? ORDER BY created_at DESC")
     .all(from, to) as RunRow[]);
 
   const byOperation = new Map<string, { operation: string; runs: number; tariffed: number; untariffed: number; failed: number; total: number; durationMs: number[] }>();
@@ -99,6 +95,7 @@ export async function costReport({ month = currentMonth() }: { month?: string } 
   const budget = monthlyBudget();
   return {
     month,
+    ...summarizeUsage(rows, month),
     period: { from, to },
     currency: pricing?.currency ?? "USD",
     pricingVersion: pricing?.version ?? null,

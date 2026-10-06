@@ -9,7 +9,7 @@ export default function CostsPage() {
       <PageHeading
        
         title="Costos"
-        description="Gasto en IA calculado con la tarifa vigente al generar. Los importes se congelan al terminar cada operación: cambiar los precios no reescribe el histórico."
+        description="Uso y gasto de modelos, herramientas y proveedores. Tarifas públicas con fuente y fecha; el histórico conserva sus importes originales."
       />
       <CostsDashboard />
     </PageShell>

@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { pricingSchema, type ModelTariff, type Pricing } from "@content-gen/domain/cost";
+import { geminiImageModel } from "./gemini.ts";
+import { QUALITY_VOICE_MODEL, EXPRESSIVE_VOICE_MODEL } from "./tts-text.ts";
 import { openAiModel } from "./openai.ts";
 
 export class PricingError extends Error {
@@ -55,7 +57,10 @@ export function configuredModels() {
     voiceoverScript: openAiModel("voiceoverScript"),
     research: openAiModel("research"),
     structuring: openAiModel("structuring"),
+    explainer: openAiModel("explainer"),
     image: openAiModel("image"),
+    imageHigh: `${openAiModel("image")}-high`,
+    geminiImage: geminiImageModel(),
   };
 }
 
@@ -73,12 +78,16 @@ export function missingPrices(pricing: Pricing, models = configuredModels()) {
   const missing: string[] = [];
   if (pricing.version === "sin-cargar") missing.push("version");
   for (const [purpose, model] of Object.entries(models)) {
-    const kind = purpose === "image" ? "image" : "text";
+    const kind = purpose.toLowerCase().includes("image") ? "image" : "text";
     const tariff = pricing.models[model];
     if (!tariff) { missing.push(`models.${model}`); continue; }
     for (const key of REQUIRED[kind]) if (tariff[key] === null) missing.push(`models.${model}.${key}`);
   }
   if (pricing.tools.webSearchPerCall === null) missing.push("tools.webSearchPerCall");
-  if (process.env.ELEVENLABS_API_KEY?.trim() && pricing.speech.perThousandCharacters === null) missing.push("speech.perThousandCharacters");
+  if (process.env.ELEVENLABS_API_KEY?.trim() && pricing.speech.perThousandCharacters === null) {
+    for (const model of [QUALITY_VOICE_MODEL, EXPRESSIVE_VOICE_MODEL]) {
+      if (pricing.models[model]?.perThousandCharacters == null) missing.push(`models.${model}.perThousandCharacters`);
+    }
+  }
   return [...new Set(missing)];
 }

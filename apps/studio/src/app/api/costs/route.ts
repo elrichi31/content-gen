@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { costReport, CostReportError, currentMonth } from "@/lib/generation-costs";
+import { costCatalog } from "@/lib/cost-catalog";
 import { loadPricing, missingPrices } from "@/lib/pricing";
 
 /**
@@ -24,8 +25,8 @@ function pricingStatus() {
   try {
     const pricing = loadPricing();
     const missing = missingPrices(pricing);
-    return { version: pricing.version, currency: pricing.currency, status: missing.length ? "incomplete" : "configured", missing };
+    return { version: pricing.version, currency: pricing.currency, status: missing.length ? "incomplete" : "configured", missing, catalog: costCatalog(pricing) };
   } catch (error) {
-    return { version: null, currency: "USD", status: "error", missing: [] as string[], error: error instanceof Error ? error.message : "Tarifa ilegible." };
+    return { version: null, currency: "USD", status: "error", catalog: costCatalog(null), missing: [] as string[], error: error instanceof Error ? error.message : "Tarifa ilegible." };
   }
 }

@@ -36,6 +36,8 @@ const pricing = pricingSchema.parse({
 });
 
 assert.equal(pricing.models["modelo-imagen"].inputPerMillion, null, "los precios no declarados quedan nulos, no en cero");
+const provenance = pricingSchema.parse({ version: "test", models: { documented: { inputPerMillion: 4, source: "https://example.com/pricing", verifiedAt: "2026-10-06", basis: "usage", note: "Standard" } } });
+assert.equal(provenance.models.documented.source, "https://example.com/pricing", "la validación no borra la fuente auditable");
 
 // (1200 - 1000) input a 2/M + 1000 cacheados a 0,2/M + 300 salida a 10/M + 2 búsquedas a 0,01
 const costoInvestigacion = priceUsage(research, { pricing, model: "modelo-texto" });
@@ -58,6 +60,18 @@ assert.equal(parcial.amount, null, "si falta un solo precio el importe no es fia
 assert.deepEqual(parcial.missing, ["modelo-sin-salida.outputPerMillion"], "señala solo el precio ausente");
 
 assert.equal(priceUsage(emptyUsage(), { pricing, model: "modelo-desconocido" }).amount, 0, "sin consumo no hace falta tarifa: cuesta cero de verdad");
+
+// La voz tiene tarifa por modelo; no se atribuye a un modelo desconocido el precio de v2.
+const speechPricing = pricingSchema.parse({ version: "voice-test", models: { eleven_multilingual_v2: { perThousandCharacters: 0.08 }, eleven_v3: { perThousandCharacters: 0.08 }, eleven_flash_v2_5: { perThousandCharacters: 0.04 } } });
+assert.equal(priceUsage(speechUsage(1500), { pricing: speechPricing, model: "eleven_v3" }).amount, 0.12, "v3 usa su tarifa publicada por caracteres");
+assert.equal(priceUsage(speechUsage(1500), { pricing: speechPricing, model: "eleven_flash_v2_5" }).amount, 0.06, "Flash no hereda la tarifa de Multilingual");
+assert.equal(priceUsage(speechUsage(1500), { pricing: speechPricing, model: "voz-desconocida" }).amount, null, "no inventa tarifa para voces desconocidas");
+const accountPricing = pricingSchema.parse({ ...speechPricing, speech: { perThousandCharacters: 0.3 } });
+assert.equal(priceUsage(speechUsage(1500), { pricing: accountPricing, model: "eleven_v3" }).amount, 0.45, "el override explícito de cuenta tiene prioridad sobre la tarifa pública");
+
+const longPricing = pricingSchema.parse({ version: "long-test", models: { text: { inputPerMillion: 4, cachedInputPerMillion: 0.4, outputPerMillion: 20, longContextThreshold: 272000, longInputPerMillion: 8, longCachedInputPerMillion: 0.8, longOutputPerMillion: 30 } } });
+assert.equal(priceUsage({ ...emptyUsage(), inputTokens: 300000, cachedInputTokens: 100000, outputTokens: 1000 }, { pricing: longPricing, model: "text" }).amount, 1.71, "el contexto largo cambia la tarifa de toda la solicitud, incluida la caché");
+assert.equal(priceUsage({ ...emptyUsage(), inputTokens: 272000 }, { pricing: longPricing, model: "text" }).amount, 1.088, "el umbral exacto conserva tarifa corta");
 
 /* -------------------------------- Totales ------------------------------- */
 
