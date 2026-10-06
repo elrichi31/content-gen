@@ -8,17 +8,22 @@ interface CaptionEditorProps {
   caption?: PostCaption | null
   onCaptionChange?: (caption: PostCaption) => void
   profileName?: string
+  initialEditing?: boolean
 }
 
-export function CaptionEditor({ caption, onCaptionChange, profileName = "your.account" }: CaptionEditorProps) {
-  const [editing, setEditing] = useState(false)
+export function formatCaptionHashtags(hashtags: string[]) {
+  return hashtags.map(h => h.replace(/^#+/, "").trim()).filter(Boolean).map(h => `#${h}`).join(" ")
+}
+
+export function CaptionEditor({ caption, onCaptionChange, profileName = "your.account", initialEditing = false }: CaptionEditorProps) {
+  const [editing, setEditing] = useState(initialEditing && Boolean(onCaptionChange))
   const [copied, setCopied] = useState(false)
 
   if (caption === undefined) return null
 
   const fullText = [
     caption?.text,
-    caption?.hashtags?.map((h) => `#${h}`).join(" "),
+    formatCaptionHashtags(caption?.hashtags ?? []),
   ]
     .filter(Boolean)
     .join("\n\n")
@@ -41,7 +46,7 @@ export function CaptionEditor({ caption, onCaptionChange, profileName = "your.ac
                 <span className="text-foreground/80">{caption.text}</span>
                 {(caption?.hashtags?.length ?? 0) > 0 && (
                   <span className="text-blue-400/80 text-[11px] block mt-1">
-                    {caption.hashtags.map((h) => `#${h}`).join(" ")}
+                    {formatCaptionHashtags(caption.hashtags)}
                   </span>
                 )}
               </>
@@ -65,13 +70,13 @@ export function CaptionEditor({ caption, onCaptionChange, profileName = "your.ac
                   <Copy className="h-3.5 w-3.5" />
                 )}
               </button>
-              <button
+              {onCaptionChange && <button
                 onClick={() => setEditing(true)}
                 title="Editar caption"
                 className="p-1 rounded text-muted-foreground hover:text-foreground transition-colors"
               >
                 <Pencil className="h-3.5 w-3.5" />
-              </button>
+              </button>}
             </div>
           )}
         </div>
@@ -114,7 +119,7 @@ export function CaptionEditor({ caption, onCaptionChange, profileName = "your.ac
           </p>
           <textarea
             aria-label="Hashtags"
-            value={caption?.hashtags.map((h) => `#${h}`).join(" ") ?? ""}
+            value={formatCaptionHashtags(caption?.hashtags ?? [])}
             onChange={(e) => {
               const tags = e.target.value
                 .split(/[\s,]+/)

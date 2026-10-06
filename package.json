@@ -70,6 +70,7 @@
     "test:brands-workspace": "node apps/studio/tests/brands-workspace.test.mjs",
     "test:campaigns-ui": "node apps/studio/tests/editor-ux.test.mjs campaigns",
     "test:articles-ui": "node apps/studio/tests/editor-ux.test.mjs articles",
+    "test:social-preview": "node apps/studio/tests/social-preview.test.mjs",
     "test:radar": "node --experimental-strip-types packages/domain/src/radar.test.ts",
     "test:radar-scan": "node --experimental-strip-types apps/studio/src/lib/radar-scan.test.ts",
     "test:jev-radar": "node --experimental-strip-types apps/studio/src/lib/jev-radar.test.ts",

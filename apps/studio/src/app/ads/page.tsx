@@ -218,7 +218,7 @@ export default function AdsPage() {
           <TabsTrigger value="tiktok">TikTok</TabsTrigger>
         </TabsList>
       </Tabs>
-      <AdPlatformFrame ad={ad} platform={platform} />
+      <AdPlatformFrame ad={ad} platform={platform} profileName={activeBrand?.name} logoUrl={activeBrand?.logoAssetId ? `/api/assets/${activeBrand.logoAssetId}` : null} />
       <p className="text-xs uppercase tracking-wider text-muted-foreground">{layoutLabel} · {ad.format}</p>
     </div>
   );
