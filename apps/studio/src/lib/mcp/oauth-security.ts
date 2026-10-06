@@ -20,14 +20,14 @@ export class OAuthError extends Error {
 
 /** Origen público canónico (HTTPS; en desarrollo también localhost). Sin él, el OAuth no existe. */
 export function getOAuthConfig(): OAuthConfig {
-  const raw = process.env.MCP_PUBLIC_ORIGIN;
+  // Se toleran los descuidos típicos al pegar la variable en el panel: espacios, comillas y una barra final.
+  const raw = (process.env.MCP_PUBLIC_ORIGIN ?? "").trim().replace(/^["']|["']$/g, "").replace(/\/$/, "");
   if (!raw) throw new OAuthError("server_error", "OAuth del MCP no configurado: falta MCP_PUBLIC_ORIGIN", 503);
   let origin: URL;
-  try { origin = new URL(raw); } catch { throw new OAuthError("server_error", "MCP_PUBLIC_ORIGIN inválido", 503); }
+  try { origin = new URL(raw); } catch { throw new OAuthError("server_error", "MCP_PUBLIC_ORIGIN no es una URL válida (ejemplo: https://studio.tu-dominio.com)", 503); }
   const local = process.env.NODE_ENV !== "production" && ["localhost", "127.0.0.1"].includes(origin.hostname);
-  if ((!local && origin.protocol !== "https:") || origin.origin !== raw || origin.username || origin.password) {
-    throw new OAuthError("server_error", "MCP_PUBLIC_ORIGIN debe ser un origen HTTPS sin barra final ni ruta", 503);
-  }
+  if (!local && origin.protocol !== "https:") throw new OAuthError("server_error", `MCP_PUBLIC_ORIGIN debe empezar por https:// (tiene ${origin.protocol}//)`, 503);
+  if (origin.origin !== raw || origin.username || origin.password) throw new OAuthError("server_error", `MCP_PUBLIC_ORIGIN debe ser solo el dominio, sin ruta: usa ${origin.origin}`, 503);
   return { origin: origin.origin, resource: `${origin.origin}/api/mcp` };
 }
 
