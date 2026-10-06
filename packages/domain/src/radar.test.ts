@@ -28,6 +28,8 @@ assert.equal(watchlist.priority, 5, "prioridad media por defecto");
 const run = radarRunSchema.parse({ id: "r1", schemaVersion: 1, status: "running", startedAt: now });
 assert.equal(run.windowDays, 7, "la ventana por defecto es de una semana");
 assert.equal(run.cost, null, "una corrida en marcha todavía no tiene importe");
+const jevObservation = { mode: "observe", model: "jev-1.13.0", status: "completed", error: null, omitted: 0, comparedTitles: 1, decisions: [{ topicId: "t1", title: "Un tema", relevance: 0.9, duplicate: 0.85, recommendation: "duplicate" }] };
+assert.deepEqual(radarRunSchema.parse({ ...run, jevObservation }).jevObservation, jevObservation, "las recomendaciones de JEV sobreviven el contrato de persistencia");
 
 /* ------------------------------- Huella ------------------------------- */
 

@@ -1,11 +1,12 @@
 "use client";
 
-import type { RadarRun, RadarTopic, RadarTopicStatus, RadarWatchlistEntry } from "@content-gen/domain/radar";
+import type { JevObservation, RadarRun, RadarTopic, RadarTopicStatus, RadarWatchlistEntry } from "@content-gen/domain/radar";
 import { Check, Inbox, Radar as RadarIcon, SlidersHorizontal, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PageHeading } from "@/components/page-shell";
 import { RadarWatchlist } from "@/components/radar-watchlist";
 import { ScanSheet, type ScanSettings } from "@/components/radar/scan-sheet";
+import { JevRadarReview } from "@/components/radar/jev-review";
 import { ACTIONS, formatGenerated, FORMAT_LABEL, scoreTone, TopicDetail } from "@/components/radar/topic-detail";
 import { Button } from "@/components/ui/button";
 import { Notice, noticeError, type NoticeState } from "@/components/ui/notice";
@@ -53,6 +54,7 @@ type ScanEvent =
   | { type: "research-done"; vertical: string; searches: number; step: number; steps: number }
   | { type: "research-failed"; vertical: string; reason: string; step: number; steps: number }
   | { type: "structure"; step: number; steps: number }
+  | { type: "observe"; step: number; steps: number }
   | { type: "saving"; step: number; steps: number }
   | { type: "done"; summary: RunSummary; run?: { cost?: Cost } }
   | { type: "error"; error: string };
@@ -80,6 +82,7 @@ function progressOf(event: ScanEvent): Progress {
     case "research-done": return { label: `${event.vertical} listo`, detail: `${event.searches} búsqueda(s) realizadas. Esperando al resto de verticales.`, step: event.step, steps: event.steps };
     case "research-failed": return { label: `${event.vertical} falló`, detail: `${event.reason}. Sigue con el resto.`, step: event.step, steps: event.steps };
     case "structure": return { label: "Ordenando los hallazgos en temas", detail: "Sin buscar nada más: solo se interpreta lo encontrado.", step: event.step - 1, steps: event.steps };
+    case "observe": return { label: "Evaluando temas con JEV", detail: "Solo recomendaciones de relevancia y repetición; ningún tema se descarta por JEV.", step: event.step - 1, steps: event.steps };
     case "saving": return { label: "Comprobando fuentes y descartando repetidos", detail: "Se guardan solo los temas corroborados y nuevos.", step: event.step - 1, steps: event.steps };
     default: return { label: "Trabajando", detail: "", step: 0, steps: 1 };
   }
@@ -107,6 +110,7 @@ export function RadarBoard() {
   const cancelledRef = useRef(false);
   const [elapsed, setElapsed] = useState(0);
   const [notice, setNotice] = useState<NoticeState>(null);
+  const [reinterpretation, setReinterpretation] = useState<{ runId: string; observation: JevObservation | null } | null>(null);
   const rowRefs = useRef(new Map<string, HTMLButtonElement>());
 
   // El reloj corre aparte del progreso: entre dos pasos pasan minutos, y ver los segundos avanzar
@@ -295,9 +299,10 @@ export function RadarBoard() {
     setProgress({ label: "Reinterpretando la última búsqueda", detail: "Sin buscar de nuevo: solo se releen las notas guardadas.", step: 0, steps: 1 });
     try {
       const response = await fetch(`/api/radar/runs/${lastRun.id}/restructure`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ minSources: settings.minSources, verifySources: settings.verifySources, structuringModel: settings.structuringModel }) });
-      const result = await response.json() as { summary?: RunSummary; cost?: Cost; error?: string };
+      const result = await response.json() as { summary?: RunSummary; cost?: Cost; error?: string; jevObservation?: JevObservation | null };
       if (!response.ok || !result.summary) return setNotice(noticeError(result.error ?? "No se pudo reinterpretar la búsqueda."));
       announce(result.summary, result.cost);
+      setReinterpretation({ runId: lastRun.id, observation: result.jevObservation ?? null });
       setStatus("nuevo");
       await load();
     } catch {
@@ -346,6 +351,8 @@ export function RadarBoard() {
           </span>
         ) : null}
       </div>
+
+      {!scanning ? <JevRadarReview observation={reinterpretation?.runId === lastRun?.id ? reinterpretation?.observation : lastRun?.jevObservation} /> : null}
 
       {!activeVerticals.length ? (
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-500/30 bg-amber-500/5 px-4 py-3">

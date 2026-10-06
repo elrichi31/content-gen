@@ -53,6 +53,24 @@ export type RadarWatchlistEntry = z.infer<typeof radarWatchlistSchema>;
 
 /* -------------------------------- Corrida -------------------------------- */
 
+/** Shadow evaluation: advisory only, never changes the topic lifecycle or score. */
+export const jevObservationSchema = z.object({
+  mode: z.literal("observe"),
+  model: z.string().min(1),
+  status: z.enum(["completed", "failed"]),
+  error: z.string().max(1000).nullable(),
+  omitted: z.number().int().nonnegative(),
+  comparedTitles: z.number().int().min(0).max(30),
+  decisions: z.array(z.object({
+    topicId: id,
+    title: z.string().max(300),
+    relevance: z.number().min(0).max(1),
+    duplicate: z.number().min(0).max(1),
+    recommendation: z.enum(["keep", "review", "duplicate", "off-topic"]),
+  })).max(10),
+});
+export type JevObservation = z.infer<typeof jevObservationSchema>;
+
 export const radarRunSchema = z.object({
   id,
   schemaVersion,
@@ -86,6 +104,7 @@ export const radarRunSchema = z.object({
     sources: z.array(z.object({ url: z.string(), title: z.string() })).default([]),
     model: z.string().nullable().default(null),
   })).default([]),
+  jevObservation: jevObservationSchema.nullable().optional(),
   topicsFound: z.number().int().nonnegative().default(0),
   topicsKept: z.number().int().nonnegative().default(0),
   error: z.string().max(1000).nullable().default(null),

@@ -1,5 +1,10 @@
 import assert from "node:assert/strict";
-import { configuredModels, loadPricing, missingPrices } from "./pricing.ts";
+import { configuredModels, loadPricing, missingPrices, selectableTextModels } from "./pricing.ts";
+assert.ok(!selectableTextModels().some(model => model.id.startsWith("jev-")), "JEV no se ofrece como modelo de redacción ni búsqueda OpenAI");
+process.env.JEV_RADAR_MODE = "observe";
+assert.equal(configuredModels().jevObserver, "jev-1.13.0", "la cobertura incluye el observador configurado");
+assert.ok(!missingPrices(loadPricing()).some(key => key.startsWith("models.jev-")), "JEV no necesita precio de caché que no utiliza");
+delete process.env.JEV_RADAR_MODE;
 import { pricingSchema } from "@content-gen/domain/cost";
 
 const configured = configuredModels();

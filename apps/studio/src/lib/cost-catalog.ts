@@ -8,7 +8,7 @@ export type CatalogEntry = {
 };
 /** Mapa de integraciones reales, independiente de la actividad del mes. */
 export function costCatalog(pricing: Pricing | null, asOf = new Date().toISOString().slice(0, 10)): CatalogEntry[] {
-  const ids = new Set([...Object.keys(pricing?.models ?? {}), ...Object.values(configuredModels()), "eleven_multilingual_v2", "eleven_v3"]);
+  const ids = new Set([...Object.keys(pricing?.models ?? {}), ...Object.values(configuredModels()).filter((model): model is string => typeof model === "string"), "eleven_multilingual_v2", "eleven_v3"]);
   const entries: CatalogEntry[] = [...ids].map(id => {
     const tariff = pricing?.models[id];
     const speech = id.startsWith("eleven_");
@@ -17,7 +17,7 @@ export function costCatalog(pricing: Pricing | null, asOf = new Date().toISOStri
       : [{ label: "Entrada", amount: tariff?.inputPerMillion ?? null, unit: "1M tokens" }, { label: "Caché", amount: tariff?.cachedInputPerMillion ?? null, unit: "1M tokens" }, { label: "Salida", amount: tariff?.outputPerMillion ?? null, unit: "1M tokens" }];
     const overridden = speech && pricing?.speech.perThousandCharacters != null;
     return {
-      id, name: id, provider: speech ? "elevenlabs" : id.startsWith("gemini-") ? "gemini" : "openai", unit: rates[0].unit, rate: rates[0].amount, rates,
+      id, name: id, provider: speech ? "elevenlabs" : id.startsWith("gemini-") ? "gemini" : id.startsWith("jev-") ? "typesafe" : "openai", unit: rates[0].unit, rate: rates[0].amount, rates,
       note: overridden ? "Override de cuenta en speech.perThousandCharacters; no equivale a tarifa pública verificada." : tariff?.note ?? "Falta cargar tarifa para este modelo configurado.",
       source: overridden ? null : tariff?.source ?? null, verifiedAt: overridden ? null : tariff?.verifiedAt ?? null,
       metered: true, basis: tariff?.basis ?? "usage",

@@ -9,6 +9,11 @@
   "version": "2026-10-06",
   "currency": "USD",
   "models": {
+    "jev-1.13.0": {
+      "inputPerMillion": 0.042, "cachedInputPerMillion": null, "outputPerMillion": 0,
+      "source": "https://docs.typesafe.ai/models", "verifiedAt": "2026-10-06",
+      "note": "TypeSafe System One. Cobra entrada; salida gratuita. Sin caché medida. Solo decisiones tipadas, no redacción."
+    },
     "gpt-5.6-sol": {
       "inputPerMillion": 4, "cachedInputPerMillion": 0.4, "outputPerMillion": 20,
       "longContextThreshold": 272000, "longInputPerMillion": 8, "longCachedInputPerMillion": 0.8, "longOutputPerMillion": 30,

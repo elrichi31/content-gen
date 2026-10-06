@@ -5,6 +5,7 @@ import { todayLocal } from "@content-gen/domain/schedule";
 import { monthSpend } from "./generation-costs.ts";
 import { trackGeneration } from "./generation-runs.ts";
 import { openAiModel } from "./openai.ts";
+import { observeRadarWithJev, type JevRadarResult } from "./jev-radar.ts";
 import { loadPricing } from "./pricing.ts";
 import { activeRadarRun, beginRadarRun, brandProfiles, expireStaleRuns, finishRadarRun, getRadarRun, listWatchlist, RadarError, recentMemory, saveRunResearch, saveTopics } from "./radar.ts";
 import { radarScanInputSchema, researchVertical, structureTopics, type VerticalResearch } from "./radar-research.ts";
@@ -20,6 +21,7 @@ export type RadarProgress =
   | { type: "research-done"; vertical: string; searches: number; step: number; steps: number }
   | { type: "research-failed"; vertical: string; reason: string; step: number; steps: number }
   | { type: "structure"; step: number; steps: number }
+  | { type: "observe"; step: number; steps: number }
   | { type: "saving"; step: number; steps: number };
 
 /**
@@ -99,7 +101,7 @@ export async function scanRadar(input: unknown = {}, { request = fetch, now = ne
   const stopIfCancelled = () => { if (cancel.signal.aborted) throw new RadarError(CANCELLED, 409); };
 
   // Un paso por vertical, más estructurar, más guardar.
-  const steps = watchlist.length + 2;
+  const steps = watchlist.length + 2 + (process.env.JEV_RADAR_MODE === "observe" ? 1 : 0);
   const report = (event: RadarProgress) => { try { onProgress?.(event); } catch { /* informar no puede tumbar la corrida */ } };
   report({ type: "start", runId: run.id, verticals: watchlist.map((entry) => entry.vertical), steps });
 
@@ -151,21 +153,28 @@ export async function scanRadar(input: unknown = {}, { request = fetch, now = ne
 
     const { topics: normalized, rejections } = normalizeTopics(structured.topics, { runId: run.id, research, minSources, verifySources, now });
 
+    const { fresh, repeated } = dedupeTopics(normalized, { known: memory.fingerprints });
+    if (process.env.JEV_RADAR_MODE === "observe") report({ type: "observe", step: ++step, steps });
+    const jev = await observeRadarWithJev({ topics: fresh, recentTitles: memory.titles, focus, contexts: watchlist.map(entry => {
+      const brand = entry.brandKitId ? brands.get(entry.brandKitId) : null;
+      return { vertical: entry.vertical, offering: entry.offering, audience: entry.audience, brand: brand ? `${brand.name}: ${JSON.stringify(brand.business)}` : null };
+    }) }, { request: cancellable });
+    stopIfCancelled();
     step += 1;
     report({ type: "saving", step, steps });
-    const { fresh, repeated } = dedupeTopics(normalized, { known: memory.fingerprints });
     const saved = await saveTopics(fresh, { now });
 
-    const usage = addUsage(...research.map((item) => item.usage), structured.usage);
+    const usage = addUsage(...research.map((item) => item.usage), structured.usage, jev?.usage);
     return {
       run: await finishRadarRun(run.id, {
         status: "completed",
         topicsFound: structured.topics.length,
         topicsKept: saved.inserted,
+        jevObservation: jev?.observation ?? null,
         // Lo caro ya está pagado: guardarlo permite reinterpretarlo después con otro modelo.
         research: research.map((item) => ({ vertical: item.vertical, notes: item.notes, sources: item.sources, model: item.model })),
         usage,
-        cost: runCost(research.map((item) => item.usage), structured.usage, { researchModel, structuringModel }),
+        cost: runCost(research.map((item) => item.usage), structured.usage, { researchModel, structuringModel }, jev),
         error: failures.length ? `Verticales fallidos — ${failures.join(" | ")}`.slice(0, 1000) : null,
       }),
       // Se informa de todo lo que se cayó por el camino: una corrida que guarda 2 de 10 temas no
@@ -309,17 +318,19 @@ function normalizeTopics(raws: unknown[], { runId, research, minSources, verifyS
  *
  * Igual que en las generaciones, una tarifa ilegible no invalida lo que ya se gastó.
  */
-function runCost(research: Usage[], structuring: Usage, { researchModel, structuringModel }: { researchModel: string; structuringModel: string }) {
+function runCost(research: Usage[], structuring: Usage, { researchModel, structuringModel }: { researchModel: string; structuringModel: string }, jev?: JevRadarResult | null) {
   try {
     const pricing = loadPricing();
     const parts = [
       ...research.map((usage) => priceUsage(usage, { pricing, model: researchModel })),
       priceUsage(structuring, { pricing, model: structuringModel }),
+      ...(jev?.usage ? [priceUsage(jev.usage, { pricing, model: jev.observation.model })] : []),
     ];
     const total = totalCost(parts, { currency: pricing.currency });
     // Si alguna parte quedó sin tarifar, el total sería un mínimo disfrazado de cifra exacta.
-    const missing = [...new Set(parts.flatMap((part) => part.missing))];
-    return { amount: total.untariffed ? null : total.amount, currency: pricing.currency, pricingVersion: pricing.version, missing };
+    const unknownUsage = jev?.attempted && !jev.usage;
+    const missing = [...new Set([...parts.flatMap((part) => part.missing), ...(unknownUsage ? ["typesafe.usage"] : [])])];
+    return { amount: total.untariffed || unknownUsage ? null : total.amount, currency: pricing.currency, pricingVersion: pricing.version, missing };
   } catch { return null; }
 }
 
@@ -357,13 +368,27 @@ export async function restructureRun(runId: string, input: unknown = {}, { reque
   const { topics: normalized, rejections } = normalizeTopics(structured.topics, { runId: run.id, research: run.research, minSources, verifySources, now });
 
   const { fresh, repeated } = dedupeTopics(normalized, { known: memory.fingerprints });
+  let jev: JevRadarResult | null = null;
+  if (process.env.JEV_RADAR_MODE === "observe" && fresh.length) {
+    try {
+      const watchlist = await listWatchlist();
+      const brands = await brandProfiles(watchlist.map(entry => entry.brandKitId));
+      jev = await observeRadarWithJev({ topics: fresh, recentTitles: memory.titles, focus: run.focus, contexts: watchlist.map(entry => {
+        const brand = entry.brandKitId ? brands.get(entry.brandKitId) : null;
+        return { vertical: entry.vertical, offering: entry.offering, audience: entry.audience, brand: brand ? `${brand.name}: ${JSON.stringify(brand.business)}` : null };
+      }) }, { request });
+    } catch {
+      jev = { observation: { mode: "observe", model: "jev-1.13.0", status: "failed", error: "No se pudo cargar el contexto para JEV. La reinterpretación continuó normalmente.", decisions: [], omitted: fresh.length, comparedTitles: 0 }, usage: null, attempted: false };
+    }
+  }
   const saved = await saveTopics(fresh, { now });
 
   return {
     // La corrida original conserva su costo: reinterpretar no reescribe lo que costó buscar.
     runId: run.id,
     topics: fresh,
-    cost: restructureCost(structured.usage, structuringModel),
+    cost: jev ? runCost([], structured.usage, { researchModel: structuringModel, structuringModel }, jev) : restructureCost(structured.usage, structuringModel),
+    jevObservation: jev?.observation ?? null,
     summary: {
       found: structured.topics.length,
       kept: saved.inserted,

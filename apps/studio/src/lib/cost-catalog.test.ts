@@ -13,4 +13,7 @@ assert.equal(costCatalog(loadPricing(), "2026-11-21").find(entry => entry.id ===
 const unknown = costCatalog(null);
 assert.ok(unknown.length > 0, "el mapa sigue disponible aunque el archivo de precios falle");
 assert.ok(unknown.every(entry => entry.rate === null));
+assert.equal(entries.find(entry => entry.id === "jev-1.13.0")?.provider, "typesafe", "no etiqueta a JEV como OpenAI");
+assert.equal(entries.find(entry => entry.id === "jev-1.13.0")?.rate, 0.042);
+assert.equal(entries.find(entry => entry.id === "jev-1.13.0")?.rates.find(rate => rate.label === "Salida")?.amount, 0);
 console.log("Cost catalog: cobertura, tarifas ausentes y estado de verificación validados.");

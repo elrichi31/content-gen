@@ -111,7 +111,7 @@ export async function beginRadarRun({ verticals, windowDays, focus = null }: { v
   return run;
 }
 
-export async function finishRadarRun(id: string, patch: Partial<Pick<RadarRun, "status" | "error" | "usage" | "cost" | "topicsFound" | "topicsKept" | "research">>) {
+export async function finishRadarRun(id: string, patch: Partial<Pick<RadarRun, "status" | "error" | "usage" | "cost" | "topicsFound" | "topicsKept" | "research" | "jevObservation">>) {
   const row = await withDatabase(async (database) => await database.prepare("SELECT data_json FROM radar_runs WHERE id = ?").get(id) as Row | undefined);
   if (!row) throw new RadarError("La corrida no existe.", 404);
   const completedAt = new Date().toISOString();

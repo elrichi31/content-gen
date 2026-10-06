@@ -93,7 +93,7 @@ export const generationRunSchema = z.object({
    */
   contentItemId: id.nullable().default(null),
   radarTopicId: id.nullable().default(null),
-  provider: z.enum(["openai", "gemini", "unsplash", "elevenlabs", "local"]),
+  provider: z.enum(["openai", "gemini", "unsplash", "elevenlabs", "typesafe", "local"]),
   status: z.enum(["queued", "running", "completed", "failed", "skipped"]),
   createdAt: timestamp,
   completedAt: timestamp.nullable().default(null),

@@ -44,7 +44,7 @@ export function loadPricing({ file = pricingFile(), reload = false }: { file?: s
  */
 export function selectableTextModels(pricing = loadPricing()) {
   return Object.entries(pricing.models)
-    .filter(([, tariff]) => tariff.inputPerMillion !== null && tariff.outputPerMillion !== null)
+    .filter(([id, tariff]) => !id.startsWith("jev-") && tariff.inputPerMillion !== null && tariff.outputPerMillion !== null)
     .map(([id, tariff]) => ({ id, inputPerMillion: tariff.inputPerMillion!, outputPerMillion: tariff.outputPerMillion! }))
     .sort((a, b) => a.inputPerMillion - b.inputPerMillion);
 }
@@ -61,6 +61,7 @@ export function configuredModels() {
     image: openAiModel("image"),
     imageHigh: `${openAiModel("image")}-high`,
     geminiImage: geminiImageModel(),
+    ...(process.env.JEV_RADAR_MODE === "observe" ? { jevObserver: "jev-1.13.0" } : {}),
   };
 }
 
@@ -78,10 +79,12 @@ export function missingPrices(pricing: Pricing, models = configuredModels()) {
   const missing: string[] = [];
   if (pricing.version === "sin-cargar") missing.push("version");
   for (const [purpose, model] of Object.entries(models)) {
+    if (!model) continue;
     const kind = purpose.toLowerCase().includes("image") ? "image" : "text";
     const tariff = pricing.models[model];
     if (!tariff) { missing.push(`models.${model}`); continue; }
-    for (const key of REQUIRED[kind]) if (tariff[key] === null) missing.push(`models.${model}.${key}`);
+    const required = purpose === "jevObserver" ? ["inputPerMillion", "outputPerMillion"] as const : REQUIRED[kind];
+    for (const key of required) if (tariff[key] === null) missing.push(`models.${model}.${key}`);
   }
   if (pricing.tools.webSearchPerCall === null) missing.push("tools.webSearchPerCall");
   if (process.env.ELEVENLABS_API_KEY?.trim() && pricing.speech.perThousandCharacters === null) {
