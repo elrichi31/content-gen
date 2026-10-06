@@ -119,12 +119,12 @@ export function createStudioMcpServer({ origin, scopes = ["studio:read", "studio
   const getContent = (id: string) => call(contentItem.GET, { params: { id } }) as Promise<{ id: string; revision: number; campaignId: string; type: string; document: { data: Record<string, unknown> } }>;
 
   type Shape = Record<string, z.ZodType>;
-  function tool<S extends Shape>(name: string, options: { description: string; input: S; readOnly?: boolean; spends?: boolean }, run: (args: z.infer<z.ZodObject<S>>) => Promise<unknown>) {
+  function tool<S extends Shape>(name: string, options: { description: string; input: S; readOnly?: boolean; spends?: boolean; destructive?: boolean }, run: (args: z.infer<z.ZodObject<S>>) => Promise<unknown>) {
     if (!scopes.includes(options.readOnly ? "studio:read" : "studio:write")) return;
     server.registerTool(name, {
       description: options.description,
       inputSchema: options.input,
-      annotations: { readOnlyHint: Boolean(options.readOnly), destructiveHint: false, openWorldHint: Boolean(options.spends) },
+      annotations: { readOnlyHint: Boolean(options.readOnly), destructiveHint: Boolean(options.destructive), openWorldHint: Boolean(options.spends) },
     }, (async (args: z.infer<z.ZodObject<S>>) => {
       try {
         const output = await run(args);
@@ -411,13 +411,23 @@ export function createStudioMcpServer({ origin, scopes = ["studio:read", "studio
     (args) => call(rules.POST, { method: "POST", body: args }));
   tool("editar_pauta", { description: "Cambia una pauta (días, horas, fechas, activa o pausada).", input: { id: id("la pauta"), ...Object.fromEntries(Object.entries(ruleFields).map(([key, schema]) => [key, schema.optional()])) } },
     ({ id: rule, ...patch }) => call(ruleItem.PATCH, { method: "PATCH", params: { id: rule }, body: patch }));
-  tool("listar_publicaciones", { description: "Piezas planificadas en un rango de fechas.", input: { startDate: date.optional(), endDate: date.optional(), campaignId: z.string().optional() }, readOnly: true },
-    (query) => call(posts.GET, { query }));
-  const postFields = { platform, date, time: clock, contentItemId: z.string().nullable().optional(), campaignId: z.string().nullable().optional(), title: z.string().max(200).optional(), notes: z.string().max(2000).optional(), status: z.enum(["planificada", "lista", "publicada", "omitida"]).optional() };
-  tool("planificar_publicacion", { description: "Asigna una pieza a un día y hora (un hueco por plataforma, día y hora). No publica nada.", input: postFields },
+  tool("listar_publicaciones", {
+    description: "Piezas planificadas en un rango de fechas. Con contentItemId dice en qué fechas está programada una pieza de la biblioteca.",
+    input: { startDate: date.optional(), endDate: date.optional(), campaignId: z.string().optional(), contentItemId: z.string().optional().describe("ID de la pieza (ver listar_contenido)") },
+    readOnly: true,
+  }, (query) => call(posts.GET, { query }));
+  // Las horas son de reloj, sin zona: las del estudio (por defecto America/Guayaquil, UTC-5).
+  const postFields = {
+    platform, date, time: clock.describe("Hora HH:MM, 24 h, en la zona horaria del estudio (UTC-5 por defecto)"),
+    contentItemId: z.string().nullable().optional().describe("Pieza de la biblioteca (ver listar_contenido). Opcional: sin ella el hueco queda reservado; null la desvincula"),
+    campaignId: z.string().nullable().optional(), title: z.string().max(200).optional(), notes: z.string().max(2000).optional(), status: z.enum(["planificada", "lista", "publicada", "omitida"]).optional(),
+  };
+  tool("planificar_publicacion", { description: "Programa en el calendario una pieza de la biblioteca (o un hueco sin pieza) en un día, hora y plataforma. Un hueco por plataforma, día y hora. No publica nada.", input: postFields },
     (args) => call(posts.POST, { method: "POST", body: args }));
-  tool("editar_publicacion", { description: "Cambia una publicación planificada: pieza, fecha, hora, notas o estado (p. ej. marcarla como lista).", input: { id: id("la publicación"), ...Object.fromEntries(Object.entries(postFields).map(([key, schema]) => [key, schema.optional()])) } },
+  tool("editar_publicacion", { description: "Cambia una publicación planificada: pieza, fecha, hora, notas o estado (p. ej. marcarla como lista). contentItemId=null desvincula la pieza y deja el hueco reservado.", input: { id: id("la publicación"), ...Object.fromEntries(Object.entries(postFields).map(([key, schema]) => [key, schema.optional()])) } },
     ({ id: post, ...patch }) => call(postItem.PATCH, { method: "PATCH", params: { id: post }, body: patch }));
+  tool("quitar_publicacion", { description: "Quita una publicación del calendario (desprograma la pieza). La pieza sigue en la biblioteca y, si el hueco venía de una pauta, vuelve a quedar libre.", input: { id: id("la publicación (ver listar_publicaciones)") }, destructive: true },
+    ({ id: post }) => call(postItem.DELETE, { method: "DELETE", params: { id: post } }));
 
   /* ------------------------------- Automatizaciones ------------------------------- */
 

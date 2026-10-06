@@ -2,7 +2,10 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Copy, Archive, PencilLine, RotateCcw, GalleryHorizontal, Megaphone, Clapperboard, FileText, type LucideIcon } from "lucide-react";
+import type { ScheduledPost } from "@content-gen/domain/schedule";
+import { Copy, Archive, CalendarPlus, PencilLine, RotateCcw, GalleryHorizontal, Megaphone, Clapperboard, FileText, type LucideIcon } from "lucide-react";
+import { ContentScheduleSheet, ScheduledBadge, type SchedulableItem } from "@/components/content-schedule-sheet";
+import { nowInZone, useStudioTimezone } from "@/components/schedule-shared";
 import { PageShell, PageHeading } from "@/components/page-shell";
 import { CONTENT_TYPE_LABEL, contentTitle } from "@/lib/content-title";
 import { Card, CardContent } from "@/components/ui/card";
@@ -29,6 +32,19 @@ export default function LibraryPage() {
   const [brandKitId, setBrandKitId] = useState("all");
   const [status, setStatus] = useState("active");
   const [q, setQ] = useState("");
+  const zone = useStudioTimezone();
+  const [scheduled, setScheduled] = useState<Map<string, ScheduledPost[]>>(new Map());
+  const [scheduling, setScheduling] = useState<SchedulableItem | null>(null);
+
+  // Próximas fechas de cada pieza: una sola lectura del calendario agrupada por pieza.
+  async function refreshScheduled() {
+    const response = await fetch(`/api/schedule/posts?startDate=${nowInZone(zone).date}`).catch(() => null);
+    const posts = response?.ok ? await response.json() as ScheduledPost[] : [];
+    const byItem = new Map<string, ScheduledPost[]>();
+    for (const post of posts) if (post.contentItemId) byItem.set(post.contentItemId, [...(byItem.get(post.contentItemId) ?? []), post]);
+    setScheduled(byItem);
+  }
+  useEffect(() => { void refreshScheduled(); }, [zone]);
 
   async function refresh() {
     const params = new URLSearchParams({ status });
@@ -129,6 +145,7 @@ export default function LibraryPage() {
                       <Icon className="h-5 w-5 text-foreground" />
                     </div>
                     <div className="flex flex-wrap items-center justify-end gap-1.5">
+                      <ScheduledBadge posts={scheduled.get(item.id) ?? []} />
                       {item.exportCount ? <Badge className="border-transparent bg-primary/15 text-primary">{item.exportCount} export{item.exportCount > 1 ? "s" : ""}</Badge> : null}
                       <Badge variant="secondary">{typeLabel[item.type] ?? item.type}</Badge>
                     </div>
@@ -151,6 +168,9 @@ export default function LibraryPage() {
                             <Link href={`${editorPath[item.type]}?id=${item.id}`}><PencilLine className="h-3.5 w-3.5" /> Abrir</Link>
                           </Button>
                         ) : null}
+                        <Button size="sm" variant="outline" onClick={() => setScheduling({ id: item.id, title: itemTitle(item) })}>
+                          <CalendarPlus className="h-3.5 w-3.5" /> Programar
+                        </Button>
                         <Button size="sm" variant="outline" onClick={() => void duplicate(item.id)}>
                           <Copy className="h-3.5 w-3.5" /> Duplicar
                         </Button>
@@ -170,6 +190,8 @@ export default function LibraryPage() {
           Sin resultados.
         </div>
       )}
+
+      <ContentScheduleSheet item={scheduling} onClose={() => setScheduling(null)} onChanged={() => void refreshScheduled()} />
     </PageShell>
   );
 }

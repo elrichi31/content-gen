@@ -71,6 +71,16 @@ try {
   assert.equal(globalPost.campaignId, null, "un hueco sin pieza puede quedarse sin campaña");
   assert.ok((await listPosts({ campaignId: "camp1" })).some((row) => row.id === globalPost.id), "lo global sigue visible al filtrar por campaña");
 
+  // La biblioteca pregunta por una pieza concreta; desvincularla deja el hueco reservado.
+  const dePieza = await listPosts({ contentItemId: "item1" });
+  assert.deepEqual(dePieza.map((row) => row.id), [post.id], "filtra por pieza de la biblioteca");
+  const suelta = await createPost({ platform: "youtube", date: "2026-08-07", time: "12:00", contentItemId: "item1" });
+  const desvinculada = await updatePost(suelta.id, { contentItemId: null });
+  assert.equal(desvinculada.contentItemId, null, "se puede desvincular la pieza");
+  assert.equal(desvinculada.title, "Guía de lanzamiento", "desvincular conserva el título del hueco");
+  assert.equal((await listPosts({ contentItemId: "item1" })).length, 1, "la pieza ya no aparece en ese hueco");
+  await deletePost(suelta.id);
+
   // Agosto de 2026 empieza en sábado: la rejilla arranca el 27 de julio.
   const calendario = await monthCalendar("2026-08");
   assert.deepEqual([calendario.startDate, calendario.endDate], ["2026-08-01", "2026-08-31"], "acota el mes pedido");

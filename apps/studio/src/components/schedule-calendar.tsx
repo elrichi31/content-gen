@@ -12,7 +12,8 @@ import {
   type PublishingRule,
   type ScheduledPost,
 } from "@content-gen/domain/schedule";
-import { CalendarDays, ChevronLeft, ChevronRight, Plus, Repeat, Trash2 } from "lucide-react";
+import Link from "next/link";
+import { CalendarDays, ChevronLeft, ChevronRight, ExternalLink, Plus, Repeat, Trash2, Unlink } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -23,6 +24,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { Textarea } from "@/components/ui/textarea";
 import { CONTENT_TYPE_LABEL, contentTitle } from "@/lib/content-title";
 import { cn } from "@/lib/utils";
+import { PLATFORM_LABEL, STATUS_LABEL, useStudioTimezone } from "@/components/schedule-shared";
 
 type Slot = { date: string; time: string; platform: PublishPlatform; ruleId: string | null; ruleName: string; post: ScheduledPost | null };
 type Calendar = {
@@ -37,12 +39,6 @@ type Calendar = {
 };
 type ContentItem = { id: string; type: string; campaignName?: string; document?: { data?: { title?: unknown; headline?: unknown } } };
 
-const PLATFORM_LABEL: Record<PublishPlatform, string> = {
-  instagram: "Instagram", tiktok: "TikTok", youtube: "YouTube", linkedin: "LinkedIn", blog: "Blog",
-};
-const STATUS_LABEL: Record<PostStatus, string> = {
-  planificada: "Planificada", lista: "Lista", publicada: "Publicada", omitida: "Omitida",
-};
 const STATUS_STYLE: Record<PostStatus, string> = {
   planificada: "border-border bg-muted/60 text-foreground",
   lista: "border-primary/40 bg-primary/12 text-foreground",
@@ -85,6 +81,11 @@ export function ScheduleCalendar() {
   }, [month]);
 
   useEffect(() => { void load(); }, [load]);
+  // La biblioteca enlaza aquí con ?month=YYYY-MM para abrir el mes de la publicación.
+  useEffect(() => {
+    const requested = new URLSearchParams(window.location.search).get("month");
+    if (requested && /^\d{4}-(0[1-9]|1[0-2])$/.test(requested)) setMonth(requested);
+  }, []);
   useEffect(() => {
     void fetch("/api/content-items?status=active")
       .then((response) => response.ok ? response.json() as Promise<ContentItem[]> : [])
@@ -196,6 +197,7 @@ export function ScheduleCalendar() {
 type Send = (url: string, method: string, body?: unknown) => Promise<boolean>;
 
 function SlotEditor({ slot, items, onClose, onSend }: { slot: Slot | null; items: ContentItem[]; onClose: () => void; onSend: Send }) {
+  const zone = useStudioTimezone();
   const [draft, setDraft] = useState({ contentItemId: "", title: "", notes: "", status: "planificada" as PostStatus, date: "", time: "", platform: "instagram" as PublishPlatform });
   const [saving, setSaving] = useState(false);
   // El panel no se desmonta al cerrarse: quitar un Sheet abierto de golpe se salta la limpieza
@@ -256,6 +258,7 @@ function SlotEditor({ slot, items, onClose, onSend }: { slot: Slot | null; items
               <Input id="slot-time" type="time" value={draft.time} onChange={(event) => setDraft({ ...draft, time: event.target.value })} />
             </div>
           </div>
+          <p className="-mt-2 text-xs text-muted-foreground">Hora de {zone}.</p>
 
           <div className="space-y-1.5">
             <Label htmlFor="slot-platform">Plataforma</Label>
@@ -270,6 +273,17 @@ function SlotEditor({ slot, items, onClose, onSend }: { slot: Slot | null; items
               <option value="">Sin asignar todavía</option>
               {items.map((item) => <option key={item.id} value={item.id}>{`${contentTitle(item)} · ${CONTENT_TYPE_LABEL[item.type] ?? item.type} · ${item.campaignName ?? "Sin campaña"}`}</option>)}
             </select>
+            {draft.contentItemId ? (
+              <div className="flex flex-wrap gap-1">
+                <Button asChild variant="ghost" size="sm">
+                  <Link href={`/content/${draft.contentItemId}`}><ExternalLink className="h-3.5 w-3.5" /> Ver en la biblioteca</Link>
+                </Button>
+                {/* Desvincular deja el hueco reservado con su título y notas; se guarda con «Guardar». */}
+                <Button variant="ghost" size="sm" onClick={() => setDraft({ ...draft, contentItemId: "" })}>
+                  <Unlink className="h-3.5 w-3.5" /> Desvincular pieza
+                </Button>
+              </div>
+            ) : null}
           </div>
 
           <div className="space-y-1.5">

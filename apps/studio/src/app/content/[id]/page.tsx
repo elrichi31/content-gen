@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ArrowLeft, Download, PencilLine } from "lucide-react";
+import { ArrowLeft, CalendarPlus, Download, PencilLine } from "lucide-react";
+import { ContentScheduleSheet, type SchedulableItem } from "@/components/content-schedule-sheet";
 import { PageShell, PageHeading } from "@/components/page-shell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -36,6 +37,7 @@ function documentTitle(detail: Detail) {
 export default function ContentDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const [detail, setDetail] = useState<Detail | null>(null);
   const [error, setError] = useState("");
+  const [scheduling, setScheduling] = useState<SchedulableItem | null>(null);
 
   useEffect(() => {
     void params.then(async ({ id }) => {
@@ -69,6 +71,11 @@ export default function ContentDetailPage({ params }: { params: Promise<{ id: st
         actions={
           <div className="flex items-center gap-2">
             {detail.archivedAt ? <Badge variant="secondary">Archivado</Badge> : <Badge className="bg-primary/15 text-primary border-transparent">Activo</Badge>}
+            {!detail.archivedAt ? (
+              <Button size="sm" variant="outline" onClick={() => setScheduling({ id: detail.id, title: documentTitle(detail) })}>
+                <CalendarPlus className="h-4 w-4" /> Programar en calendario
+              </Button>
+            ) : null}
             {!detail.archivedAt && editorPath[detail.type] ? (
               <Button asChild size="sm" variant="outline">
                 <Link href={`${editorPath[detail.type]}?id=${detail.id}`}><PencilLine className="h-4 w-4" /> Abrir en el editor</Link>
@@ -130,6 +137,8 @@ export default function ContentDetailPage({ params }: { params: Promise<{ id: st
           </CardContent>
         </Card>
       </div>
+
+      <ContentScheduleSheet item={scheduling} onClose={() => setScheduling(null)} />
     </PageShell>
   );
 }

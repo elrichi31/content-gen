@@ -9,6 +9,7 @@ export async function GET(request: Request) {
       startDate: params.get("startDate") ?? undefined,
       endDate: params.get("endDate") ?? undefined,
       campaignId: params.get("campaignId"),
+      contentItemId: params.get("contentItemId"),
     }));
   } catch (error) {
     return fail(error, "No se pudieron leer las publicaciones planificadas.");

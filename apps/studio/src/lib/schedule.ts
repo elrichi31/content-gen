@@ -93,10 +93,12 @@ export async function getRule(id: string) {
 
 /* --------------------------- Publicaciones --------------------------- */
 
-export async function listPosts({ startDate, endDate, campaignId }: { startDate?: string; endDate?: string; campaignId?: string | null } = {}) {
+export async function listPosts({ startDate, endDate, campaignId, contentItemId }: { startDate?: string; endDate?: string; campaignId?: string | null; contentItemId?: string | null } = {}) {
   const clauses: string[] = [];
   const params: unknown[] = [];
   if (startDate) { clauses.push("date >= ?"); params.push(startDate); }
+  // Desde la biblioteca se pregunta "¿dónde va esta pieza?": basta con la columna ya indexable.
+  if (contentItemId) { clauses.push("content_item_id = ?"); params.push(contentItemId); }
   if (endDate) { clauses.push("date <= ?"); params.push(endDate); }
   // Igual que las pautas: lo que no tiene campaña es global y no puede desaparecer al filtrar.
   // Ocultarlo dejaría el hueco pintado como libre aunque ya esté ocupado, y planificar encima
