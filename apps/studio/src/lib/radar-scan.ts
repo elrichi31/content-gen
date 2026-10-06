@@ -15,7 +15,7 @@ import { radarScanInputSchema, researchVertical, structureTopics, type VerticalR
  * vertical, estructurar, guardar. Nada de mensajes rotando que finjan actividad.
  */
 export type RadarProgress =
-  | { type: "start"; verticals: string[]; steps: number }
+  | { type: "start"; runId: string; verticals: string[]; steps: number }
   | { type: "research"; vertical: string; step: number; steps: number }
   | { type: "research-done"; vertical: string; searches: number; step: number; steps: number }
   | { type: "research-failed"; vertical: string; reason: string; step: number; steps: number }
@@ -27,6 +27,21 @@ export type RadarProgress =
  * su propia operación— y además se agrega en la corrida, que es la unidad que interesa comparar
  * contra el valor obtenido: el costo por tema aprobado.
  */
+/**
+ * Corridas vivas en este proceso, para poder cortarlas. Cancelar aborta las llamadas a OpenAI en
+ * curso: lo que ya se pagó se pierde igual, pero se deja de pagar lo que faltaba.
+ */
+const liveRuns = new Map<string, AbortController>();
+
+/** Cancela una corrida. Si no vive en este proceso (murió o está en otro), solo se cierra en la base. */
+export async function cancelRadarRun(runId: string) {
+  const run = await getRadarRun(runId);
+  if (run.status !== "running") throw new RadarError("Esa búsqueda ya no está en marcha.", 409);
+  liveRuns.get(runId)?.abort();
+  return finishRadarRun(runId, { status: "failed", error: CANCELLED });
+}
+const CANCELLED = "Cancelada a mano antes de terminar.";
+
 export async function scanRadar(input: unknown = {}, { request = fetch, now = new Date(), onProgress }: { request?: typeof fetch; now?: Date; onProgress?: (event: RadarProgress) => void } = {}) {
   const parsed = radarScanInputSchema.safeParse(input);
   if (!parsed.success) throw new RadarError(`La solicitud de corrida no es válida: ${parsed.error.issues[0]?.message}`, 400);
@@ -77,36 +92,49 @@ export async function scanRadar(input: unknown = {}, { request = fetch, now = ne
   const today = todayLocal(now);
   const brands = await brandProfiles(watchlist.map((entry) => entry.brandKitId));
   const run = await beginRadarRun({ verticals: watchlist.map((entry) => entry.vertical), windowDays, focus });
+  const cancel = new AbortController();
+  liveRuns.set(run.id, cancel);
+  // Cada llamada a OpenAI lleva su propio límite de tiempo; esto le suma la cancelación manual.
+  const cancellable: typeof fetch = (url, init) => request(url, { ...init, signal: init?.signal ? AbortSignal.any([init.signal, cancel.signal]) : cancel.signal });
+  const stopIfCancelled = () => { if (cancel.signal.aborted) throw new RadarError(CANCELLED, 409); };
 
   // Un paso por vertical, más estructurar, más guardar.
   const steps = watchlist.length + 2;
   const report = (event: RadarProgress) => { try { onProgress?.(event); } catch { /* informar no puede tumbar la corrida */ } };
-  report({ type: "start", verticals: watchlist.map((entry) => entry.vertical), steps });
+  report({ type: "start", runId: run.id, verticals: watchlist.map((entry) => entry.vertical), steps });
 
   try {
-    // Una búsqueda por vertical, no por tema: es la decisión que más pesa en la factura.
-    const research: VerticalResearch[] = [];
+    // Una búsqueda por vertical, no por tema: es la decisión que más pesa en la factura. Van a la
+    // vez y no en fila: en fila, cuatro verticales eran cuatro esperas de minutos sumadas; a la vez,
+    // la corrida tarda lo que el más lento. El costo es el mismo.
+    // ponytail: sin tope de concurrencia; con más de ~6 verticales activos, limitar a 4 a la vez.
     const failures: string[] = [];
-    let step = 0;
-    for (const entry of watchlist) {
-      step += 1;
-      report({ type: "research", vertical: entry.vertical, step, steps });
+    let finished = 0;
+    report({ type: "research", vertical: watchlist.map((entry) => entry.vertical).join(", "), step: 1, steps });
+    const settled = await Promise.all(watchlist.map(async (entry) => {
       try {
         const done = await trackGeneration({ operation: "radar-research", model: researchModel }, async () => {
           const brand = entry.brandKitId ? brands.get(entry.brandKitId) ?? null : null;
-          const result = await researchVertical(entry, { windowDays, today, recentTitles: memory.titles, brand, maxSearches, minSources, searchContextSize, focus, model: researchModel, request });
+          const result = await researchVertical(entry, { windowDays, today, recentTitles: memory.titles, brand, maxSearches, minSources, searchContextSize, focus, model: researchModel, request: cancellable });
           return { value: result, usage: result.usage };
         });
-        research.push(done);
-        report({ type: "research-done", vertical: entry.vertical, searches: done.usage.webSearchCalls, step, steps });
+        finished += 1;
+        report({ type: "research-done", vertical: entry.vertical, searches: done.usage.webSearchCalls, step: finished, steps });
+        return done;
       } catch (error) {
         // Un vertical caído no debe tirar la corrida entera ni perder lo ya investigado y pagado.
-        const reason = error instanceof Error ? error.message : "error desconocido";
+        const reason = cancel.signal.aborted ? "cancelado" : error instanceof Error ? error.message : "error desconocido";
         failures.push(`${entry.vertical}: ${reason}`);
-        report({ type: "research-failed", vertical: entry.vertical, reason, step, steps });
+        finished += 1;
+        report({ type: "research-failed", vertical: entry.vertical, reason, step: finished, steps });
+        return null;
       }
-    }
+    }));
+    stopIfCancelled();
+    // En el orden de la lista de vigilancia, no en el de llegada: las notas guardadas no dependen de quién tardó menos.
+    const research = settled.filter((item): item is VerticalResearch => item !== null);
     if (!research.length) throw new RadarError(`Ningún vertical se pudo investigar. ${failures.join(" | ")}`, 502);
+    let step = watchlist.length;
 
     // Las notas se guardan **antes** de interpretarlas. Buscar es el ~80% del gasto y ya está
     // pagado: si la estructuración falla, la corrida termina en error pero lo caro se conserva y
@@ -116,9 +144,10 @@ export async function scanRadar(input: unknown = {}, { request = fetch, now = ne
     step += 1;
     report({ type: "structure", step, steps });
     const structured = await trackGeneration({ operation: "radar-structure", model: structuringModel }, async () => {
-      const done = await structureTopics(research, { maxTopics, recentTitles: memory.titles, minSources, focus, model: structuringModel, request });
+      const done = await structureTopics(research, { maxTopics, recentTitles: memory.titles, minSources, focus, model: structuringModel, request: cancellable });
       return { value: done, usage: done.usage };
     });
+    stopIfCancelled();
 
     const { topics: normalized, rejections } = normalizeTopics(structured.topics, { runId: run.id, research, minSources, verifySources, now });
 
@@ -158,8 +187,11 @@ export async function scanRadar(input: unknown = {}, { request = fetch, now = ne
       },
     };
   } catch (error) {
-    await finishRadarRun(run.id, { status: "failed", error: error instanceof Error ? error.message.slice(0, 1000) : "Error desconocido" });
-    throw error;
+    const reason = cancel.signal.aborted ? CANCELLED : error instanceof Error ? error.message.slice(0, 1000) : "Error desconocido";
+    await finishRadarRun(run.id, { status: "failed", error: reason });
+    throw cancel.signal.aborted ? new RadarError(CANCELLED, 409) : error;
+  } finally {
+    liveRuns.delete(run.id);
   }
 }
 

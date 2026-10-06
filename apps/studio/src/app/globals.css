@@ -175,6 +175,12 @@ html.sidebar-collapsed {
   }
 }
 
+/* Barra indeterminada: trabajo en curso cuyo avance no se conoce (búsqueda lanzada desde fuera). */
+@keyframes radar-scan {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(300%); }
+}
+
 /* ─────────────────────────────────────────────────────────────
    Carousel renderer — required by CarouselFrame / carousel-preview.
    Fonts mapped to the real web fonts loaded in layout.tsx.

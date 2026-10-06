@@ -172,13 +172,13 @@ assert.equal((await topicContentItems(target.id)).length, 1, "ligar dos veces la
 
 /* ------------------------- Fallos que no tumban ------------------------- */
 
-let attempt = 0;
 const flakyFetch = (async (_url: string, init?: RequestInit) => {
-  const parsed = JSON.parse(String(init?.body ?? "{}")) as { tools?: unknown[] };
+  const body = String(init?.body ?? "{}");
+  const parsed = JSON.parse(body) as { tools?: unknown[] };
   if (parsed.tools) {
-    attempt += 1;
-    // El primer vertical se cae; el segundo responde.
-    if (attempt === 1) return new Response(JSON.stringify({ error: { message: "Se agotó la cuota" } }), { status: 429 });
+    // Ciberseguridad se cae; Automatización responde. Por nombre y no por orden: los verticales
+    // se buscan a la vez y el orden de llegada cambia de una corrida a otra.
+    if (body.includes("Vertical a vigilar: Ciberseguridad")) return new Response(JSON.stringify({ error: { message: "Se agotó la cuota" } }), { status: 429 });
     return new Response(JSON.stringify({ output_text: "Notas", usage: { input_tokens: 10, output_tokens: 10 }, output: [{ type: "web_search_call" }] }));
   }
   return new Response(JSON.stringify({ output_text: JSON.stringify({ topics: [topicFor("Tema totalmente distinto sobre facturación", "Automatización")] }), usage: { input_tokens: 10, output_tokens: 10 } }));
@@ -452,6 +452,26 @@ assert.match(enfocadas.at(-1)!.body, /ransomware en cl/, "y relee con el tema qu
 const sinTema = await scanRadar({ focus: "", verticals: ["Automatización"] }, { request: busquedaEnfocada, now: new Date("2026-08-26T13:00:00.000Z") });
 assert.equal(sinTema.run.focus, null, "un tema vacío es el barrido de siempre, no un enfoque en blanco");
 assert.equal(enfocadas.at(-2)!.body.includes("Tema concreto que se te pide"), false, "y su prompt no arrastra instrucciones de enfoque");
+
+/* --------------------------- Paralelo y cancelación --------------------------- */
+
+const { cancelRadarRun } = await import("./radar-scan.ts");
+let enVuelo = 0;
+let maxEnVuelo = 0;
+// Búsqueda que no termina nunca sola: solo la cancelación la corta.
+const sinFin = (async (_url: string, init?: RequestInit) => {
+  enVuelo += 1; maxEnVuelo = Math.max(maxEnVuelo, enVuelo);
+  return new Promise<Response>((_resolve, reject) => init?.signal?.addEventListener("abort", () => { enVuelo -= 1; reject(init.signal!.reason); }));
+}) as typeof fetch;
+let runId = "";
+const colgando = scanRadar({}, { request: sinFin, now: new Date("2026-08-27T10:00:00.000Z"), onProgress: (event) => { if (event.type === "start") runId = event.runId; } });
+while (maxEnVuelo < 2) await new Promise((resolve) => setTimeout(resolve, 5));
+assert.equal(maxEnVuelo, 2, "los dos verticales se buscan a la vez, no uno detrás de otro");
+const cancelada = await cancelRadarRun(runId);
+assert.equal(cancelada.status, "failed", "cancelar cierra la corrida y libera el radar al momento");
+await assert.rejects(colgando, /Cancelada/, "y la corrida en curso termina como cancelada, no como un fallo cualquiera");
+assert.equal(enVuelo, 0, "las llamadas a OpenAI en curso se abortan: se deja de pagar lo que faltaba");
+await assert.rejects(() => cancelRadarRun(runId), /ya no está en marcha/, "cancelar dos veces no hace nada");
 
 await testDb.drop();
 await rm(root, { recursive: true, force: true });

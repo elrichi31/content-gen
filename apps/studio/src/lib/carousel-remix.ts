@@ -30,28 +30,49 @@ export const carouselRemixInputSchema = z.object({
 
 export function safeRemixUrl(value: string) {
   const url = new URL(value);
-  if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.port && url.port !== (url.protocol === "https:" ? "443" : "80") || blockedName(url.hostname) || blockedIp(url.hostname)) throw new RemixError("La URL no es pública ni segura para remix.");
+  if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.port && url.port !== (url.protocol === "https:" ? "443" : "80") || blockedName(url.hostname) || blockedIp(url.hostname)) throw new RemixError("La URL no es pública ni segura.");
   return url;
 }
 
 type PublicLoader = (url: URL, address: string) => Promise<string>;
+type Download = { bytes: Buffer; contentType: string };
 
-function pageText(url: URL, address: string) {
-  return new Promise<string>((resolve, reject) => {
+/** GET contra la IP ya comprobada (sin volver a resolver DNS), sin redirecciones y con tope de tamaño. */
+function download(url: URL, address: string, { accept, limit, allowed }: { accept: string; limit: number; allowed: (contentType: string) => boolean }) {
+  return new Promise<Download>((resolve, reject) => {
     const client = url.protocol === "https:" ? httpsRequest : httpRequest;
-    const request = client(url, { headers: { Accept: "text/html" }, lookup: (_host, options, done) => { const family = isIP(address); if (options.all) done(null, [{ address, family }]); else done(null, address, family); }, servername: url.hostname }, (response) => {
+    const request = client(url, { headers: { Accept: accept }, lookup: (_host, options, done) => { const family = isIP(address); if (options.all) done(null, [{ address, family }]); else done(null, address, family); }, servername: url.hostname }, (response) => {
       const length = Number(response.headers["content-length"]);
-      if (response.statusCode && (response.statusCode < 200 || response.statusCode >= 300)) { response.resume(); return reject(new RemixError("No se pudo leer la URL para remix.")); }
-      if (!String(response.headers["content-type"] ?? "").toLowerCase().includes("text/html")) { response.resume(); return reject(new RemixError("La URL debe devolver una página HTML.")); }
-      if (Number.isFinite(length) && length > maxBytes) { response.resume(); return reject(new RemixError("La página supera el límite permitido.")); }
+      const contentType = String(response.headers["content-type"] ?? "").toLowerCase();
+      if (response.statusCode && (response.statusCode < 200 || response.statusCode >= 300)) { response.resume(); return reject(new RemixError(`La URL respondió ${response.statusCode}.`)); }
+      if (!allowed(contentType)) { response.resume(); return reject(new RemixError(`La URL devolvió un tipo no admitido (${contentType || "desconocido"}).`)); }
+      if (Number.isFinite(length) && length > limit) { response.resume(); return reject(new RemixError("El archivo supera el límite permitido.")); }
       const chunks: Buffer[] = []; let size = 0;
-      response.on("data", (chunk: Buffer) => { size += chunk.length; if (size > maxBytes) response.destroy(new RemixError("La página supera el límite permitido.")); else chunks.push(chunk); });
-      response.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+      response.on("data", (chunk: Buffer) => { size += chunk.length; if (size > limit) response.destroy(new RemixError("El archivo supera el límite permitido.")); else chunks.push(chunk); });
+      response.on("end", () => resolve({ bytes: Buffer.concat(chunks), contentType }));
       response.on("error", reject);
     });
     request.setTimeout(10_000, () => request.destroy(new RemixError("La URL tardó demasiado en responder.")));
     request.on("error", reject); request.end();
   });
+}
+
+const pageText: PublicLoader = async (url, address) =>
+  (await download(url, address, { accept: "text/html", limit: maxBytes, allowed: (type) => type.includes("text/html") })).bytes.toString("utf8");
+
+/** Resuelve y rechaza cualquier dirección privada antes de conectar: el servidor no debe poder leer su propia red. */
+async function publicAddress(url: URL, lookup: PublicLookup) {
+  const addresses = await lookup(url.hostname, { all: true, verbatim: true });
+  if (addresses.some(({ address }) => blockedIp(address))) throw new RemixError("La URL apunta a una red privada y fue bloqueada.");
+  const address = addresses[0]?.address; if (!address) throw new RemixError("La URL no resolvió una IP pública.");
+  return address;
+}
+
+/** Descarga un archivo público (imagen, audio, video) con las mismas defensas que el remix. */
+export async function downloadPublicFile(value: string, { limit = 20_000_000, lookup = dnsLookup as PublicLookup }: { limit?: number; lookup?: PublicLookup } = {}) {
+  const url = safeRemixUrl(value);
+  const file = await download(url, await publicAddress(url, lookup), { accept: "image/*,audio/*,video/*", limit, allowed: (type) => /^(image|audio|video)\//.test(type) });
+  return { ...file, filename: decodeURIComponent(url.pathname.split("/").pop() || "archivo").slice(0, 120) };
 }
 
 const clean = (value: string) => value.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>|<[^>]*>/gi, " ").replace(/\s+/g, " ").trim();
@@ -68,8 +89,6 @@ export function extractRemixContext(html: string) {
 type PublicLookup = (hostname: string, options: { all: true; verbatim: true }) => Promise<{ address: string }[]>;
 
 export async function remixContext(value: string, lookup: PublicLookup = dnsLookup, load: PublicLoader = pageText) {
-  const url = safeRemixUrl(value); const addresses = await lookup(url.hostname, { all: true, verbatim: true });
-  if (addresses.some(({ address }) => blockedIp(address))) throw new RemixError("La URL apunta a una red privada y fue bloqueada.");
-  const address = addresses[0]?.address; if (!address) throw new RemixError("La URL no resolvió una IP pública.");
-  return extractRemixContext(await load(url, address));
+  const url = safeRemixUrl(value);
+  return extractRemixContext(await load(url, await publicAddress(url, lookup)));
 }

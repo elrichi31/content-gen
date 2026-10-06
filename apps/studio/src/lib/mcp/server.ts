@@ -26,6 +26,8 @@ import * as contentItems from "@/app/api/content-items/route";
 import * as costs from "@/app/api/costs/route";
 import * as radar from "@/app/api/radar/route";
 import * as radarRun from "@/app/api/radar/run/route";
+import * as radarCancel from "@/app/api/radar/runs/[id]/cancel/route";
+import * as radarRestructure from "@/app/api/radar/runs/[id]/restructure/route";
 import * as radarTopic from "@/app/api/radar/topics/[id]/route";
 import * as watchlistItem from "@/app/api/radar/watchlist/[id]/route";
 import * as watchlist from "@/app/api/radar/watchlist/route";
@@ -43,9 +45,13 @@ import * as sceneImage from "@/app/api/videos/[id]/scenes/[sceneId]/image/route"
 import * as voiceoverScript from "@/app/api/videos/[id]/voiceover-script/route";
 import * as videoGenerate from "@/app/api/videos/generate/route";
 import * as voices from "@/app/api/voices/route";
+import { readAsset, storeAsset } from "@/lib/asset-storage";
+import { assertAssetSignature, assetExtensions } from "@/lib/asset-file";
+import { campaignCaptions } from "@/lib/campaign-export";
 import { imagesToDocument } from "@/lib/carousel-automation-rules";
 import { drawAiCarousel, prepareAiCarousel } from "@/lib/carousel-pipeline";
 import { contentTitle } from "@/lib/content-title";
+import { downloadPublicFile } from "@/lib/carousel-remix";
 
 /*
  * Servidor MCP del Studio. Cada herramienta llama en proceso a la misma ruta de API que usa la
@@ -58,6 +64,12 @@ type Handler = (request: Request, context: { params: Promise<Record<string, stri
 type Call = { method?: string; params?: Record<string, string>; query?: Record<string, unknown>; body?: unknown };
 
 class ToolError extends Error {}
+
+/** Resultado que además trae una imagen: el agente la ve sin tener que iniciar sesión en el Studio. */
+class WithImage {
+  result: unknown; bytes: Buffer; mimeType: string;
+  constructor(result: unknown, bytes: Buffer, mimeType: string) { this.result = result; this.bytes = bytes; this.mimeType = mimeType; }
+}
 
 /** Mensaje legible de un error de ruta: a veces es texto, a veces el `flatten()` de zod. */
 function describe(error: unknown) {
@@ -114,7 +126,11 @@ export function createStudioMcpServer({ origin, scopes = ["studio:read", "studio
       inputSchema: options.input,
       annotations: { readOnlyHint: Boolean(options.readOnly), destructiveHint: false, openWorldHint: Boolean(options.spends) },
     }, (async (args: z.infer<z.ZodObject<S>>) => {
-      try { return { content: [{ type: "text" as const, text: JSON.stringify(await run(args), null, 2) }] }; }
+      try {
+        const output = await run(args);
+        if (!(output instanceof WithImage)) return { content: [{ type: "text" as const, text: JSON.stringify(output, null, 2) }] };
+        return { content: [{ type: "text" as const, text: JSON.stringify(output.result, null, 2) }, { type: "image" as const, data: output.bytes.toString("base64"), mimeType: output.mimeType }] };
+      }
       catch (error) { return { isError: true, content: [{ type: "text" as const, text: error instanceof Error ? error.message : "La herramienta falló." }] }; }
     }) as never);
   }
@@ -127,6 +143,33 @@ export function createStudioMcpServer({ origin, scopes = ["studio:read", "studio
   const clock = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).describe("Hora HH:MM, 24 h");
   const platform = z.enum(["instagram", "tiktok", "youtube", "linkedin", "blog"]);
   const spendNote = " Gasta créditos de IA.";
+
+  /* ----------------------------------- Resumen ----------------------------------- */
+
+  tool("resumen_estado", {
+    description: "Foto del Studio en una llamada: borradores por tipo, publicaciones de los próximos 7 días (y huecos sin pieza), renders en curso o fallidos, gasto del mes, temas nuevos del radar y automatizaciones. Úsala primero para saber por dónde empezar.",
+    input: {},
+    readOnly: true,
+  }, async () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const week = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10);
+    const [items, upcoming, jobs, radarState, automationList] = await Promise.all([
+      call(contentItems.GET) as Promise<{ id: string; type: string; updatedAt: string; document: { data?: Record<string, unknown> } }[]>,
+      call(posts.GET, { query: { startDate: today, endDate: week } }) as Promise<{ id: string; date: string; time: string; platform: string; status: string; contentItemId: string | null; title: string }[]>,
+      call(renderJobs.GET) as Promise<{ id: string; contentItemId: string; status: string; progress: number; error: string | null; createdAt: string }[]>,
+      call(radar.GET, { query: { status: "nuevo", limit: 5 } }) as Promise<{ topics: { id: string; title: string; score: number; vertical: string }[]; counts: Record<string, number>; spend: unknown }>,
+      call(automations.GET) as Promise<{ id: string; name: string; active: boolean; nextSlot: unknown; lastRunAt: string | null; lastResult: string | null; lastFailed: boolean }[]>,
+    ]);
+    const byType = items.reduce<Record<string, number>>((counts, item) => ({ ...counts, [item.type]: (counts[item.type] ?? 0) + 1 }), {});
+    return {
+      biblioteca: { total: items.length, porTipo: byType, recientes: items.slice(0, 5).map((item) => ({ id: item.id, type: item.type, title: contentTitle(item as never), updatedAt: item.updatedAt })) },
+      proximos7Dias: { publicaciones: upcoming.map(({ id: post, date, time, platform, status, contentItemId, title }) => ({ id: post, date, time, platform, status, contentItemId, title })), sinPieza: upcoming.filter((post) => !post.contentItemId).length },
+      renders: jobs.filter((job) => ["queued", "processing", "failed"].includes(job.status)).slice(0, 10).map(({ id: job, contentItemId, status, progress, error, createdAt }) => ({ id: job, contentItemId, status, progress, error, createdAt })),
+      gastoDelMes: radarState.spend,
+      radar: { contadores: radarState.counts, mejoresNuevos: radarState.topics.map(({ id: topic, title, score, vertical }) => ({ id: topic, title, score, vertical })) },
+      automatizaciones: automationList.map(({ id: automation, name, active, nextSlot, lastRunAt, lastResult, lastFailed }) => ({ id: automation, name, active, nextSlot, lastRunAt, lastResult, lastFailed })),
+    };
+  });
 
   /* ------------------------------ Marcas y campañas ------------------------------ */
 
@@ -165,6 +208,55 @@ export function createStudioMcpServer({ origin, scopes = ["studio:read", "studio
   tool("duplicar_contenido", { description: "Duplica una pieza dentro de su campaña.", input: { id: id("la pieza") } }, ({ id: item }) => call(contentDuplicate.POST, { method: "POST", params: { id: item } }));
   tool("listar_assets", { description: "Imágenes, audios y videos de una campaña (los 100 más recientes). Su URL es /api/assets/{id}.", input: { campaignId, kind: z.enum(["all", "image", "audio", "video"]).default("all") }, readOnly: true },
     (query) => call(assets.GET, { query }));
+
+  tool("ver_asset", {
+    description: "Muestra una imagen guardada (slide de carrusel IA, imagen de escena, fondo de anuncio…) para revisarla. Para audio y video devuelve solo sus datos.",
+    input: { id: id("el asset (ver listar_assets u obtener_contenido)") },
+    readOnly: true,
+  }, async ({ id: assetId }) => {
+    const asset = await readAsset(assetId);
+    if (!asset) throw new ToolError("Ese asset no existe.");
+    const result = { id: assetId, mimeType: asset.mimeType, sizeBytes: asset.bytes.length, url: new URL(`/api/assets/${assetId}`, origin).href };
+    // Más de ~4 MB en base64 revienta el contexto de muchos clientes; para revisar basta con menos.
+    return asset.mimeType.startsWith("image/") && asset.bytes.length <= 4_000_000 ? new WithImage(result, asset.bytes, asset.mimeType) : result;
+  });
+  tool("subir_asset", {
+    description: "Guarda en una campaña una imagen, audio o video (PNG, JPG, WebP, MP3, WAV o MP4) desde una URL pública o en base64, p. ej. un logo o una foto que te pasaron. Devuelve su ID y URL para usarla con editar_contenido.",
+    input: {
+      campaignId,
+      url: z.string().url().max(2000).optional().describe("URL pública http(s) del archivo"),
+      base64: z.string().max(14_000_000).optional().describe("Contenido en base64 (máx. ~10 MB), alternativa a url"),
+      mimeType: z.enum(Object.keys(assetExtensions) as [string, ...string[]]).optional().describe("Obligatorio con base64"),
+      filename: z.string().min(1).max(120).optional(),
+      contentItemId: z.string().optional().describe("Pieza a la que pertenece, si aplica"),
+    },
+  }, async ({ campaignId: campaign, url, base64, mimeType, filename, contentItemId }) => {
+    if (Boolean(url) === Boolean(base64)) throw new ToolError("Pasa url o base64, uno de los dos.");
+    const file = url ? await downloadPublicFile(url) : { bytes: Buffer.from(base64 ?? "", "base64"), contentType: mimeType ?? "", filename: filename ?? "archivo" };
+    const type = (mimeType ?? file.contentType).split(";")[0].trim().replace("image/jpg", "image/jpeg");
+    if (!assetExtensions[type]) throw new ToolError(`Tipo no admitido (${type || "desconocido"}). Admitidos: ${Object.keys(assetExtensions).join(", ")}.`);
+    // Lo mismo que exige la subida desde la app: que los bytes sean de verdad lo que dicen ser.
+    try { assertAssetSignature(file.bytes, type); } catch { throw new ToolError(`El contenido no es un ${type} válido.`); }
+    const asset = await storeAsset({ bytes: file.bytes, mimeType: type, filename: filename ?? file.filename, campaignId: campaign, contentItemId: contentItemId ?? null }) as { id: string };
+    return { id: asset.id, mimeType: type, sizeBytes: file.bytes.length, url: `/api/assets/${asset.id}` };
+  });
+  tool("textos_campana", {
+    description: "Lo listo para publicar de una campaña: el caption y los hashtags de cada pieza y la URL del último render terminado de cada video.",
+    input: { campaignId },
+    readOnly: true,
+  }, async ({ campaignId: campaign }) => {
+    const [items, jobs] = await Promise.all([
+      call(contentItems.GET, { query: { campaignId: campaign } }) as Promise<{ id: string; type: "carousel" | "ad" | "video" | "article"; document: { data: unknown } }[]>,
+      call(renderJobs.GET) as Promise<{ contentItemId: string; status: string; outputAssetId: string | null; completedAt: string | null }[]>,
+    ]);
+    return items.filter((item) => item.type !== "article").map((item) => {
+      const render = jobs.filter((job) => job.contentItemId === item.id && job.status === "completed" && job.outputAssetId)
+        .sort((a, b) => String(b.completedAt).localeCompare(String(a.completedAt)))[0];
+      // campaignCaptions antepone una etiqueta [tipo-id] pensada para el .txt del ZIP; aquí sobra.
+      const text = campaignCaptions([{ id: item.id, type: item.type as "carousel" | "ad" | "video", document: item.document.data }]).split("\n").slice(1).join("\n").trim();
+      return { id: item.id, type: item.type, title: contentTitle(item as never), texto: text || null, video: render ? new URL(`/api/assets/${render.outputAssetId}`, origin).href : null };
+    });
+  });
 
   /* --------------------------------- Carruseles --------------------------------- */
 
@@ -351,18 +443,38 @@ export function createStudioMcpServer({ origin, scopes = ["studio:read", "studio
     input: { status: z.enum(["nuevo", "guardado", "descartado", "usado"]).optional(), vertical: z.string().optional(), sort: z.enum(["score", "recent", "oldest"]).default("score"), limit: z.number().int().min(1).max(100).default(20) },
     readOnly: true,
   }, async (query) => {
-    const result = await call(radar.GET, { query }) as Record<string, unknown>;
-    return { topics: result.topics, counts: result.counts, verticals: result.verticals, spend: result.spend };
+    const result = await call(radar.GET, { query }) as Record<string, unknown> & { runs: { id: string; status: string; startedAt: string; verticals: string[]; focus: string | null }[] };
+    // Sin las notas de investigación de cada corrida: pesan mucho y solo sirven para reinterpretar.
+    const runs = result.runs.slice(0, 5).map(({ id: run, status, startedAt, verticals, focus }) => ({ id: run, status, startedAt, verticals, focus }));
+    return { topics: result.topics, counts: result.counts, verticals: result.verticals, spend: result.spend, runs };
   });
   tool("obtener_tema_radar", { description: "Detalle de un tema del radar y las piezas creadas a partir de él.", input: { id: id("el tema") }, readOnly: true },
     ({ id: topic }) => call(radarTopic.GET, { params: { id: topic } }));
   tool("cambiar_estado_tema", { description: "Marca un tema del radar como guardado, descartado, usado o nuevo.", input: { id: id("el tema"), status: z.enum(["nuevo", "guardado", "descartado", "usado"]) } },
     ({ id: topic, status }) => call(radarTopic.PATCH, { method: "PATCH", params: { id: topic }, body: { status } }));
   tool("lanzar_radar", {
-    description: "Lanza una búsqueda del radar en la web (tarda minutos). Sin verticales, recorre los activos; `focus` dirige la búsqueda a un tema concreto." + spendNote,
+    description: "Lanza una búsqueda del radar en la web (los verticales se buscan a la vez: 1-3 min, 4 como mucho; cancelable con cancelar_radar). Sin verticales, recorre los activos; `focus` dirige la búsqueda a un tema concreto." + spendNote,
     input: { verticals: z.array(z.string()).default([]), focus: z.string().max(300).optional(), windowDays: z.number().int().min(1).max(90).default(7), maxTopics: z.number().int().min(1).max(30).default(10) },
     spends: true,
   }, (args) => call(radarRun.POST, { method: "POST", body: args }));
+  tool("cancelar_radar", {
+    description: "Cancela la búsqueda del radar en marcha (o la indicada): corta las llamadas en curso para no pagar lo que faltaba y libera el radar. Sin runId cancela la que esté corriendo.",
+    input: { runId: z.string().optional() },
+  }, async ({ runId }) => {
+    const run = runId ?? (await call(radar.GET, { query: { limit: 1 } }) as { runs: { id: string; status: string }[] }).runs.find((item) => item.status === "running")?.id;
+    if (!run) throw new ToolError("No hay ninguna búsqueda del radar en marcha.");
+    const cancelled = await call(radarCancel.POST, { method: "POST", params: { id: run } }) as { id: string; status: string; error: string | null };
+    return { runId: cancelled.id, status: cancelled.status, detalle: cancelled.error };
+  });
+  tool("reinterpretar_radar", {
+    description: "Vuelve a leer las notas de una búsqueda ya pagada del radar con otros ajustes (más temas, otro umbral de fuentes u otro modelo) sin buscar de nuevo. Cuesta céntimos. Sin runId usa la última corrida (ver_radar devuelve las corridas)." + spendNote,
+    input: { runId: z.string().optional(), maxTopics: z.number().int().min(1).max(30).default(10), minSources: z.number().int().min(1).max(3).default(2), verifySources: z.boolean().default(true), structuringModel: z.string().optional() },
+    spends: true,
+  }, async ({ runId, ...settings }) => {
+    const run = runId ?? (await call(radar.GET, { query: { limit: 1 } }) as { runs: { id: string }[] }).runs[0]?.id;
+    if (!run) throw new ToolError("El radar todavía no tiene búsquedas que reinterpretar.");
+    return call(radarRestructure.POST, { method: "POST", params: { id: run }, body: settings });
+  });
   tool("listar_verticales_radar", { description: "Verticales que vigila el radar.", input: {}, readOnly: true }, () => call(watchlist.GET));
   const watchFields = { vertical: z.string().min(2).max(80), offering: z.string().min(3).max(600).describe("Qué vende la agencia en este vertical"), audience: z.string().max(200).optional(), brandKitId: z.string().nullable().optional(), active: z.boolean().optional() };
   tool("crear_vertical_radar", { description: "Agrega un vertical a la vigilancia del radar.", input: watchFields }, (args) => call(watchlist.POST, { method: "POST", body: args }));

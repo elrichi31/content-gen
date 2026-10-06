@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { monthSpend } from "@/lib/generation-costs";
 import { openAiModel } from "@/lib/openai";
 import { selectableTextModels } from "@/lib/pricing";
-import { listRadarRuns, listTopics, listWatchlist, RadarError, topicSummary, TOPIC_SORTS, type TopicSort } from "@/lib/radar";
+import { expireStaleRuns, listRadarRuns, listTopics, listWatchlist, RadarError, topicSummary, TOPIC_SORTS, type TopicSort } from "@/lib/radar";
 
 /** Tope de temas por consulta: la revisión se hace por tandas, no de mil en mil. */
 const DEFAULT_LIMIT = 100;
@@ -41,6 +41,9 @@ export async function GET(request: Request) {
     // tienen que seguir visibles cuando el filtro actual no devuelve nada. Los cuenta la base sobre
     // la columna, en vez de leer y parsear quinientos documentos en cada carga de la pantalla.
     const summary = await topicSummary();
+    // Una corrida cuyo proceso murió (despliegue, reinicio) se cierra al leer, no solo al lanzar
+    // otra: si no, la pantalla mostraría «en marcha» para siempre.
+    await expireStaleRuns();
     return NextResponse.json({
       topics,
       counts: summary.counts,

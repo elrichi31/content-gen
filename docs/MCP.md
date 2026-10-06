@@ -15,7 +15,13 @@ y el gasto queda registrado en Costos igual que desde la app.
 
 - **Puede:** consultar todo; crear y editar marcas, campañas, piezas, pautas, publicaciones,
   automatizaciones y verticales del radar; generar carruseles (editables y de imágenes IA),
-  anuncios, artículos y videos (guion, imágenes, animaciones, voz, caption y render); lanzar el radar.
+  anuncios, artículos y videos (guion, imágenes, animaciones, voz, caption y render); lanzar el radar
+  o reinterpretar una búsqueda ya pagada; subir imágenes, audio o video desde una URL pública o en
+  base64; ver una imagen guardada; sacar los textos listos para publicar de una campaña.
+- **Por dónde empezar:** `resumen_estado` da en una llamada borradores, próximos 7 días, renders,
+  gasto del mes, radar y automatizaciones.
+- **Exportar PNG de carruseles y anuncios** sigue siendo desde la app: el PNG fiel lo captura el
+  navegador; el renderizado del servidor es solo un respaldo sin el diseño.
 - **No puede:** borrar ni archivar nada, ni publicar en redes. Lo que genera queda como borrador
   en la biblioteca. `exportar_articulo_blog` escribe el `.md` en el repo del sitio, pero el commit
   lo hace una persona.

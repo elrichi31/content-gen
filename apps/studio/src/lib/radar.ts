@@ -142,7 +142,8 @@ export async function saveRunResearch(id: string, research: RadarRun["research"]
  * mismo. Antes de mirar si hay alguna viva se cierran las que quedaron colgadas: un proceso que
  * muere a mitad deja su registro en `running` para siempre y bloquearía el radar entero.
  */
-const STALE_RUN_MS = 45 * 60 * 1000;
+// Con los verticales en paralelo una corrida dura como mucho ~4 min de búsqueda + 2 de ordenar.
+const STALE_RUN_MS = 15 * 60 * 1000;
 
 export async function expireStaleRuns({ now = new Date(), afterMs = STALE_RUN_MS }: { now?: Date; afterMs?: number } = {}) {
   const cutoff = new Date(now.getTime() - afterMs).toISOString();

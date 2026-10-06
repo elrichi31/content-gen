@@ -121,7 +121,8 @@ export async function researchVertical(entry: RadarWatchlistEntry, { windowDays,
     purpose: "research",
     model: requestedModel,
     tools: [webSearchTool({ contextSize: searchContextSize })],
-    timeoutMs: 300_000,
+    // Los verticales van a la vez: este límite es, en la práctica, lo que puede durar la búsqueda.
+    timeoutMs: 240_000,
     request,
   });
   return { vertical: entry.vertical, notes: text, sources, usage, model };

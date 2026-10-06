@@ -48,7 +48,7 @@ type RunSummary = { found: number; kept: number; repeated: number; rejected: num
 type Cost = { amount: number | null; currency: string } | null | undefined;
 type Progress = { label: string; detail: string; step: number; steps: number };
 type ScanEvent =
-  | { type: "start"; verticals: string[]; steps: number }
+  | { type: "start"; runId: string; verticals: string[]; steps: number }
   | { type: "research"; vertical: string; step: number; steps: number }
   | { type: "research-done"; vertical: string; searches: number; step: number; steps: number }
   | { type: "research-failed"; vertical: string; reason: string; step: number; steps: number }
@@ -76,8 +76,8 @@ function announce(summary: RunSummary, cost: Cost) {
 function progressOf(event: ScanEvent): Progress {
   switch (event.type) {
     case "start": return { label: "Preparando la búsqueda", detail: `${event.verticals.length} vertical(es): ${event.verticals.join(", ")}`, step: 0, steps: event.steps };
-    case "research": return { label: `Buscando en la web: ${event.vertical}`, detail: "Es el paso lento: puede tardar un par de minutos por vertical.", step: event.step - 1, steps: event.steps };
-    case "research-done": return { label: `${event.vertical} listo`, detail: `${event.searches} búsqueda(s) realizadas.`, step: event.step, steps: event.steps };
+    case "research": return { label: `Buscando en la web: ${event.vertical}`, detail: "Los verticales se buscan a la vez: suele tardar de 1 a 3 minutos (4 como mucho).", step: event.step - 1, steps: event.steps };
+    case "research-done": return { label: `${event.vertical} listo`, detail: `${event.searches} búsqueda(s) realizadas. Esperando al resto de verticales.`, step: event.step, steps: event.steps };
     case "research-failed": return { label: `${event.vertical} falló`, detail: `${event.reason}. Sigue con el resto.`, step: event.step, steps: event.steps };
     case "structure": return { label: "Ordenando los hallazgos en temas", detail: "Sin buscar nada más: solo se interpreta lo encontrado.", step: event.step - 1, steps: event.steps };
     case "saving": return { label: "Comprobando fuentes y descartando repetidos", detail: "Se guardan solo los temas corroborados y nuevos.", step: event.step - 1, steps: event.steps };
@@ -85,6 +85,8 @@ function progressOf(event: ScanEvent): Progress {
   }
 }
 
+/** Una cancelada se cierra como fallida en la base, pero no es un fallo: se distingue por su motivo. */
+const wasCancelled = (run: RadarRun) => run.error?.startsWith("Cancelada") ?? false;
 const elapsedText = (seconds: number) => seconds < 60 ? `${seconds} s` : `${Math.floor(seconds / 60)} min ${String(seconds % 60).padStart(2, "0")} s`;
 const typing = (target: EventTarget | null) => target instanceof HTMLElement && (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName));
 
@@ -100,18 +102,27 @@ export function RadarBoard() {
   const [watchOpen, setWatchOpen] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [progress, setProgress] = useState<Progress | null>(null);
+  const [localRunId, setLocalRunId] = useState<string | null>(null);
+  const [cancelling, setCancelling] = useState(false);
+  const cancelledRef = useRef(false);
   const [elapsed, setElapsed] = useState(0);
   const [notice, setNotice] = useState<NoticeState>(null);
   const rowRefs = useRef(new Map<string, HTMLButtonElement>());
 
   // El reloj corre aparte del progreso: entre dos pasos pasan minutos, y ver los segundos avanzar
   // es lo que distingue «trabajando» de «colgado».
+  const runningRun = data?.runs?.find((run) => run.status === "running") ?? null;
+  // Lanzada desde fuera de esta pestaña (otra pestaña, el MCP, un agente): no llega su progreso, solo que existe.
+  const remoteRun = scanning ? null : runningRun;
+  const runningSince = scanning ? null : remoteRun?.startedAt ?? null;
   useEffect(() => {
-    if (!scanning) { setElapsed(0); return; }
-    const started = Date.now();
-    const timer = setInterval(() => setElapsed(Math.floor((Date.now() - started) / 1000)), 1000);
+    if (!scanning && !runningSince) { setElapsed(0); return; }
+    const started = runningSince ? Date.parse(runningSince) : Date.now();
+    const tick = () => setElapsed(Math.max(0, Math.floor((Date.now() - started) / 1000)));
+    tick();
+    const timer = setInterval(tick, 1000);
     return () => clearInterval(timer);
-  }, [scanning]);
+  }, [scanning, runningSince]);
 
   const load = useCallback(async () => {
     try {
@@ -125,13 +136,35 @@ export function RadarBoard() {
     }
   }, [status, vertical, sort]);
   useEffect(() => { void load(); }, [load]);
+
+  const watchedRun = useRef<string | null>(null);
+  // Una búsqueda puede empezar fuera mientras la pantalla está abierta: se mira cada 30 s (cada 10 s
+  // si ya hay una en marcha) y al volver a la pestaña. Con la pestaña oculta no se pregunta nada.
+  useEffect(() => {
+    if (scanning) return;
+    const refresh = () => { if (!document.hidden) void load(); };
+    const timer = setInterval(refresh, remoteRun ? 10_000 : 30_000);
+    window.addEventListener("focus", refresh);
+    return () => { clearInterval(timer); window.removeEventListener("focus", refresh); };
+  }, [remoteRun, scanning, load]);
+  useEffect(() => {
+    if (remoteRun) { watchedRun.current = remoteRun.id; return; }
+    const finished = watchedRun.current ? data?.runs?.find((run) => run.id === watchedRun.current) : null;
+    if (!finished || finished.status === "running") return;
+    watchedRun.current = null;
+    // La cancelación ya avisó al pulsar el botón (o la hizo otro a propósito): no es un fallo que anunciar.
+    if (wasCancelled(finished)) return;
+    if (finished.status === "failed") toast.error("La búsqueda del radar falló", { description: finished.error ?? undefined, duration: Infinity });
+    else (finished.topicsKept ? toast.success : toast)(finished.topicsKept ? `${finished.topicsKept} ${finished.topicsKept === 1 ? "tema nuevo" : "temas nuevos"} por revisar` : "La búsqueda terminó sin temas nuevos", { duration: 12_000 });
+  }, [remoteRun, data]);
   // Las marcas solo sirven al editor de verticales: se piden una vez y que fallen no bloquea nada.
   useEffect(() => { void fetch("/api/brand-kits", { cache: "no-store" }).then((result) => result.json() as Promise<Brand[]>).then(setBrands).catch(() => setBrands([])); }, []);
 
   const topics = useMemo(() => data?.topics ?? [], [data]);
   const selected = topics.find((topic) => topic.id === selectedId) ?? null;
   const activeVerticals = data?.watchlist.filter((entry) => entry.active) ?? [];
-  const lastRun = data?.runs[0];
+  const lastRun = data?.runs.find((run) => run.status !== "running");
+  const busy = scanning || Boolean(runningRun);
   const canRestructure = Boolean(lastRun?.research?.length);
 
   const select = useCallback((id: string | null) => {
@@ -212,13 +245,15 @@ export function RadarBoard() {
           if (!payload) continue;
           let event: ScanEvent;
           try { event = JSON.parse(payload) as ScanEvent; } catch { continue; }
-          if (event.type === "error") { setNotice(noticeError(event.error)); finished = true; continue; }
+          // Cancelarla es una decisión, no un fallo: el aviso ya salió al pulsar el botón.
+          if (event.type === "error") { if (!cancelledRef.current) setNotice(noticeError(event.error)); finished = true; continue; }
+          if (event.type === "start") setLocalRunId(event.runId);
           if (event.type === "done") { finished = true; announce(event.summary, event.run?.cost); continue; }
           setProgress(progressOf(event));
         }
       }
       // Cortado sin `done`, la búsqueda puede seguir viva en el servidor: decirlo es más útil que darla por fallida.
-      if (!finished) setNotice(noticeError("La conexión se cortó antes de terminar. La búsqueda puede haber seguido en el servidor: recarga en un rato."));
+      if (!finished && !cancelledRef.current) setNotice(noticeError("La conexión se cortó antes de terminar. La búsqueda puede haber seguido en el servidor: recarga en un rato."));
       // La revisión se lleva a donde cayeron los temas: buscar en un vertical y mirar otro es no ver lo que se pagó.
       setStatus("nuevo");
       setVertical(settings.vertical);
@@ -228,6 +263,27 @@ export function RadarBoard() {
     } finally {
       setScanning(false);
       setProgress(null);
+      setLocalRunId(null);
+      cancelledRef.current = false;
+    }
+  }, [load]);
+
+  /** Corta la búsqueda en marcha, sea de esta pestaña o de fuera. Lo ya buscado se pierde; lo que faltaba no se paga. */
+  const cancelRun = useCallback(async (runId: string) => {
+    setCancelling(true);
+    cancelledRef.current = true;
+    watchedRun.current = null;
+    try {
+      const response = await fetch(`/api/radar/runs/${runId}/cancel`, { method: "POST" });
+      const result = await response.json().catch(() => null) as { error?: string } | null;
+      if (!response.ok) throw new Error(result?.error ?? "No se pudo cancelar la búsqueda.");
+      toast("Búsqueda cancelada", { description: "Lo que faltaba por buscar ya no se cobra." });
+    } catch (error) {
+      cancelledRef.current = false;
+      setNotice(noticeError(error instanceof Error ? error.message : "No se pudo cancelar la búsqueda."));
+    } finally {
+      setCancelling(false);
+      await load();
     }
   }, [load]);
 
@@ -261,7 +317,7 @@ export function RadarBoard() {
       actions={(
         <>
           <Button variant="outline" onClick={() => setWatchOpen(true)}><SlidersHorizontal className="size-4" />Verticales<span className="tabular-nums text-muted-foreground">{activeVerticals.length}</span></Button>
-          <Button onClick={() => setScanOpen(true)} disabled={scanning}><RadarIcon className="size-4" />{scanning ? "Buscando…" : "Buscar temas"}</Button>
+          <Button onClick={() => setScanOpen(true)} disabled={busy}><RadarIcon className="size-4" />{busy ? "Buscando…" : "Buscar temas"}</Button>
         </>
       )}
     />
@@ -279,7 +335,7 @@ export function RadarBoard() {
       <div className="-mt-2 mb-4 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
         {lastRun ? (
           <span>
-            Última búsqueda {formatGenerated(lastRun.startedAt)} · {lastRun.topicsKept} {lastRun.topicsKept === 1 ? "tema" : "temas"}
+            Última búsqueda {formatGenerated(lastRun.startedAt)} · {lastRun.status === "failed" && wasCancelled(lastRun) ? "cancelada" : lastRun.status === "failed" ? <span className="text-destructive" title={lastRun.error ?? undefined}>falló</span> : `${lastRun.topicsKept} ${lastRun.topicsKept === 1 ? "tema" : "temas"}`}
             {lastRun.focus ? ` · «${lastRun.focus}»` : ""}
             {lastRun.cost?.amount != null ? ` · ${lastRun.cost.amount} ${lastRun.cost.currency}` : ""}
           </span>
@@ -302,12 +358,33 @@ export function RadarBoard() {
         <div className="mb-4 space-y-2 rounded-xl border border-border bg-card px-4 py-3 shadow-xs" role="status">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <p className="text-[13px] font-medium">{progress?.label ?? "Preparando la búsqueda"}</p>
-            <p className="text-xs tabular-nums text-muted-foreground">{progress ? `paso ${progress.step} de ${progress.steps} · ` : ""}{elapsedText(elapsed)}</p>
+            <div className="flex items-center gap-3">
+              <p className="text-xs tabular-nums text-muted-foreground">{progress ? `paso ${progress.step} de ${progress.steps} · ` : ""}{elapsedText(elapsed)}</p>
+              {localRunId ? <Button size="sm" variant="outline" disabled={cancelling} onClick={() => void cancelRun(localRunId)}><X className="size-3.5" />{cancelling ? "Cancelando…" : "Cancelar"}</Button> : null}
+            </div>
           </div>
           <div className="h-1 w-full overflow-hidden rounded-full bg-muted">
             <div className="h-full rounded-full bg-primary transition-[width] duration-500 ease-out" style={{ width: `${progress ? Math.max(4, Math.round((progress.step / progress.steps) * 100)) : 4}%` }} />
           </div>
           {progress?.detail ? <p className="text-xs text-muted-foreground">{progress.detail}</p> : null}
+        </div>
+      ) : null}
+
+      {remoteRun ? (
+        <div className="mb-4 space-y-2 rounded-xl border border-border bg-card px-4 py-3 shadow-xs" role="status">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <p className="text-[13px] font-medium">Hay una búsqueda en marcha{remoteRun.focus ? `: «${remoteRun.focus}»` : ""}</p>
+            <div className="flex items-center gap-3">
+              <p className="text-xs tabular-nums text-muted-foreground">{elapsedText(elapsed)}</p>
+              <Button size="sm" variant="outline" disabled={cancelling} onClick={() => void cancelRun(remoteRun.id)}><X className="size-3.5" />{cancelling ? "Cancelando…" : "Cancelar"}</Button>
+            </div>
+          </div>
+          <div className="h-1 w-full overflow-hidden rounded-full bg-muted">
+            <div className="h-full w-1/3 animate-[radar-scan_1.6s_ease-in-out_infinite] rounded-full bg-primary motion-reduce:w-full motion-reduce:animate-none motion-reduce:opacity-40" />
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Se lanzó fuera de esta pestaña (otra pestaña, el MCP o un agente){remoteRun.verticals.length ? ` · ${remoteRun.verticals.join(", ")}` : ""}. Suele tardar de 1 a 3 minutos; los temas aparecerán aquí solos al terminar.
+          </p>
         </div>
       ) : null}
 
@@ -388,7 +465,7 @@ export function RadarBoard() {
         <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border px-6 py-14 text-center">
           <span className="grid size-10 place-items-center rounded-lg bg-muted text-muted-foreground"><Inbox className="size-5" strokeWidth={1.5} /></span>
           <p className="max-w-sm text-[13px] text-muted-foreground">{EMPTY_TEXT[status]}</p>
-          {status === "nuevo" && activeVerticals.length ? <Button size="sm" onClick={() => setScanOpen(true)} disabled={scanning}><RadarIcon className="size-4" />Buscar temas</Button> : null}
+          {status === "nuevo" && activeVerticals.length ? <Button size="sm" onClick={() => setScanOpen(true)} disabled={busy}><RadarIcon className="size-4" />Buscar temas</Button> : null}
         </div>
       )}
 
