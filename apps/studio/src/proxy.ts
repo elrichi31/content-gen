@@ -23,5 +23,6 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   // terms y privacy son públicas a propósito: TikTok las revisa sin cuenta del equipo.
-  matcher: ["/((?!api/auth|login|terms|privacy|_next/static|_next/image|favicon.ico).*)"],
+  // api/mcp se autentica con su propio token (lo usan agentes, no un navegador con sesión).
+  matcher: ["/((?!api/auth|api/mcp|login|terms|privacy|_next/static|_next/image|favicon.ico).*)"],
 };

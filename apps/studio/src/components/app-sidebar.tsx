@@ -19,6 +19,7 @@ import {
   FileText,
   Radar,
   Wallet,
+  Workflow,
   LogOut,
   type LucideIcon,
 } from "lucide-react";
@@ -45,6 +46,7 @@ const GROUPS: NavGroup[] = [
       { href: "/ads", label: "Anuncio", icon: Megaphone, badge: "Beta" },
       { href: "/video", label: "Video", icon: Clapperboard, badge: "Beta", also: ["/explainer"] },
       { href: "/articles", label: "Artículo", icon: FileText, badge: "Beta" },
+      { href: "/automations", label: "Automatizaciones", icon: Workflow, badge: "Beta" },
     ],
   },
   {

@@ -43,15 +43,18 @@ function SheetContent({
   className,
   children,
   side = 'right',
+  contentClassName,
 }: {
   className?: string
+  /** Ancho del panel; por defecto 3/4 de la pantalla hasta `max-w-sm`. */
+  contentClassName?: string
   children?: React.ReactNode
   side?: 'top' | 'right' | 'bottom' | 'left'
 }) {
   const ctx = React.useContext(SheetOpenContext)
   return (
     <Drawer.Backdrop isOpen={ctx?.open} onOpenChange={ctx?.onOpenChange}>
-      <Drawer.Content placement={PLACEMENT[side]} className={side === 'left' || side === 'right' ? 'w-3/4 sm:max-w-sm' : undefined}>
+      <Drawer.Content placement={PLACEMENT[side]} className={contentClassName ?? (side === 'left' || side === 'right' ? 'w-3/4 sm:max-w-sm' : undefined)}>
         <Drawer.Dialog className={cn('flex flex-col gap-4', className)}>
           {children}
           <Drawer.CloseTrigger className="absolute top-4 right-4" />

@@ -85,7 +85,7 @@ export async function deleteRule(id: string) {
   });
 }
 
-async function getRule(id: string) {
+export async function getRule(id: string) {
   const row = await withDatabase((database) => database.prepare("SELECT data_json FROM publishing_rules WHERE id = ?").get(id)) as Row | undefined;
   if (!row) throw new ScheduleError("La pauta no existe.", 404);
   return JSON.parse(row.data_json) as PublishingRule;

@@ -9,6 +9,7 @@ export const imageOverlayVariants = [
   { id: 'polaroid', label: 'Polaroid'    },
   { id: 'band',    label: 'Banda'        },
   { id: 'window',  label: 'Ventana'      },
+  { id: 'full',    label: 'Solo imagen'  },
 ]
 
 /** Foto a sangre con el titular encima. El velo va donde está el texto, no sobre toda la imagen. */
@@ -23,6 +24,15 @@ export function ImageOverlayLayout(p: LayoutProps) {
   const photo = <Photo src={slide.imageUrl} illustration={slide.imageSource === "illustration"} />
   const title = (color: string, w: number, h: number, max: number) => <Txt p={p} field="title" as="h2" style={{ ...titleStyle(p, fitTitle(p, slide.title, { w, h, max })), color }} />
   const detailText = (color: string, lines: number) => <Txt p={p} field={detail} multiline lines={lines} style={{ ...bodyStyle(4.2), color }} />
+
+  // La imagen ya trae su texto (carrusel dibujado por IA): sin velo ni titular encima.
+  if (variant === 'full') {
+    return (
+      <Slab p={p} tone="ink" style={{ padding: 0 }}>
+        <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}>{photo}</div>
+      </Slab>
+    )
+  }
 
   // Foto como polaroid, un poco girada, con el titular debajo.
   if (variant === 'polaroid') {
