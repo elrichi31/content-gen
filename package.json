@@ -67,6 +67,7 @@
     "test:cost-catalog": "node --experimental-strip-types apps/studio/src/lib/cost-catalog.test.ts",
     "test:pricing": "node --experimental-strip-types apps/studio/src/lib/pricing.test.ts",
     "test:costs-dashboard": "node apps/studio/tests/costs-dashboard.test.mjs",
+    "test:brands-workspace": "node apps/studio/tests/brands-workspace.test.mjs",
     "test:radar": "node --experimental-strip-types packages/domain/src/radar.test.ts",
     "test:radar-scan": "node --experimental-strip-types apps/studio/src/lib/radar-scan.test.ts",
     "test:generation-costs": "node --experimental-strip-types apps/studio/src/lib/generation-costs.test.ts",
