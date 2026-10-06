@@ -1,16 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { FileStack, Loader2, Pencil, Play, Plus, Radar, Trash2, Wallet, Workflow } from "lucide-react";
+import { FileStack, History, Loader2, Pencil, Play, Plus, Radar, Trash2, Wallet } from "lucide-react";
 import type { PublishingRule } from "@content-gen/domain/schedule";
 import type { Automation } from "@/lib/carousel-automation-rules";
 import type { AutomationExecution } from "@/lib/automation-execution";
 import type { RadarAutomation } from "@/lib/radar-automation";
 import { AutomationForm, describeRule, type Campaign } from "@/components/automations/automation-form";
-import { AutomationFlow } from "@/components/automations/automation-flow";
 import { BudgetPanel, costMoney, type BudgetStatus } from "@/components/automations/budget-panel";
-import { ExecutionDetails, executionLabels } from "@/components/automations/execution-details";
-import type { FlowAutomation } from "@/components/automations/flow-model";
+import { AutomationSteps, ExecutionDetails, executionLabels, fullDate, relativeTime, RunStatusBadge } from "@/components/automations/execution-details";
+import { buildAutomationSteps, type StepAutomation } from "@/components/automations/automation-steps";
 import { RadarAutomationForm } from "@/components/automations/radar-automation-form";
 import type { BrandOption } from "@/components/brand-select";
 import { PageHeading, PageShell } from "@/components/page-shell";
@@ -21,7 +20,7 @@ import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 
 type Row = Automation & { nextSlot: { date: string; time: string } | null; horizonEnd: string; lastExecution: AutomationExecution | null };
-type Item = { key: string; id: string; name: string; active: boolean; type: "carousel" | "radar"; next: string; lastExecution: AutomationExecution | null; flow: FlowAutomation; row: Row | RadarAutomation };
+type Item = { key: string; id: string; name: string; active: boolean; type: "carousel" | "radar"; next: string; lastExecution: AutomationExecution | null; config: StepAutomation; row: Row | RadarAutomation };
 type Editor = { type: "carousel"; row: Row | null } | { type: "radar"; row: RadarAutomation | null } | { type: "budget" };
 async function api(url: string, method = "GET", body?: unknown, signal?: AbortSignal) {
   const response = await fetch(url, { method, signal, headers: body === undefined ? undefined : { "Content-Type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
@@ -48,7 +47,6 @@ export default function AutomationsPage() {
   const [revision, setRevision] = useState(0);
   const [history, setHistory] = useState<{ id: string; rows: AutomationExecution[]; error: string } | null>(null);
   const [executionId, setExecutionId] = useState<string | null>(null);
-  const [view, setView] = useState<"flow" | "history">("flow");
   const [, tick] = useState(0);
   const refresh = useCallback(async () => {
     try {
@@ -73,8 +71,8 @@ export default function AutomationsPage() {
 
   const ruleById = new Map(rules.map(r => [r.id, r]));
   const items: Item[] = [
-    ...(rows ?? []).map(row => ({ key: `carousel:${row.id}`, id: row.id, name: row.name, active: row.active, type: "carousel" as const, next: row.nextSlot ? `${row.nextSlot.date} · ${row.nextSlot.time}` : "Sin huecos libres", lastExecution: row.lastExecution, row, flow: { id: row.id, kind: "carousel" as const, name: row.name, active: row.active, topics: row.topics, usedTopics: row.usedTopics, radarVertical: row.radarVertical, kindLabel: row.kind === "editable" ? "Editable" : "Imágenes IA", slides: row.slides, ruleLabel: ruleById.get(row.ruleId) ? describeRule(ruleById.get(row.ruleId)!) : "Pauta no disponible" } })),
-    ...radars.map(row => ({ key: `radar:${row.id}`, id: row.id, name: row.name, active: row.active, type: "radar" as const, next: `${date(row.nextRunAt)} (hora local)`, lastExecution: row.lastExecution ?? null, row, flow: { id: row.id, kind: "radar" as const, name: row.name, active: row.active, frequency: row.frequency, time: row.time, scan: row.scan } })),
+    ...(rows ?? []).map(row => ({ key: `carousel:${row.id}`, id: row.id, name: row.name, active: row.active, type: "carousel" as const, next: row.nextSlot ? `${row.nextSlot.date} · ${row.nextSlot.time}` : "Sin huecos libres", lastExecution: row.lastExecution, row, config: { id: row.id, kind: "carousel" as const, name: row.name, active: row.active, topics: row.topics, usedTopics: row.usedTopics, radarVertical: row.radarVertical, kindLabel: row.kind === "editable" ? "Editable" : "Imágenes IA", slides: row.slides, ruleLabel: ruleById.get(row.ruleId) ? describeRule(ruleById.get(row.ruleId)!) : "Pauta no disponible" } })),
+    ...radars.map(row => ({ key: `radar:${row.id}`, id: row.id, name: row.name, active: row.active, type: "radar" as const, next: `${date(row.nextRunAt)} (hora local)`, lastExecution: row.lastExecution ?? null, row, config: { id: row.id, kind: "radar" as const, name: row.name, active: row.active, frequency: row.frequency, time: row.time, scan: row.scan } })),
   ];
   const filtered = items.filter(i => i.name.toLocaleLowerCase().includes(search.toLocaleLowerCase()));
   const selected = items.find(i => i.key === selectedKey) ?? items[0] ?? null;
@@ -90,6 +88,8 @@ export default function AutomationsPage() {
   const runs = history && history.id === selectedId ? history.rows : [];
   const execution = runs.find(r => r.id === executionId) ?? runs[0] ?? selected?.lastExecution ?? null;
   const historyError = history && history.id === selectedId ? history.error : "";
+  const latest = runs[0] ?? selected?.lastExecution ?? null;
+  const failures = runs.filter(r => r.status === "failed" || r.status === "blocked");
   const base = (item: Item) => item.type === "radar" ? "/api/radar/automations" : "/api/automations";
   async function attempt(work: () => Promise<void>) { setNotice(null); try { await work(); } catch (e) { setNotice(noticeError(e instanceof Error ? e.message : "No se pudo completar la acción.")); } }
   async function save(body: Record<string, unknown>) {
@@ -116,7 +116,7 @@ export default function AutomationsPage() {
         <div className="shrink-0 border-b border-border p-3"><Input aria-label="Buscar automatizaciones" placeholder="Buscar automatizaciones" value={search} onChange={e => setSearch(e.target.value)} /></div>
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2">
           {rows === null ? <p role="status" className="p-3 text-sm text-muted-foreground">Cargando automatizaciones…</p> : filtered.length ? <ul className="space-y-1">{filtered.map(item => <li key={item.key}><button type="button" onClick={() => { setSelectedKey(item.key); setExecutionId(null); }} aria-pressed={selected?.key === item.key} className={cn("w-full rounded-md border p-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", selected?.key === item.key ? "border-border bg-accent" : "border-transparent hover:bg-accent/60")}>
-            <span className="flex items-center gap-2 text-sm font-medium">{item.type === "radar" ? <Radar className="size-4 shrink-0 text-muted-foreground" /> : <FileStack className="size-4 shrink-0 text-muted-foreground" />}<span className="truncate">{item.name}</span></span><span className="mt-1 block text-xs text-muted-foreground">{item.type === "radar" ? "Búsqueda" : "Carrusel"} · {item.active ? "Activa" : "Pausada"}</span><span className="mt-1 block text-xs tabular-nums text-muted-foreground">{item.lastExecution ? `${executionLabels[item.lastExecution.status]} · ${costMoney(item.lastExecution.amount)}${item.lastExecution.unknown ? " + pendiente" : ""}` : "Sin ejecuciones registradas"}</span>
+            <span className="flex items-center gap-2 text-sm font-medium">{item.type === "radar" ? <Radar className="size-4 shrink-0 text-muted-foreground" /> : <FileStack className="size-4 shrink-0 text-muted-foreground" />}<span className="truncate">{item.name}</span></span><span className="mt-1 block text-xs text-muted-foreground">{item.type === "radar" ? "Búsqueda" : "Carrusel"} · {item.active ? "Activa" : "Pausada"}</span><span className="mt-1 block text-xs tabular-nums text-muted-foreground">{item.lastExecution ? <><span className={cn(item.lastExecution.status === "failed" || item.lastExecution.status === "blocked" ? "text-destructive" : undefined)}>{executionLabels[item.lastExecution.status]}</span> · <time dateTime={item.lastExecution.startedAt} title={fullDate(item.lastExecution.startedAt)}>{relativeTime(item.lastExecution.startedAt)}</time></> : "Nunca se ha ejecutado"}</span>
           </button></li>)}</ul> : <p className="p-3 text-sm text-muted-foreground">{items.length ? "Sin coincidencias." : "Crea una búsqueda o un carrusel para empezar."}</p>}
         </div>
       </section>
@@ -127,13 +127,22 @@ export default function AutomationsPage() {
           <Button size="icon-sm" variant="ghost" aria-label={`Editar ${selected.name}`} disabled={Boolean(busy)} onClick={() => setEditor(selected.type === "radar" ? { type: "radar", row: selected.row as RadarAutomation } : { type: "carousel", row: selected.row as Row })}><Pencil className="size-4" /></Button>
           <Button size="icon-sm" variant="ghost" aria-label={`Borrar ${selected.name}`} disabled={Boolean(busy) || selected.lastExecution?.status === "running"} onClick={() => void remove(selected)}><Trash2 className="size-4" /></Button>
         </div></div>
-        <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2"><Button size="sm" variant={view === "flow" ? "secondary" : "ghost"} aria-pressed={view === "flow"} onClick={() => setView("flow")}><Workflow className="size-3.5" />Flujo</Button><Button size="sm" variant={view === "history" ? "secondary" : "ghost"} aria-pressed={view === "history"} onClick={() => setView("history")}>Ejecuciones</Button>{busy?.id === selected.id ? <span role="status" className="ml-auto text-xs tabular-nums text-primary">Ejecutando · {Math.round((Date.now() - busy.since) / 1000)} s</span> : null}</div>
-        {view === "flow" ? <div className="relative min-h-0 flex-1"><AutomationFlow automation={selected.flow} execution={execution} budget={budget} /><p className="absolute bottom-3 right-3 max-w-[60%] rounded bg-card/90 px-2 py-1 text-right text-xs text-muted-foreground">{execution ? "Estado de la ejecución seleccionada" : "Configuración · aún no ejecutada"} · usa + para ampliar</p></div> : <div className="grid min-h-0 flex-1 grid-rows-[140px_minmax(0,1fr)] md:grid-cols-[220px_minmax(0,1fr)] md:grid-rows-1">
+        <div className="grid shrink-0 grid-cols-2 gap-px border-b border-border bg-border xl:grid-cols-4" aria-label="Resumen">
+          <div className="bg-background p-3"><p className="text-xs text-muted-foreground">Última ejecución</p>{latest ? <><p className="mt-1 flex flex-wrap items-center gap-2 text-sm font-medium"><time dateTime={latest.startedAt}>{relativeTime(latest.startedAt)}</time><RunStatusBadge status={latest.status} /></p><p className="mt-0.5 text-xs tabular-nums text-muted-foreground">{fullDate(latest.startedAt)} · {latest.automatic ? "programada" : "manual"}</p></> : <p className="mt-1 text-sm font-medium">Nunca</p>}</div>
+          <div className="bg-background p-3"><p className="text-xs text-muted-foreground">Próxima ejecución</p><p className="mt-1 text-sm font-medium">{selected.active ? selected.next : "Pausada"}</p><p className="mt-0.5 text-xs text-muted-foreground">{selected.active ? "Automática" : "Solo ejecución manual"}</p></div>
+          <div className="bg-background p-3"><p className="text-xs text-muted-foreground">Últimas {runs.length || ""} ejecuciones</p>{runs.length ? <><p className="mt-1 text-sm font-medium tabular-nums">{runs.filter(r => r.status === "completed" || r.status === "idle").length} correctas · <span className={cn(failures.length && "text-destructive")}>{failures.length} con error</span></p><p className="mt-0.5 text-xs text-muted-foreground">{failures[0] ? <>Último error <time dateTime={failures[0].startedAt}>{relativeTime(failures[0].startedAt)}</time></> : "Sin errores registrados"}</p></> : <p className="mt-1 text-sm font-medium">Sin historial</p>}</div>
+          <div className="bg-background p-3"><p className="text-xs text-muted-foreground">Costo registrado · USD</p><p className="mt-1 text-sm font-medium tabular-nums">{latest ? `${costMoney(latest.amount)}${latest.unknown ? " + pendiente" : ""}` : "—"}</p><p className="mt-0.5 text-xs tabular-nums text-muted-foreground">{runs.length ? `${costMoney(runs.reduce((sum, r) => sum + r.amount, 0))} en las últimas ${runs.length}` : "Última ejecución"}</p></div>
+        </div>
+        <div className="grid min-h-0 flex-1 grid-rows-[150px_minmax(0,1fr)] md:grid-cols-[230px_minmax(0,1fr)] md:grid-rows-1">
           <div className="min-h-0 overflow-y-auto overscroll-contain border-b border-border p-3 md:border-b-0 md:border-r" aria-label="Historial de ejecuciones">
-            <p className="mb-2 text-xs text-muted-foreground">Últimas 20 ejecuciones</p>{historyError ? <div role="alert" className="text-sm text-destructive">{historyError}<Button size="sm" variant="outline" className="mt-2" onClick={() => setRevision(v => v + 1)}>Reintentar</Button></div> : history?.id !== selectedId ? <p role="status" className="text-sm text-muted-foreground">Cargando historial…</p> : runs.length ? <ul className="space-y-1">{runs.map(r => <li key={r.id}><button type="button" aria-pressed={execution?.id === r.id} onClick={() => setExecutionId(r.id)} className={cn("w-full rounded-md p-2 text-left text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", execution?.id === r.id ? "bg-accent" : "hover:bg-accent/60")}><time dateTime={r.startedAt} className="block tabular-nums">{date(r.startedAt)}</time><span className="mt-1 block">{executionLabels[r.status]}</span><span className="mt-1 block tabular-nums text-muted-foreground">{costMoney(r.amount)}{r.unknown ? " + pendiente" : ""}</span></button></li>)}</ul> : <p className="text-sm text-muted-foreground">Sin ejecuciones registradas.</p>}
-          </div><div className="min-h-0 overflow-y-auto overscroll-contain p-4" aria-label="Resultado de ejecución"><ExecutionDetails execution={execution} /></div>
-        </div>}
-      </section> : <section className="flex min-h-0 items-center justify-center overflow-y-auto rounded-lg border border-border p-6"><div className="max-w-sm text-center"><Workflow className="mx-auto mb-3 size-7 text-muted-foreground" /><h2 className="text-base font-semibold">Tu operación, en un flujo</h2><p className="mt-2 text-sm text-muted-foreground">Programa búsquedas o prepara carruseles. Aquí verás presupuesto, pasos y resultados de cada automatización.</p></div></section>}
+            <p className="mb-2 flex items-center gap-1.5 text-xs text-muted-foreground"><History className="size-3.5" />Historial{busy?.id === selected.id ? <span role="status" className="ml-auto tabular-nums text-primary">Ejecutando · {Math.round((Date.now() - busy.since) / 1000)} s</span> : null}</p>{historyError ? <div role="alert" className="text-sm text-destructive">{historyError}<Button size="sm" variant="outline" className="mt-2" onClick={() => setRevision(v => v + 1)}>Reintentar</Button></div> : history?.id !== selectedId ? <p role="status" className="text-sm text-muted-foreground">Cargando historial…</p> : runs.length ? <ul className="space-y-1">{runs.map(r => <li key={r.id}><button type="button" aria-pressed={execution?.id === r.id} onClick={() => setExecutionId(r.id)} className={cn("w-full rounded-md p-2 text-left text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", execution?.id === r.id ? "bg-accent" : "hover:bg-accent/60")}><span className="flex items-center justify-between gap-2"><time dateTime={r.startedAt} className="tabular-nums">{date(r.startedAt)}</time><span className="text-muted-foreground">{r.automatic ? "Prog." : "Manual"}</span></span><span className={cn("mt-1 block", r.status === "failed" || r.status === "blocked" ? "text-destructive" : undefined)}>{executionLabels[r.status]}</span>{r.error ? <span className="mt-0.5 line-clamp-2 block break-words text-destructive/80">{r.error}</span> : null}<span className="mt-1 block tabular-nums text-muted-foreground">{costMoney(r.amount)}{r.unknown ? " + pendiente" : ""}</span></button></li>)}</ul> : <p className="text-sm text-muted-foreground">Sin ejecuciones registradas.</p>}
+          </div>
+          <div className="min-h-0 space-y-6 overflow-y-auto overscroll-contain p-4" aria-label="Resultado de ejecución">
+            <section className="space-y-3"><h3 className="text-sm font-semibold">{execution ? (execution.id === latest?.id ? "Última ejecución" : `Ejecución del ${date(execution.startedAt)}`) : "Ejecuciones"}</h3><ExecutionDetails execution={execution} /></section>
+            <section className="space-y-3"><div><h3 className="text-sm font-semibold">Pasos</h3><p className="mt-0.5 text-xs text-muted-foreground">{execution ? "Qué hizo cada paso en esta ejecución." : "Cómo está configurada; aún no se ha ejecutado."}</p></div><AutomationSteps steps={buildAutomationSteps(selected.config, execution, budget)} /></section>
+          </div>
+        </div>
+      </section> : <section className="flex min-h-0 items-center justify-center overflow-y-auto rounded-lg border border-border p-6"><div className="max-w-sm text-center"><History className="mx-auto mb-3 size-7 text-muted-foreground" /><h2 className="text-base font-semibold">Todo lo que hacen tus automatizaciones</h2><p className="mt-2 text-sm text-muted-foreground">Programa búsquedas o prepara carruseles. Aquí verás cuándo corrieron, qué produjeron, cuánto costaron y cualquier error.</p></div></section>}
     </div>
     <Sheet open={Boolean(editor)} onOpenChange={open => { if (!open) setEditor(null); }}><SheetContent side="right" contentClassName="w-full sm:max-w-md" className="h-full min-h-0 gap-0 overflow-hidden p-0">
       {editor?.type === "budget" ? <><div className="shrink-0 border-b border-border p-5 pr-12"><SheetTitle>Presupuesto del estudio</SheetTitle></div><div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-5"><BudgetPanel onSaved={setBudget} /></div></> : editor?.type === "radar" ? <RadarAutomationForm key={editor.row?.id ?? "new-radar"} editing={editor.row} verticals={verticals} onSubmit={save} onCancel={() => setEditor(null)} /> : editor?.type === "carousel" ? <AutomationForm key={editor.row?.id ?? "new-carousel"} editing={editor.row} rules={rules} campaigns={campaigns} brands={brands} verticals={verticals} onSubmit={save} onCancel={() => setEditor(null)} /> : null}
