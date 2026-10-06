@@ -12,6 +12,18 @@ export const contentVariants = [
   { id: 'sticker',     label: 'Sticker'       },
 ]
 
+/**
+ * Número que el propio titular trae: «Error 2», «Paso 3», «Tip #4», «2. …». El número gigante del
+ * slide editorial sale de aquí y no de la posición en el carrusel: «Error 2» en el tercer slide
+ * mostraba un 03. Sin número propio, el slide va sin él.
+ */
+const NUMBERED = /\b(?:error|paso|tip|consejo|regla|mito|clave|parte|punto|lecci[oó]n|h[aá]bito|raz[oó]n|se[ñn]al|truco|fase|nivel|step|rule|mistake|reason|habit)\s*(?:n[º°o.]+\s*)?#?\s*(\d{1,2})\b/i
+function ownNumber(title?: string) {
+  const text = (title ?? "").replace(/\*/g, "")
+  const n = text.match(/^\s*#?(\d{1,2})\s*[.):\-–—]/)?.[1] ?? text.match(NUMBERED)?.[1] ?? text.match(/#(\d{1,2})\b/)?.[1]
+  return n ? n.padStart(2, "0") : undefined
+}
+
 /** Una idea con su explicación: titular grande arriba y el párrafo debajo. */
 export function ContentLayout(p: LayoutProps) {
   const { slide } = p
@@ -57,10 +69,10 @@ export function ContentLayout(p: LayoutProps) {
 
   // Revista: número gigante en contorno detrás, titular abajo a la izquierda.
   if (variant === 'editorial') {
-    const n = step ?? String((p.seed ?? 0) + 1).padStart(2, "0")
+    const n = step ?? ownNumber(slide.title)
     return (
       <Slab p={p} tone={tone} style={{ justifyContent: "flex-end", gap: "4cqw" }}>
-        <span aria-hidden style={{ ...titleStyle(p, 72), ...tabular, position: "absolute", top: "-4cqw", right: "-3cqw", lineHeight: 0.8, color: "transparent", WebkitTextStroke: `0.5cqw ${c.accent}`, opacity: 0.55, zIndex: -1 }}>{n}</span>
+        {n && <span aria-hidden style={{ ...titleStyle(p, 72), ...tabular, position: "absolute", top: "-4cqw", right: "-3cqw", lineHeight: 0.8, color: "transparent", WebkitTextStroke: `0.5cqw ${c.accent}`, opacity: 0.55, zIndex: -1 }}>{n}</span>}
         <Rule color={c.accent} />
         {title(17, 38, 80)}
         {body(4.6, 6)}
