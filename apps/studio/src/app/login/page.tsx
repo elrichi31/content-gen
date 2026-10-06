@@ -4,6 +4,7 @@ import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Sparkles } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
+import { safeLoginReturn } from "@/lib/safe-login-return";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -23,7 +24,10 @@ function LoginForm() {
     const { error: signInError } = await authClient.signIn.email({ email, password });
     setBusy(false);
     if (signInError) return setError(signInError.message ?? "No se pudo iniciar sesión.");
-    router.replace(params.get("from") || "/");
+    const target = safeLoginReturn(params.get("from"));
+    // Las rutas de API (la autorización OAuth de ChatGPT) necesitan navegación completa, no la del router.
+    if (target.startsWith("/api/")) return window.location.assign(target);
+    router.replace(target);
     router.refresh();
   }
 

@@ -1,7 +1,12 @@
 # MCP del Studio
 
-Servidor MCP en `/api/mcp` (Streamable HTTP, SDK oficial) para que un agente maneje el Studio:
-Claude Code, Hermes o cualquier cliente MCP que permita enviar una cabecera.
+Servidor MCP en `/api/mcp` (Streamable HTTP, SDK oficial) para que un agente maneje el Studio.
+Acepta dos credenciales:
+
+- **Token fijo (`MCP_TOKEN`)** para clientes que permiten enviar una cabecera: Claude Code, Hermes.
+  Acceso completo.
+- **OAuth** para ChatGPT, que no permite cabeceras propias. Cada persona autoriza la conexión con
+  su cuenta del Studio y la puede revocar.
 
 Cada herramienta llama a la misma ruta de API que usa la pantalla: misma validación, mismas reglas
 y el gasto queda registrado en Costos igual que desde la app.
@@ -26,11 +31,12 @@ y el gasto queda registrado en Costos igual que desde la app.
 
    ```env
    MCP_TOKEN=el-token
-   # Solo si el Studio va detrás de un proxy y la URL interna no es la pública:
+   # Origen público HTTPS, sin barra final. Activa el OAuth de ChatGPT:
    MCP_PUBLIC_ORIGIN=https://studio.tu-dominio.com
    ```
 
-2. Reinicia el Studio. Sin `MCP_TOKEN` (o con menos de 32 caracteres) la ruta responde 503.
+2. Reinicia el Studio. Sin `MCP_TOKEN` ni `MCP_PUBLIC_ORIGIN` la ruta responde 503. La migración
+   `0003_mcp_oauth` (tablas de permisos y tokens) se aplica sola al arrancar el contenedor.
 
 El token da acceso completo al Studio: no lo subas a git ni lo pegues en chats. Para revocarlo,
 cámbialo y reinicia.
@@ -57,6 +63,30 @@ mcp_servers:
 ```
 
 Comprueba el formato exacto en la documentación de tu versión de Hermes.
+
+## Conectar ChatGPT
+
+Necesita el Studio desplegado con HTTPS y `MCP_PUBLIC_ORIGIN` configurado (ChatGPT no llega a
+`localhost`). Portado del OAuth de control-gastos: ChatGPT se identifica solo con su documento
+CIMD y su firma RS256, así que no hay client ID ni secreto que copiar.
+
+1. En ChatGPT, con Developer Mode, crea una app/conector MCP.
+2. URL del servidor: `https://studio.tu-dominio.com/api/mcp`.
+3. Autenticación: **OAuth** (no "No Authentication"). Deja vacíos el client ID y el secreto.
+4. Conecta: inicia sesión en el Studio, revisa los permisos y pulsa **Autorizar conexión**.
+5. Prueba primero con una consulta: "lista mis campañas de Content Gen".
+
+Permisos: `studio:read` (solo consultar) y `studio:write` (crear, editar y generar). Con solo
+lectura, ChatGPT no ve las herramientas que escriben o gastan.
+
+**Revocar:** `https://studio.tu-dominio.com/api/mcp/connections`, con tu sesión del Studio.
+Cambiar la contraseña también corta todas tus conexiones.
+
+**Controles:** consentimiento con sesión real y CSRF; PKCE S256 obligatorio; callback y recurso
+fijos; códigos de un solo uso de 5 min; access tokens de 15 min y refresh tokens rotativos de
+hasta 30 días (reusar uno ya canjeado revoca la conexión entera); solo se guardan hashes SHA-256;
+120 peticiones por minuto por conexión. Si falta la configuración, se rechaza el acceso: nunca
+queda abierto.
 
 ## Tiempos
 

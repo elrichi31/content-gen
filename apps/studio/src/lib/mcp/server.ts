@@ -82,7 +82,8 @@ async function lastEvent(response: Response) {
   return final;
 }
 
-export function createStudioMcpServer({ origin }: { origin: string }) {
+/** `scopes` decide qué herramientas existen: con solo `studio:read` no aparece ninguna que escriba o gaste. */
+export function createStudioMcpServer({ origin, scopes = ["studio:read", "studio:write"] }: { origin: string; scopes?: readonly string[] }) {
   const server = new McpServer({ name: "content-gen-studio", version: "1.0.0" });
 
   // `handler` es cualquier export de ruta: cada una declara sus params con su propio tipo.
@@ -107,6 +108,7 @@ export function createStudioMcpServer({ origin }: { origin: string }) {
 
   type Shape = Record<string, z.ZodType>;
   function tool<S extends Shape>(name: string, options: { description: string; input: S; readOnly?: boolean; spends?: boolean }, run: (args: z.infer<z.ZodObject<S>>) => Promise<unknown>) {
+    if (!scopes.includes(options.readOnly ? "studio:read" : "studio:write")) return;
     server.registerTool(name, {
       description: options.description,
       inputSchema: options.input,
