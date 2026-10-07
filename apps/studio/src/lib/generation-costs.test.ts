@@ -31,7 +31,7 @@ await addRun({ operation: "carousel-generate", status: "failed", cost: 0, conten
 // Fuera del mes consultado: no debe contarse.
 await addRun({ operation: "article-write", cost: 99, createdAt: "2026-07-10T12:00:00.000Z" });
 
-const { costReport, currentMonth, monthRange, CostReportError } = await import("./generation-costs.ts");
+const { costReport, currentMonth, monthRange, pieceCost, CostReportError } = await import("./generation-costs.ts");
 
 const report = await costReport({ month: "2026-08" });
 
@@ -59,6 +59,16 @@ assert.equal(report.providers.reduce((sum, provider) => sum + provider.total, 0)
 assert.equal(report.expensive[0]?.contentItemId, "video-1", "la pieza más cara encabeza la lista");
 assert.equal(report.expensive[0]?.title, "Video caro", "resuelve el título de la pieza");
 assert.equal(report.expensive[0]?.runs, 3, "suma todas las operaciones de la pieza, incluida la no tarifada");
+
+assert.equal(report.pieces.length, 2, "lista todas las piezas con gasto del mes, no solo las caras");
+
+const video = await pieceCost("video-1");
+assert.equal(video.title, "Video caro", "el desglose resuelve el título");
+assert.equal(video.totals.amount, 0.01, "suma el costo de toda la pieza");
+assert.equal(video.totals.untariffed, 1, "señala lo que no tiene importe");
+assert.deepEqual(video.operations.map((group) => [group.operation, group.runs, group.total]), [["video-scene-image", 2, 0.01], ["video-scene-audio", 1, 0]], "agrupa por concepto, lo más caro primero");
+assert.equal(video.runs.length, 3, "lista cada operación");
+await assert.rejects(() => pieceCost("no-existe"), (error: unknown) => error instanceof CostReportError && error.status === 404, "una pieza sin gasto ni registro da 404");
 
 const empty = await costReport({ month: "2026-01" });
 assert.equal(empty.totals.amount, 0, "un mes sin actividad no rompe el informe");

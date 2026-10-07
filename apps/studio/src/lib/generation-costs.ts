@@ -1,4 +1,4 @@
-import { totalCost, type Cost } from "@content-gen/domain/cost";
+import { addUsage, emptyUsage, totalCost, usageSchema, type Cost, type Usage } from "@content-gen/domain/cost";
 import { isUntariffed, summarizeUsage } from "./cost-analytics.ts";
 import { contentTitle } from "./content-title.ts";
 import { withDatabase } from "./db.ts";
@@ -113,7 +113,69 @@ export async function costReport({ month = currentMonth() }: { month?: string } 
       }))
       .sort((a, b) => b.total - a.total || a.operation.localeCompare(b.operation)),
     providers: [...byProvider.values()].map((provider) => ({ ...provider, total: round(provider.total) })).sort((a, b) => b.total - a.total),
-    expensive: await withTitles([...byItem.values()].sort((a, b) => b.total - a.total).slice(0, 10).map((item) => ({ ...item, total: round(item.total) }))),
+    ...await piecesOf(byItem),
+  };
+}
+
+/** Todas las piezas con gasto en el mes; `expensive` son las diez primeras, como antes. */
+async function piecesOf(byItem: Map<string, { contentItemId: string; runs: number; total: number }>) {
+  const pieces = await withTitles([...byItem.values()].sort((a, b) => b.total - a.total || b.runs - a.runs).map((item) => ({ ...item, total: round(item.total) })));
+  return { pieces, expensive: pieces.slice(0, 10) };
+}
+
+type PieceRun = { id: string; operation: string; provider: string; status: string; cost_amount: number | null; data_json: string; created_at: string };
+
+/**
+ * Desglose de toda la vida de una pieza, no solo del mes: un video se hace en varios días y lo que
+ * interesa es cuánto costó entero. Agrupa por operación (guion, imágenes, voz…) y lista cada
+ * operación para ver qué se repitió.
+ */
+export async function pieceCost(contentItemId: string) {
+  const item = await withDatabase(async (database) => await database
+    .prepare("SELECT id, type, document_json, created_at FROM content_items WHERE id = ?")
+    .get(contentItemId) as { id: string; type: string; document_json: string; created_at: string } | undefined);
+  const rows = await withDatabase(async (database) => await database
+    .prepare("SELECT id, operation, provider, status, cost_amount, data_json, created_at FROM generation_runs WHERE content_item_id = ? ORDER BY created_at ASC")
+    .all(contentItemId) as PieceRun[]);
+  if (!item && !rows.length) throw new CostReportError("La pieza no existe o no tiene gasto registrado.", 404);
+
+  const byOperation = new Map<string, { operation: string; runs: number; failed: number; untariffed: number; total: number; usage: Usage; models: string[] }>();
+  let total = 0;
+  let failed = 0;
+  let untariffed = 0;
+  const runs = rows.map((row) => {
+    const data = JSON.parse(row.data_json) as { model?: string | null; usage?: unknown; durationMs?: number | null; error?: string | null };
+    const parsed = usageSchema.safeParse(data.usage);
+    const usage = parsed.success ? parsed.data : null;
+    const missing = isUntariffed(row);
+    const model = typeof data.model === "string" && data.model ? data.model : null;
+    total += row.cost_amount ?? 0;
+    failed += Number(row.status === "failed");
+    untariffed += Number(missing);
+    const group = byOperation.get(row.operation) ?? { operation: row.operation, runs: 0, failed: 0, untariffed: 0, total: 0, usage: emptyUsage(), models: [] };
+    group.runs += 1;
+    group.total += row.cost_amount ?? 0;
+    group.failed += Number(row.status === "failed");
+    group.untariffed += Number(missing);
+    if (usage) group.usage = addUsage(group.usage, usage);
+    const label = model ?? row.provider;
+    if (!group.models.includes(label)) group.models.push(label);
+    byOperation.set(row.operation, group);
+    return {
+      id: row.id, operation: row.operation, provider: row.provider, model, status: row.status, createdAt: row.created_at,
+      amount: row.cost_amount === null ? null : round(row.cost_amount), durationMs: typeof data.durationMs === "number" ? data.durationMs : null,
+      usage, error: typeof data.error === "string" ? data.error : null,
+    };
+  });
+  return {
+    contentItemId,
+    type: item?.type ?? null,
+    title: item ? contentTitle({ ...JSON.parse(item.document_json), type: item.type }) : "(pieza eliminada)",
+    createdAt: item?.created_at ?? null,
+    currency: safePricing()?.currency ?? "USD",
+    totals: { amount: round(total), runs: rows.length, failed, untariffed },
+    operations: [...byOperation.values()].map((group) => ({ ...group, total: round(group.total) })).sort((a, b) => b.total - a.total || b.runs - a.runs),
+    runs,
   };
 }
 

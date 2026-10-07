@@ -5,6 +5,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { DailySpendChart, RankedChart } from "@/components/cost-charts";
 import type { ModelUsage, ToolUsage, DailyCost } from "@/lib/cost-analytics";
 import type { CatalogEntry } from "@/lib/cost-catalog";
+import { money, OPERATION_LABEL, PROVIDER_LABEL, TOOL_LABEL } from "@/lib/cost-labels";
+import { CostPieces, type Piece } from "@/components/cost-pieces";
 import type { Usage } from "@content-gen/domain/cost";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -22,6 +24,7 @@ type Payload = {
   operations: Operation[];
   providers: Provider[];
   expensive: Expensive[];
+  pieces?: Piece[];
   models: ModelUsage[];
   tools: ToolUsage[];
   daily: DailyCost[];
@@ -31,42 +34,6 @@ type Payload = {
   pricing: { version: string | null; status: string; missing: string[]; catalog: CatalogEntry[]; error?: string };
   error?: string;
 };
-
-/** Etiquetas de las operaciones que registra la aplicación; una nueva se muestra con su clave. */
-const OPERATION_LABEL: Record<string, string> = {
-  "article-research": "Artículo · investigación",
-  "article-write": "Artículo · redacción",
-  "carousel-generate": "Carrusel · generar",
-  "carousel-remix": "Carrusel · remix",
-  "carousel-slide-add": "Carrusel · añadir slide",
-  "carousel-slide-regenerate": "Carrusel · rehacer slide",
-  "carousel-image": "Carrusel · imagen",
-  "ad-generate": "Anuncio · generar",
-  "ad-regenerate": "Anuncio · rehacer",
-  "video-standard-script": "Video · guion",
-  "video-timeline-script": "Video · guion timeline",
-  "video-voiceover-script": "Video · guion de voz",
-  "video-caption": "Video · caption",
-  "video-scene-image": "Video · imagen de escena",
-  "video-scene-audio": "Video · audio de escena",
-  "radar-research": "Radar · investigación",
-  "radar-structure": "Radar · estructurar",
-  "radar-restructure": "Radar · reestructurar",
-  "ai-carousel-plan": "Carrusel IA · plan",
-  "ai-carousel-slide": "Carrusel IA · imagen",
-  "explainer-script": "Animación · guion",
-};
-const TOOL_LABEL: Record<string, string> = { "web-search": "Búsqueda web", image: "Imágenes IA", speech: "Síntesis de voz", "stock-photo": "Fotos de stock", text: "Generación de texto" };
-
-const PROVIDER_LABEL: Record<string, string> = { openai: "OpenAI", gemini: "Gemini", elevenlabs: "ElevenLabs", unsplash: "Unsplash", local: "Local" };
-
-/**
- * Los importes son céntimos de dólar: con dos decimales casi todo saldría «$0.00». Se muestran
- * cuatro, que es donde estas cifras empiezan a distinguirse entre sí.
- */
-function money(amount: number, currency: string) {
-  return `${amount.toLocaleString("es", { minimumFractionDigits: amount >= 1 ? 2 : 4, maximumFractionDigits: 6 })} ${currency}`;
-}
 
 function duration(ms: number | null) {
   if (ms === null) return "—";
@@ -270,24 +237,7 @@ export function CostsDashboard({ initialData }: { initialData?: Payload } = {}) 
         </CardContent>
       </Card>
 
-      {data.expensive.length ? (
-        <Card className="min-w-0 py-0">
-          <CardContent className="py-4">
-            <h2 className="text-sm font-semibold">Piezas más caras</h2>
-            <p className="mt-1 text-xs text-muted-foreground">Suma de todo lo generado para cada pieza: sirve para detectar lo que se rehízo muchas veces.</p>
-            <ul className="mt-3 space-y-2 text-sm">
-              {data.expensive.map((item) => (
-                <li key={item.contentItemId} className="flex items-baseline justify-between gap-3">
-                  <span className="truncate">{item.title}</span>
-                  <span className="shrink-0 text-muted-foreground">
-                    <span className="tabular-nums">{item.runs}</span> op · <span className="tabular-nums">{money(item.total, currency)}</span>
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </CardContent>
-        </Card>
-      ) : null}
+      <CostPieces key={month} pieces={data.pieces ?? data.expensive} currency={currency} />
 
       <details className="rounded-xl border bg-card px-4 py-4 sm:px-6">
         <summary className="cursor-pointer text-sm font-semibold focus-visible:outline-2 focus-visible:outline-ring">Tarifas y cobertura · {data.pricing.catalog.length} entradas</summary>
