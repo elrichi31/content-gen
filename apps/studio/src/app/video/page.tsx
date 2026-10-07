@@ -69,6 +69,18 @@ export default function VideoPage() {
     setDocument(parsed.data); setRevision(content.revision); setSavedSnapshot(JSON.stringify(parsed.data));
   }
 
+  /**
+   * La imagen se guarda sola en el servidor. Se toma de la respuesta solo la imagen de esa escena
+   * (y la revisión): así no se pierde el texto que el usuario editó y aún no guardó.
+   */
+  function adoptImage(content: Persisted, sceneId: string) {
+    const parsed = videoDocumentSchema.safeParse(content.document.data);
+    if (!parsed.success) return setNotice(noticeError("El servidor devolvió un documento de video inválido."));
+    const saved = parsed.data.scenes.find((item) => item.id === sceneId);
+    setRevision(content.revision); setSavedSnapshot(JSON.stringify(parsed.data));
+    setDocument((current) => current && saved ? { ...current, scenes: current.scenes.map((item) => item.id === sceneId ? { ...item, imageAssetId: saved.imageAssetId, content: { ...item.content, imageAssetHistory: saved.content.imageAssetHistory } } : item) } : parsed.data);
+  }
+
   function openEditor(item: StoredVideo) {
     const parsed = videoDocumentSchema.safeParse(item.document.data);
     if (!parsed.success) return setNotice(noticeError("Este contenido no es un VideoDocument v1 válido."));
@@ -125,7 +137,7 @@ export default function VideoPage() {
       <ModeSwitch modes={VIDEO_MODES} current="/video" className="mb-4" />
       <PageHeading
         title="Video"
-        description="Guion, imágenes, voz y render en un flujo de cinco pasos."
+        description="Tema → guion → imágenes de fondo → voz → guardar. Después puedes editar cada escena con vista previa."
         actions={<><Button type="button" variant={view === "wizard" ? "default" : "outline"} onClick={() => startNew()}><Plus className="h-4 w-4" /> Nuevo video</Button><Button type="button" variant={view === "wizard" ? "outline" : "default"} onClick={() => { setView("videos"); setNotice(null); }}><Film className="h-4 w-4" /> Mis videos</Button></>}
       />
 
@@ -153,7 +165,7 @@ export default function VideoPage() {
           ) : null}
 
           {step === 3 && document && contentId ? (
-            <ImageGallery contentItemId={contentId} revision={revision} document={document} onPersisted={adopt} onContinue={() => go(4)} />
+            <ImageGallery contentItemId={contentId} revision={revision} document={document} campaignId={campaignId || undefined} onPersisted={adopt} onContinue={() => go(4)} />
           ) : null}
 
           {step === 4 && document && contentId ? (
@@ -194,6 +206,7 @@ export default function VideoPage() {
           campaignId={campaignId || undefined}
           unsavedChanges={JSON.stringify(document) !== savedSnapshot}
           onPersisted={adopt}
+          onImagePersisted={adoptImage}
           onSave={() => void saveAnd()}
           onBack={() => { setView("videos"); void refresh(); }}
         />

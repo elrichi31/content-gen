@@ -1,6 +1,7 @@
 import { videoDocumentSchema, type VideoDocument } from "@content-gen/domain/video";
 
-export function replaceSceneImage(document: VideoDocument, sceneId: string, imageAssetId: string) {
+/** Pone (o quita, con `null`) la imagen de una escena; la anterior queda en el historial. */
+export function replaceSceneImage(document: VideoDocument, sceneId: string, imageAssetId: string | null) {
   let found = false;
   const scenes = document.scenes.map((scene) => {
     if (scene.id !== sceneId) return scene;
