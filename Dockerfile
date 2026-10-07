@@ -28,6 +28,13 @@ RUN DATABASE_URL=postgres://build:build@localhost:5432/build BETTER_AUTH_SECRET=
 
 ENV NODE_ENV=production \
     STORAGE_ROOT=/app/storage
+
+# Carpeta de medios y renders creada en la imagen y declarada como volumen, para que Docker la guarde
+# fuera de la capa del contenedor. Ojo: un volumen declarado aquí es anónimo, y un redeploy crea un
+# contenedor nuevo con otro volumen vacío. Para no perder nada entre deploys, en Dokploy hay que montar
+# un volumen *con nombre* en /app/storage (ver docs/deploy-dokploy.md); ese montaje reemplaza a este.
+RUN mkdir -p /app/storage/media /app/storage/renders
+VOLUME ["/app/storage"]
 EXPOSE 3000
 
 # Migraciones y luego la app. STORAGE_ROOT debe ser un volumen persistente (medios y renders).
