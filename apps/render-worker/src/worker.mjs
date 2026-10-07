@@ -3,7 +3,8 @@ import { renderMedia, selectComposition } from "@remotion/renderer";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream, existsSync, mkdirSync, rmSync, statSync } from "node:fs";
 import { copyFile, readFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { createServer } from "node:http";
+import { dirname, resolve, sep } from "node:path";
 import { clearInterval, setInterval } from "node:timers";
 import pg from "pg";
 import { runHyperframesRender } from "./hyperframes.mjs";
@@ -81,8 +82,57 @@ export function renderErrorMessage(output) {
  * en vez de invocar `npx remotion render` como subproceso: nada de ventanas de consola en
  * Windows, y el progreso llega como números en vez de tener que parsear texto de stdout.
  */
-async function runRemotionRender(job, outputPath, onUpdate) {
+/**
+ * Sirve en 127.0.0.1 solo los assets de las escenas del job, leídos del volumen local. Remotion
+ * pedía las imágenes y audios a `/api/assets` del Studio, pero esa ruta está detrás del login:
+ * el Chromium del render recibía 401 y la imagen de fondo desaparecía sin dar error.
+ */
+async function startAssetServer(document, { database, mediaRoot }) {
+  const ids = [...new Set(document.scenes.flatMap((scene) => [scene.imageAssetId, scene.audioAssetId]).filter(Boolean))];
+  if (!ids.length) return null;
+  const files = new Map();
+  for (const id of ids) {
+    const row = (await database.query("SELECT data_json FROM assets WHERE id = $1", [id])).rows[0];
+    if (!row) throw new Error(`Falta el asset ${id} de una escena.`);
+    const data = JSON.parse(row.data_json);
+    const path = resolve(mediaRoot, data.storageKey);
+    if (!path.startsWith(resolve(mediaRoot) + sep)) throw new Error(`Ruta de asset inválida: ${id}.`);
+    if (!existsSync(path)) throw new Error(`No se encontró el archivo del asset ${id}.`);
+    files.set(id, { path, mimeType: data.mimeType });
+  }
+  const server = createServer((request, response) => {
+    const id = /^\/api\/assets\/([^/?#]+)/.exec(request.url ?? "")?.[1];
+    const file = id ? files.get(id) : undefined;
+    if (!file) { response.writeHead(404).end(); return; }
+    const { size } = statSync(file.path);
+    // Range: el <Audio> de Remotion lo pide para leer la duración y moverse por el archivo.
+    const range = /^bytes=(\d*)-(\d*)$/.exec(request.headers.range ?? "");
+    const start = range?.[1] ? Number(range[1]) : range?.[2] ? Math.max(0, size - Number(range[2])) : 0;
+    const end = range?.[1] && range[2] ? Math.min(size - 1, Number(range[2])) : size - 1;
+    if (range && start > end) { response.writeHead(416, { "Content-Range": `bytes */${size}` }).end(); return; }
+    response.writeHead(range ? 206 : 200, {
+      "Content-Type": file.mimeType, "Content-Length": end - start + 1, "Accept-Ranges": "bytes",
+      "Access-Control-Allow-Origin": "*", ...(range ? { "Content-Range": `bytes ${start}-${end}/${size}` } : {}),
+    });
+    if (request.method === "HEAD") { response.end(); return; }
+    createReadStream(file.path, { start, end }).pipe(response);
+  });
+  await new Promise((resolveListen, reject) => { server.once("error", reject); server.listen(0, "127.0.0.1", resolveListen); });
+  const { port } = server.address();
+  return { url: `http://127.0.0.1:${port}`, close: () => new Promise((resolveClose) => server.close(() => resolveClose())) };
+}
+
+async function runRemotionRender(job, outputPath, onUpdate, { database, mediaRoot }) {
   const entryPoint = resolve(process.cwd(), "packages/video-engine/src/index.ts");
+  const assets = await startAssetServer(job.inputProps.document, { database, mediaRoot });
+  try {
+    await renderRemotion({ ...job, inputProps: { ...job.inputProps, ...(assets ? { assetBaseUrl: assets.url } : {}) } }, entryPoint, outputPath, onUpdate);
+  } finally {
+    await assets?.close();
+  }
+}
+
+async function renderRemotion(job, entryPoint, outputPath, onUpdate) {
   onUpdate({ log: "Empaquetando la composición…" });
   const serveUrl = await bundle({ entryPoint });
 
@@ -168,7 +218,7 @@ async function processNext(jobId) {
       mkdirSync(dirname(outputPath), { recursive: true });
       const onUpdate = (patch) => progress.report(patch);
       if (job.compositionId === "HyperframesVideo") await runHyperframesRender(job, outputPath, { database, mediaRoot, onUpdate });
-      else await runRemotionRender(job, outputPath, onUpdate);
+      else await runRemotionRender(job, outputPath, onUpdate, { database, mediaRoot });
       await progress.flush();
       const latest = await latestOf(job.id);
       if (latest.status === "cancelled") return console.log(JSON.stringify({ id: latest.id, status: "cancelled" }));
