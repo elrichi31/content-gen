@@ -1,6 +1,6 @@
 import { storageRoot, withDatabase } from "../../../../lib/db.ts";
 import { getStorageCatalog, deleteStorageVideos, StorageDeleteError } from "../../../../lib/storage-videos.ts";
-import { pageStorageFiles } from "../../../../lib/storage-file-model.ts";
+import { groupStorageFiles, pageStorageFiles } from "../../../../lib/storage-file-model.ts";
 import { storageDeleteInputSchema, storageDeleteOriginAllowed } from "../../../../lib/storage-delete-request.ts";
 
 export const runtime = "nodejs";
@@ -13,10 +13,11 @@ export async function GET(request: Request) {
   const page = Number(query.get("page") ?? 0);
   const kind = query.get("kind") ?? "all";
   const q = query.get("q") ?? "";
-  if (!Number.isSafeInteger(page) || page < 0 || q.length > 200 || !["all", "video", "image", "audio", "renders", "other", "deletable"].includes(kind)) return Response.json({ error: "Filtro inválido." }, { status: 400, headers });
+  const project = query.get("project") ?? "";
+  if (!Number.isSafeInteger(page) || page < 0 || q.length > 200 || project.length > 200 || !["all", "video", "image", "audio", "renders", "other", "deletable"].includes(kind)) return Response.json({ error: "Filtro inválido." }, { status: 400, headers });
   try {
     const catalog = await withDatabase(db => getStorageCatalog(storageRoot, db));
-    return Response.json({ ...pageStorageFiles(catalog.files, { page, kind, q }), partial: catalog.usage.scanStatus !== "complete" }, { headers });
+    return Response.json({ ...pageStorageFiles(catalog.files, { page, kind, q, project }), groups: groupStorageFiles(catalog.files), partial: catalog.usage.scanStatus !== "complete" }, { headers });
   } catch { return Response.json({ error: "No se pudo leer la lista. Revisa el volumen y la base de datos." }, { status: 503, headers }); }
 }
 

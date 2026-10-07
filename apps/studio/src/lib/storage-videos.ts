@@ -3,11 +3,14 @@ import { join, resolve, sep } from "node:path";
 import { assetSchema, renderJobSchema } from "@content-gen/domain/schemas";
 import type { Database } from "./db.ts";
 import { withAssetFileLock } from "./asset-file-lock.ts";
+import { contentTitle } from "./content-title.ts";
 import { getStorageUsage, type StorageEntry } from "./storage-usage.ts";
 
 const finalKey = /^media\/assets\/[a-f0-9]{64}\.mp4$/;
 const backupName = /^[a-f0-9]{64}\.mp4$/;
-export type StorageFileRow = StorageEntry & { deletable: boolean; reason: string; exportCount: number; pieceTitles: string[] };
+/** Pieza (o marca) a la que pertenece un archivo, con su campaña para ubicarla. */
+export type StorageProject = { id: string; title: string; type: string; campaign: string | null };
+export type StorageFileRow = StorageEntry & { deletable: boolean; reason: string; exportCount: number; pieceTitles: string[]; projects: StorageProject[] };
 type Selection = { key: string; version: string };
 export class StorageDeleteError extends Error {
   status: number;
@@ -20,7 +23,8 @@ async function snapshot(db: Database) {
   const contents = (await db.prepare("SELECT document_json FROM content_items").all() as { document_json: string }[]).map(row => JSON.parse(row.document_json) as Record<string, unknown>);
   const brands = (await db.prepare("SELECT data_json FROM brand_kits").all() as { data_json: string }[]).map(row => JSON.parse(row.data_json) as unknown);
   const jobs = (await db.prepare("SELECT data_json FROM render_jobs").all() as { data_json: string }[]).map(row => renderJobSchema.parse(JSON.parse(row.data_json)));
-  return { assets, exports, contents, brands, jobs };
+  const campaigns = (await db.prepare("SELECT id, data_json FROM campaigns").all() as { id: string; data_json: string }[]).map(row => ({ id: row.id, name: (JSON.parse(row.data_json) as { name?: unknown }).name }));
+  return { assets, exports, contents, brands, jobs, campaigns };
 }
 
 function stringsIn(value: unknown, target = new Set<string>()): Set<string> {
@@ -83,6 +87,26 @@ async function readCatalog(root: string, db: Database) {
   const exportsByAsset = new Map<string, typeof state.exports>();
   for (const item of state.exports) exportsByAsset.set(item.asset_id, [...(exportsByAsset.get(item.asset_id) ?? []), item]);
   const contentById = new Map(state.contents.map(item => [item.id, item]));
+  // A qué pieza pertenece cada asset: la que lo creó, la que lo exportó y cualquiera que lo use
+  // (una imagen de la campaña puede estar en varios carruseles). Las marcas cuentan como proyecto.
+  const campaignName = new Map(state.campaigns.map(campaign => [campaign.id, typeof campaign.name === "string" ? campaign.name : null]));
+  const projectOf = new Map<string, StorageProject>();
+  const usedBy = new Map<string, Set<string>>();
+  const assetIds = new Set(state.assets.map(asset => asset.id));
+  const link = (assetId: string, projectId: string) => assetIds.has(assetId) && usedBy.set(assetId, (usedBy.get(assetId) ?? new Set()).add(projectId));
+  for (const item of state.contents) {
+    const id = String(item.id);
+    projectOf.set(id, { id, title: contentTitle(item as Parameters<typeof contentTitle>[0]), type: String(item.type ?? "content"), campaign: campaignName.get(String(item.campaignId)) ?? null });
+    for (const value of stringsIn(item.document)) link(value, id);
+  }
+  for (const brand of state.brands as { id?: unknown; name?: unknown }[]) {
+    if (typeof brand?.id !== "string") continue;
+    const id = `brand:${brand.id}`;
+    projectOf.set(id, { id, title: typeof brand.name === "string" ? brand.name : "Marca", type: "brand", campaign: null });
+    for (const value of stringsIn(brand)) link(value, id);
+  }
+  for (const asset of state.assets) if (asset.contentItemId) link(asset.id, asset.contentItemId);
+  for (const item of state.exports) link(item.asset_id, item.content_item_id);
   const files: StorageFileRow[] = (usage.entries ?? []).map(entry => {
     const aliases = byKey.get(entry.key) ?? [];
     const ids = new Set(aliases.map(asset => asset.id));
@@ -93,7 +117,8 @@ async function readCatalog(root: string, db: Database) {
     });
     const inUse = [...ids].some(id => used.has(id));
     const deletable = finalKey.test(entry.key) && entry.links === 1 && !inUse && aliases.every(asset => asset.mimeType === "video/mp4") && exports.every(item => item.format === "mp4");
-    return { ...entry, name: aliases[0]?.filename ?? entry.name, deletable, exportCount: exports.length, pieceTitles: [...new Set(titles)], reason: inUse ? "Lo utiliza un proyecto o una marca" : entry.links !== 1 ? "Archivo compartido mediante enlaces" : deletable ? exports.length ? "Video final · se puede volver a renderizar" : "MP4 sin exportación" : entry.kind === "renders" ? "Temporal del worker · limpieza automática" : "Archivo fuente protegido" };
+    const projects = [...new Set([...ids].flatMap(id => [...(usedBy.get(id) ?? [])]))].map(id => projectOf.get(id)).filter((project): project is StorageProject => Boolean(project));
+    return { ...entry, name: aliases[0]?.filename ?? entry.name, deletable, exportCount: exports.length, pieceTitles: [...new Set([...titles, ...projects.map(project => project.title)])], projects, reason: inUse ? "Lo utiliza un proyecto o una marca" : entry.links !== 1 ? "Archivo compartido mediante enlaces" : deletable ? exports.length ? "Video final · se puede volver a renderizar" : "MP4 sin exportación" : entry.kind === "renders" ? "Temporal del worker · limpieza automática" : "Archivo fuente protegido" };
   }).sort((a, b) => b.allocatedBytes - a.allocatedBytes || a.key.localeCompare(b.key));
   delete usage.entries;
   return { usage, files };
