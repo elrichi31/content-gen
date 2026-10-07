@@ -14,7 +14,7 @@ let font = "";
   }),
 };
 
-const { fitFontSize, safeContentWidth } = await import("./text-fit.ts");
+const { countLines, fitFontSize, fitList, fitTextBlock, safeContentHeight, safeContentWidth } = await import("./text-fit.ts");
 
 const SAFE = safeContentWidth(1080);
 assert.equal(SAFE, 908, "el ancho útil de un lienzo vertical descuenta los márgenes seguros");
@@ -52,4 +52,16 @@ assert.equal(imposible, Math.round(148 * 0.45), "una palabra imposible se queda 
 assert.equal(fitFontSize({ text: "   ", maxWidth: SAFE, size: 96 }), 96, "un texto vacío conserva su cuerpo");
 assert.equal(fitFontSize({ text: "HOLA", maxWidth: 0, size: 96 }), 96, "sin ancho medible no se ajusta");
 
+// 4. A lo alto: un texto largo baja de cuerpo hasta caber en su alto disponible.
+assert.ok(safeContentHeight(1920) > 1400 && safeContentHeight(1920) < 1692, "el alto útil descuenta márgenes, relleno y vaivén");
+assert.equal(countLines({ text: "UNO\nDOS", maxWidth: SAFE, size: 100 }), 2, "respeta los saltos de línea");
+const longText = "palabra ".repeat(60).trim();
+assert.ok(countLines({ text: longText, maxWidth: 700, size: 64 }) * 64 * 1.12 > 600, "el caso: a 64 px este texto no cabe en 600 px");
+const block = fitTextBlock({ text: longText, maxWidth: 700, maxHeight: 600, size: 64, lineHeight: 1.12 });
+assert.ok(block < 64 && countLines({ text: longText, maxWidth: 700, size: block }) * block * 1.12 <= 600, `baja de cuerpo hasta caber (${block}px)`);
+assert.equal(fitTextBlock({ text: "corto", maxWidth: 700, maxHeight: 600, size: 64, lineHeight: 1.12 }), 64, "lo que cabe no cambia");
+const items = Array.from({ length: 6 }, () => "Accion concreta bastante larga que parte en varias lineas de la lista");
+const listSize = fitList({ items, maxWidth: 600, maxHeight: 700, size: 34, lineHeight: 1.15, itemExtra: 32, gap: 18 });
+const listHeight = 18 * 5 + items.reduce((total, item) => total + 32 + countLines({ text: item, maxWidth: 600, size: listSize }) * listSize * 1.15, 0);
+assert.ok(listSize < 34 && listHeight <= 700, `la lista entera cabe con un solo cuerpo (${listSize}px, ${Math.round(listHeight)}px)`);
 console.log("Ajuste de texto: los títulos y bloques entran en el área segura sin recortes.");

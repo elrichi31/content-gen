@@ -40,6 +40,15 @@ export async function runVideoPipeline(input: PipelineInput, deps: VideoPipeline
     };
     const current = await read();
     title = current.document.title;
+    // El guion de voz va primero: es la llamada barata y, si falla, no se han gastado imágenes.
+    // El educativo ya trae su narración en el guion (sus animaciones se escriben sobre ella):
+    // regenerarla era una llamada de más que además la desalineaba.
+    const hasNarration = current.document.scenes.every((scene) => typeof scene.content.voiceover === "string" && scene.content.voiceover.trim());
+    if (input.voiceId && !(current.document.templateId === "explainer" && hasNarration)) {
+      step = "voiceover";
+      await deps.voiceover(contentItemId, (await read()).revision);
+      completedSteps.push(step);
+    }
     for (const scene of current.document.scenes) {
       if (current.document.templateId === "explainer") {
         step = `animation:${scene.id}`;
@@ -53,9 +62,6 @@ export async function runVideoPipeline(input: PipelineInput, deps: VideoPipeline
       completedSteps.push(step);
     }
     if (input.voiceId) {
-      step = "voiceover";
-      await deps.voiceover(contentItemId, (await read()).revision);
-      completedSteps.push(step);
       for (const scene of current.document.scenes) {
         step = `audio:${scene.id}`;
         await deps.audio(contentItemId, scene.id, input.voiceId, input.modelId ?? "eleven_multilingual_v2", (await read()).revision);

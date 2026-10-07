@@ -23,12 +23,21 @@ const result = await runVideoPipeline({ topic: "Ciudad futura", imageSource: "un
 assert.equal(result.status, "queued");
 assert.equal(result.contentItemId, "video-1");
 assert.equal(result.renderJob?.id, "render-1");
-assert.deepEqual(standard.events.filter(e => !e.startsWith("read:")), ["create", "image:intro:unsplash:Una ciudad al amanecer", "image:close:unsplash:Ciudad futura", "voiceover", "audio:intro", "audio:close", "caption", "render"]);
+assert.deepEqual(standard.events.filter(e => !e.startsWith("read:")), ["create", "voiceover", "image:intro:unsplash:Una ciudad al amanecer", "image:close:unsplash:Ciudad futura", "audio:intro", "audio:close", "caption", "render"]);
 assert.equal(standard.events.at(-2), "read:6", "verifica el documento guardado antes del render");
 
 const explainer = fixture("explainer");
 await runVideoPipeline({ topic: "Una explicación", imageSource: "openai" }, explainer.deps);
 assert.deepEqual(explainer.events.filter(e => !e.startsWith("read:")), ["create", "animation:intro", "animation:close", "caption", "render"]);
+
+// El educativo ya trae su narración: con voz solo se genera el audio, sin reescribir el guion de voz.
+const narrated = fixture("explainer");
+narrated.deps.read = async () => ({ type: "video", revision: 0, document: { title: "E", templateId: "explainer", scenes: [{ id: "scene-1", content: { voiceover: "Hola." } }] } });
+narrated.deps.audio = async (_id, scene) => { narrated.events.push(`audio:${scene}`); };
+narrated.deps.animation = async (_id, scene) => { narrated.events.push(`animation:${scene}`); };
+narrated.deps.caption = async () => { narrated.events.push("caption"); };
+await runVideoPipeline({ topic: "Una explicación", imageSource: "none", voiceId: "voice-123" }, narrated.deps);
+assert.deepEqual(narrated.events, ["create", "animation:scene-1", "audio:scene-1", "caption", "render"]);
 
 const failed = fixture();
 failed.deps.image = async () => { throw new Error("Proveedor no disponible"); };

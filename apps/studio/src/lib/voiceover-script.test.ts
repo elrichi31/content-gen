@@ -13,6 +13,8 @@ const prompt = buildVoiceoverPrompt(document);
 assert.match(prompt, /- INTRO \(3s, \d+-\d+ palabras\)/, "reparte segundos y palabras por escena como el legacy");
 assert.match(prompt, /Niche visual y editorial: fraud[\s\S]*Hook principal elegido: shock/, "traslada niche y hook al prompt de narración");
 assert.match(prompt, /intro, layers, phase1, phase2, phase3, reality, close/, "fija las claves de escena del legacy");
+const heavy = videoDocumentSchema.parse({ ...document, scenes: document.scenes.map((scene) => ({ ...scene, content: { ...scene.content, imagePrompt: "Hyper-realistic cinematic photograph of a very long prompt", voiceId: "abc", audioAssetHistory: ["x"] } })) });
+assert.ok(!buildVoiceoverPrompt(heavy).includes("Hyper-realistic") && !buildVoiceoverPrompt(heavy).includes("audioAssetHistory"), "solo manda al modelo el texto en pantalla");
 
 const lines = STANDARD_SCENE_KEYS.map((key) => ({ sceneId: key, text: `Voz de ${key}` }));
 assert.equal(applyVoiceoverLines(document, lines).scenes[1].content.voiceover, "Voz de layers", "persiste una línea por escena");

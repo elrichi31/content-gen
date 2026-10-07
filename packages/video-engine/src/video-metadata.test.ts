@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { SIL_FRAMES, STANDARD_SCENE_KEYS, TAIL_FRAMES, videoDocumentSchema } from "@content-gen/domain/video";
+import { INTRO_LEAD_FRAMES, OUTRO_HOLD_FRAMES, SIL_FRAMES, STANDARD_SCENE_KEYS, TAIL_FRAMES, videoDocumentSchema } from "@content-gen/domain/video";
 import { applyAudioDurations, videoDurationInFrames } from "./video-metadata.ts";
 
 const kinds = { intro: "intro", layers: "layers", phase1: "phase", phase2: "phase", phase3: "phase", reality: "reality", close: "close" } as Record<string, string>;
@@ -8,11 +8,11 @@ const document = videoDocumentSchema.parse({
   scenes: STANDARD_SCENE_KEYS.map((key) => ({ id: key, kind: kinds[key], durationFrames: 90, content: {} })),
 });
 
-assert.equal(videoDurationInFrames(document), 7 * (90 + SIL_FRAMES), "cada escena suma su silencio de respiro");
+assert.equal(videoDurationInFrames(document), 7 * (90 + SIL_FRAMES) + INTRO_LEAD_FRAMES + OUTRO_HOLD_FRAMES, "cada escena suma su respiro, más la entrada y el cierre del video");
 
 const normalized = applyAudioDurations(document, { intro: 4, close: 1 });
 assert.equal(normalized.scenes[0].durationFrames, 120 + TAIL_FRAMES, "la narración medida reemplaza la base del guion");
 assert.equal(normalized.scenes[6].durationFrames, 30 + TAIL_FRAMES, "también cuando la narración es más corta que la base");
 assert.deepEqual(normalized.scenes.slice(1, 6).map((scene) => scene.durationFrames), [90, 90, 90, 90, 90], "las escenas sin audio conservan su base");
-assert.equal(videoDurationInFrames(normalized), 124 + 34 + 5 * 90 + 7 * SIL_FRAMES);
+assert.equal(videoDurationInFrames(normalized), 124 + 34 + 5 * 90 + 7 * SIL_FRAMES + INTRO_LEAD_FRAMES + OUTRO_HOLD_FRAMES);
 console.log("Metadata de video: silencio por escena y duración por narración validados.");

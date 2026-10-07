@@ -7,6 +7,26 @@ export const VIDEO_DEFAULTS = { fps: 30, width: 1080, height: 1920 } as const;
 export const SIL_FRAMES = 12;
 export const TAIL_FRAMES = 4;
 
+// Silencio antes de la primera voz y después de la última. Sin él la narración arranca en el
+// frame 0 y termina justo en el último: los reproductores (y TikTok/Reels al recomprimir)
+// se comen las primeras sílabas y la última palabra.
+export const INTRO_LEAD_FRAMES = 9;
+export const OUTRO_HOLD_FRAMES = 24;
+
+/** Frames de entrada antes del audio de la escena `index` (solo la primera los tiene). */
+export const sceneLeadFrames = (index: number) => index === 0 ? INTRO_LEAD_FRAMES : 0;
+
+/**
+ * Duración en pantalla de la escena `index`: su base (narración + `TAIL_FRAMES`), el respiro
+ * `SIL_FRAMES`, la entrada si es la primera y el cierre si es la última. Remotion, HyperFrames
+ * y el editor usan esta misma cuenta.
+ */
+export const sceneTimelineFrames = (scenes: readonly { durationFrames: number }[], index: number) =>
+  scenes[index].durationFrames + SIL_FRAMES + sceneLeadFrames(index) + (index === scenes.length - 1 ? OUTRO_HOLD_FRAMES : 0);
+
+export const timelineTotalFrames = (scenes: readonly { durationFrames: number }[]) =>
+  scenes.reduce((total, _scene, index) => total + sceneTimelineFrames(scenes, index), 0);
+
 export const VIDEO_NICHES = ["cybersecurity", "ai", "history", "fraud", "news", "general"] as const;
 export const HOOK_STYLES = ["shock", "curiosity", "contrarian", "countdown", "real-story"] as const;
 export type VideoNiche = (typeof VIDEO_NICHES)[number];

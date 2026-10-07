@@ -47,11 +47,15 @@ FUNCION DE CADA ESCENA
 const SHARED_RULES = `
 REGLAS DE ESCRITURA
 - Idioma: espanol neutro. Sin regionalismos.
-- Titulos en MAYUSCULAS, maximo 3 palabras por linea, usando \\n para saltos.
+- Titulos en MAYUSCULAS, maximo 3 palabras por linea y maximo 4 lineas, usando \\n para saltos.
 - Nada de "FASE 01/02/03". Usa etiquetas descriptivas del tema real.
 - Los indicators llevan cifras, porcentajes, fechas, actores o nombres concretos SOLO si son reales.
-- Maximo 80 caracteres en subtitle.
-- Maximo 140 caracteres en detail o impact.
+LIMITES DE TEXTO EN PANTALLA (lo que no cabe se ve diminuto o cortado)
+- tag, event, phase, timestamp: maximo 28 caracteres.
+- subtitle: maximo 80 caracteres. impact, narrative: maximo 110.
+- definition: maximo 120 caracteres. title de reality/today: maximo 70.
+- terminal: 3 a 5 lineas de maximo 40 caracteres.
+- indicator: 2 o 3 elementos de maximo 50 caracteres. actions: 3 o 4 de maximo 55.
 - imagePrompts siempre verticales 9:16, hiper-realistas, cinematograficos y con tomas variadas.
 
 RIGOR FACTUAL (CRITICO)
@@ -64,10 +68,9 @@ RIGOR FACTUAL (CRITICO)
 
 const IMAGE_PROMPT_RULES = `
 IMAGE PROMPTS
-- Nunca repitas el mismo tipo de toma dos veces seguidas.
-- Alterna entre close-up, gran angular, POV, overhead, macro y ambient.
-- Cada prompt debe incluir sujeto especifico, accion, locacion, un detalle unico, tipo de luz y el formato:
-  "Hyper-realistic cinematic photograph. ... Shot on RED Monstro 8K, anamorphic 50mm lens. ... Dramatic contrast, deep blacks. No text, no watermarks, no logos. Vertical 9:16 portrait composition. Photorealistic, not CGI."
+- En ingles, maximo 25 palabras: sujeto especifico, accion, lugar, un detalle unico, tipo de toma y luz.
+- No escribas estilo, camara ni formato: el sistema agrega el estilo fotografico cinematografico vertical.
+- Nunca repitas el mismo tipo de toma dos veces seguidas: alterna close-up, wide, POV, overhead, macro y ambient.
 `;
 
 const STANDARD_JSON_SHAPE = `
@@ -100,15 +103,13 @@ ESTRUCTURA EXACTA
         "> concepto = actor real",
         "> concepto = hallazgo clave"
       ],
-      "definition": "Explicacion en 3 lineas\\nshort, sharp\\nsin relleno",
-      "detail": "Dato tecnico o historico con ano y cifra."
+      "definition": "Explicacion en 3 lineas\\nshort, sharp\\nsin relleno"
     },
     "phase1": {
       "phase": "NOMBRE REAL",
       "timestamp": "ETIQUETA CORTA",
       "title": "TITULO\\nDESCRIPTIVO",
       "narrative": "Que ocurre y por que importa.",
-      "detail": "Dato con numero real.",
       "indicator": ["Cifra concreta + contexto", "Nombre o dato especifico"]
     },
     "phase2": {
@@ -116,7 +117,6 @@ ESTRUCTURA EXACTA
       "timestamp": "ETIQUETA CORTA",
       "title": "TITULO\\nDESCRIPTIVO",
       "narrative": "Escalada con actores y consecuencias reales.",
-      "detail": "Dato con numero real.",
       "indicator": ["Cifra concreta", "Dato o actor especifico"]
     },
     "phase3": {
@@ -124,7 +124,6 @@ ESTRUCTURA EXACTA
       "timestamp": "ETIQUETA CORTA",
       "title": "TITULO\\nDESCRIPTIVO",
       "narrative": "El giro o pico mas fuerte.",
-      "detail": "El dato mas sorprendente.",
       "indicator": ["Numero mas impactante", "Consecuencia mas grave"]
     },
     "reality": {
@@ -162,7 +161,6 @@ ESTRUCTURA EXACTA
   "displayTitle": "Titulo legible para el dashboard",
   "niche": "cybersecurity|ai|history|fraud|news|general",
   "hookStyle": "shock|curiosity|contrarian|countdown|real-story",
-  "compositionType": "timeline",
   "accents": {
     "intro":  ["#HEX1", "#HEX2"],
     "event1": ["#HEX1", "#HEX2"],

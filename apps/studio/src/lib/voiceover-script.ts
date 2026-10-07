@@ -11,13 +11,9 @@ const NARRATION_RIGOR = `RIGOR FACTUAL (CRITICO)
 - Prohibido inventar porcentajes "llamativos" (ej. "70% mas efectivo") si no salen del contexto o de un hecho cierto.
 - Es mejor una narracion con menos numeros pero todos ciertos.`;
 
-const sceneShape = (keys: readonly string[]) => `{
-  "scenes": {
-${keys.map((key) => `    "${key}": { "text": "...", "durationSeconds": N, "wordCount": N }`).join(",\n")}
-  },
-  "fullScript": "${keys.join(" ... ")}",
-  "totalDurationSeconds": N
-}`;
+// Solo el texto por escena: `fullScript`, duraciones y conteos los deducía el código igual,
+// y pedirlos al modelo duplicaba toda la narración en tokens de salida.
+const sceneShape = (keys: readonly string[]) => `{"scenes":{${keys.map((key) => `"${key}":{"text":"..."}`).join(",")}}}`;
 
 export const VOICEOVER_SYSTEM_PROMPT = `Eres un guionista de narracion para videos virales de TikTok y Reels sobre tecnologia, IA, historia, fraude y ciberseguridad. El audio se genera con ElevenLabs: voz masculina, grave, tono documental.
 
@@ -41,9 +37,9 @@ REGLAS CRITICAS
 - Expande siglas la primera vez: "inteligencia artificial, o i a"; "autenticacion multifactor". Escribe nombres extranjeros de la forma mas clara posible para una voz hispana.
 - No uses MAYUSCULAS para enfatizar, salvo siglas. Usa una sola palabra en mayuscula solo si es imprescindible.
 - Usa como maximo una elipsis (… ) por escena y nunca pongas "..." como pausa decorativa.
+- Cada escena termina en punto, signo de cierre de interrogacion o de exclamacion: nunca en elipsis ni sin puntuacion (la voz cortaria la ultima palabra).
 - Espanol neutro.
 - Sin "en este video", "hoy vamos a hablar de", ni intros de presentador.
-- Las escenas se unen con " ... " en fullScript.
 
 ${NARRATION_RIGOR}
 
@@ -73,7 +69,7 @@ REGLAS
 - Verbos en pasado para eventos historicos, presente para today y close.
 - Escribe cifras, anos, monedas, porcentajes y siglas exactamente como se pronuncian; no uses digitos ni simbolos.
 - Evita MAYUSCULAS salvo siglas y no encadenes frases telegraficas. Una idea necesita desarrollo antes del remate.
-- Las escenas se unen con " ... " en fullScript.
+- Cada escena termina en punto, signo de cierre de interrogacion o de exclamacion, nunca en elipsis.
 
 ${NARRATION_RIGOR}
 
@@ -108,6 +104,11 @@ export function applyVoiceoverLines(document: VideoDocument, lines: VoiceoverLin
 const sceneHeadline = (content: Record<string, unknown>) => String(content.headline ?? content.title ?? "").replace(/\n/g, " ");
 const sceneTag = (content: Record<string, unknown>) => String(content.event ?? content.tag ?? content.phase ?? "");
 
+// Solo lo que se ve en pantalla: el prompt de imagen, la voz anterior y los datos de audio
+// del documento no le sirven al guionista y multiplicaban los tokens de entrada.
+const ON_SCREEN_KEYS = ["tag", "title", "subtitle", "terminal", "definition", "phase", "timestamp", "narrative", "indicator", "actions", "event", "year", "headline", "impact"];
+const onScreen = (content: Record<string, unknown>) => Object.fromEntries(ON_SCREEN_KEYS.filter((key) => content[key] !== undefined && content[key] !== "").map((key) => [key, content[key]]));
+
 export function buildVoiceoverPrompt(document: VideoDocument, context?: string) {
   const total = document.targetDurationSeconds;
   const durations = sceneDurationsFor(document.templateId, total);
@@ -136,10 +137,9 @@ REGLAS EXTRA
 - Manten el tono coherente con el niche.
 - No describas la imagen; aporta lo que la imagen no puede decir sola.
 - Usa exactamente estas claves de escena, en este orden: ${document.scenes.map((scene) => scene.id).join(", ")}.
-- En "fullScript" une todo con " ... ".
 
-CONTEXTO DEL VIDEO
-${JSON.stringify(Object.fromEntries(document.scenes.map((scene) => [scene.id, scene.content])), null, 2)}`;
+TEXTO EN PANTALLA POR ESCENA
+${JSON.stringify(Object.fromEntries(document.scenes.map((scene) => [scene.id, onScreen(scene.content)])))}`;
 }
 
 export function applyVoiceoverScript(document: VideoDocument, value: unknown) {

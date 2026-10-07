@@ -12,7 +12,7 @@ import {
   useVideoConfig,
 } from "remotion";
 import type { AccentPair } from "@content-gen/domain/video";
-import { fitFontSize, fontStack, monoStack, safeBounds, safeContentWidth } from "./text-fit.ts";
+import { fitFontSize, fitList, fitTextBlock, fontStack, monoStack, safeBounds, safeContentWidth } from "./text-fit.ts";
 
 // Background image that simply disappears if the file is missing, instead of
 // failing the whole render. This lets a video be saved/previewed with some (or
@@ -533,15 +533,16 @@ const AlertBorder: FC<{ accent: AccentPair }> = ({ accent }) => {
 
 /* ─── GLITCH TITLE ─── */
 
-export const GlitchTitle: FC<{ text: string; accent: AccentPair; size?: number }> = ({
+export const GlitchTitle: FC<{ text: string; accent: AccentPair; size?: number; maxHeight?: number }> = ({
   text,
   accent,
   size: requestedSize = 140,
+  maxHeight = 0,
 }) => {
   const frame = useCurrentFrame();
   const maxWidth = useSafeContentWidth();
   // Los tres calcos comparten cuerpo para que los fantasmas corten líneas igual que el texto principal.
-  const size = fitFontSize({ text, maxWidth, size: requestedSize, weight: 900, letterSpacing: -6, minRatio: 0.45 });
+  const size = fitTextBlock({ text, maxWidth, maxHeight, size: requestedSize, lineHeight: 0.9, weight: 900, letterSpacing: -6, minRatio: 0.3 });
   const glitchActive = (frame % 90) > 82 || (frame % 60) > 55;
   const offsetR = glitchActive ? interpolate(random(`g-r-${frame}`), [0, 1], [-6, 6]) : 0;
   const offsetB = glitchActive ? interpolate(random(`g-b-${frame}`), [0, 1], [-4, 4]) : 0;
@@ -653,12 +654,13 @@ export const TerminalBlock: FC<{
   lines: readonly string[];
   accent: AccentPair;
   startFrame?: number;
-}> = ({ lines, accent, startFrame = 0 }) => {
+  maxHeight?: number;
+}> = ({ lines, accent, startFrame = 0, maxHeight = 0 }) => {
   const frame = useCurrentFrame();
   const charsPerFrame = 1.2;
   // Un comando o una URL no parte, y la consola pierde el sentido si cada linea tiene
   // un cuerpo distinto: se ajusta el bloque entero a la linea mas ancha.
-  const size = Math.min(...lines.map((line) => fitFontSize({ text: line, maxWidth: 780 - 32 * 2, size: 28, weight: 500, family: monoStack })), 28);
+  const size = fitList({ items: lines, maxWidth: 780 - 32 * 2, maxHeight, size: 28, lineHeight: 1.7, weight: 500, family: monoStack, extra: 28 * 2 });
   const cursorHeight = Math.round(24 * (size / 28));
 
   return (
@@ -760,9 +762,10 @@ export const NarrativeText: FC<{
   size?: number;
   maxWidth?: number;
   accent?: string;
-}> = ({ text, size: requestedSize = 64, maxWidth = 700, accent = "rgba(255,255,255,0.92)" }) => {
+  maxHeight?: number;
+}> = ({ text, size: requestedSize = 64, maxWidth = 700, accent = "rgba(255,255,255,0.92)", maxHeight = 0 }) => {
   const width = Math.min(maxWidth, useSafeContentWidth());
-  const size = fitFontSize({ text, maxWidth: width, size: requestedSize, weight: 700 });
+  const size = fitTextBlock({ text, maxWidth: width, maxHeight, size: requestedSize, lineHeight: 1.12, weight: 700 });
   return (
   <div
     style={{
@@ -788,9 +791,10 @@ export const DetailText: FC<{
   text: string;
   size?: number;
   maxWidth?: number;
-}> = ({ text, size: requestedSize = 36, maxWidth = 720 }) => {
+  maxHeight?: number;
+}> = ({ text, size: requestedSize = 36, maxWidth = 720, maxHeight = 0 }) => {
   const width = Math.min(maxWidth, useSafeContentWidth());
-  const size = fitFontSize({ text, maxWidth: width, size: requestedSize, weight: 500 });
+  const size = fitTextBlock({ text, maxWidth: width, maxHeight, size: requestedSize, lineHeight: 1.22, weight: 500 });
   return (
   <div
     style={{
@@ -814,9 +818,12 @@ export const DetailText: FC<{
 export const IndicatorCard: FC<{
   accent: AccentPair;
   items: readonly string[];
-}> = ({ accent, items }) => {
+  maxHeight?: number;
+}> = ({ accent, items, maxHeight = 0 }) => {
   const frame = useCurrentFrame();
   const sweep = interpolate((frame * 2) % 150, [0, 150], [-250, 1150], clamp);
+  // Un cuerpo para toda la tarjeta: cada fila entra a lo ancho y la tarjeta entera a lo alto.
+  const size = fitList({ items, maxWidth: INDICATOR_TEXT_WIDTH, maxHeight, size: 40, lineHeight: 1.1, weight: 600, gap: 14, extra: 24 * 2 });
 
   return (
     <div
@@ -848,7 +855,7 @@ export const IndicatorCard: FC<{
       />
       <div style={{ position: "relative", display: "flex", flexDirection: "column", gap: 14 }}>
         {items.map((item, i) => (
-          <IndicatorRow key={item} text={item} accent={accent} index={i} />
+          <IndicatorRow key={item} text={item} accent={accent} index={i} size={size} />
         ))}
       </div>
     </div>
@@ -857,10 +864,9 @@ export const IndicatorCard: FC<{
 
 const INDICATOR_TEXT_WIDTH = 660 - 28 * 2 - 10 - 16;
 
-const IndicatorRow: FC<{ text: string; accent: AccentPair; index: number }> = ({ text, accent, index }) => {
+const IndicatorRow: FC<{ text: string; accent: AccentPair; index: number; size: number }> = ({ text, accent, index, size }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
-  const size = fitFontSize({ text, maxWidth: INDICATOR_TEXT_WIDTH, size: 40, weight: 600 });
   const progress = revealSpring(frame - index * 8, fps, 26);
   const pulse = loop(frame + index * 12, [0.8, 1.25, 0.8], 80);
   const color = index === 0 ? accent[0] : accent[1];
@@ -906,9 +912,12 @@ const IndicatorRow: FC<{ text: string; accent: AccentPair; index: number }> = ({
 export const ActionList: FC<{
   items: readonly string[];
   accent: AccentPair;
-}> = ({ items, accent }) => {
+  maxHeight?: number;
+}> = ({ items, accent, maxHeight = 0 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
+  // Mismo cuerpo en todas las acciones; cada fila suma su relleno (16 * 2) y la lista sus huecos.
+  const size = fitList({ items, maxWidth: 740 - 24 * 2 - 36 - 20, maxHeight, size: 34, lineHeight: 1.15, weight: 600, itemExtra: 16 * 2, gap: 18 });
 
   return (
     <div
@@ -924,7 +933,6 @@ export const ActionList: FC<{
       {items.map((item, i) => {
         const delay = i * 14;
         const progress = revealSpring(frame - delay, fps, 28);
-        const size = fitFontSize({ text: item, maxWidth: 740 - 24 * 2 - 36 - 20, size: 34, weight: 600 });
         return (
           <div
             key={item}

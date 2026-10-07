@@ -23,7 +23,8 @@ const ACRONYM_REPLACEMENTS: Array<[RegExp, string]> = [
 export function normalizeTextForTts(text: string): string {
   let normalized = text.replace(/\r?\n+/g, " ").replace(/\s+/g, " ").replace(/\.{3,}/g, "…").trim();
   for (const [pattern, replacement] of ACRONYM_REPLACEMENTS) normalized = normalized.replace(pattern, replacement);
-  return normalized;
+  // Sin cierre (o con una elipsis al final) ElevenLabs a veces se come la última palabra: siempre termina en punto.
+  return normalized.replace(/[\s…,;:]+$/, "").replace(/([^.!?»"”)])$/, "$1.");
 }
 
 export const QUALITY_VOICE_MODEL = "eleven_multilingual_v2";
@@ -39,3 +40,6 @@ export function voiceSettingsFor(modelId: string) {
     ? { stability: 0.5 }
     : { stability: 0.55, similarity_boost: 0.75, style: 0, speed: 0.98 };
 }
+
+/** `previous_text`/`next_text` (continuidad de entonación entre escenas) no existen en Eleven v3. */
+export const supportsContextText = (modelId: string) => !isExpressiveVoiceModel(modelId);

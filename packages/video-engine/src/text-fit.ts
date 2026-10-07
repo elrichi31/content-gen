@@ -9,6 +9,13 @@ export const safeBounds = { left: 86, right: 86, top: 108, bottom: 120 };
 /** Ancho útil de una escena: el lienzo menos los márgenes seguros. */
 export const safeContentWidth = (canvasWidth: number) => canvasWidth - safeBounds.left - safeBounds.right;
 
+/** Relleno vertical de `ColLayout` y vaivén de `DarkShell` (translateY ±8): no son sitio para texto. */
+const LAYOUT_PADDING = 60;
+const DRIFT = 16;
+
+/** Alto útil de una escena: el lienzo menos márgenes seguros, relleno del layout y vaivén. */
+export const safeContentHeight = (canvasHeight: number) => canvasHeight - safeBounds.top - safeBounds.bottom - LAYOUT_PADDING * 2 - DRIFT;
+
 // El texto llega de la IA o del editor, así que una palabra suelta puede ser más ancha
 // que el área segura. Una palabra no parte en varias líneas: el navegador la desborda y
 // `DarkShell` (overflow hidden) la recorta por los dos lados. Medimos con canvas y bajamos
@@ -54,3 +61,67 @@ export const fitFontSize = ({ text, maxWidth, size, weight = 700, family = fontS
   return Math.max(Math.round(size * minRatio), Math.min(size, Math.floor(allowed)));
 };
 
+
+type TextMetrics = { size: number; weight?: number; family?: string; letterSpacing?: number };
+
+/**
+ * Líneas que ocupa `text` a `size` en una caja de `maxWidth`: respeta los saltos `\n`
+ * (`white-space: pre-line`) y parte por espacios como el navegador. Un 2% de holgura cubre
+ * la diferencia entre la medida de canvas y el layout real.
+ */
+export const countLines = ({ text, maxWidth, size, weight = 700, family = fontStack, letterSpacing = 0 }: TextMetrics & { text: string; maxWidth: number }) => {
+  const width = maxWidth * 0.98;
+  const space = glyphWidth(" ", size, weight, family) + letterSpacing;
+  let lines = 0;
+  for (const paragraph of text.split("\n")) {
+    lines += 1;
+    let current = -1;
+    for (const word of paragraph.split(/\s+/).filter(Boolean)) {
+      const wordWidth = glyphWidth(word, size, weight, family) + letterSpacing * word.length;
+      if (current < 0) current = wordWidth;
+      else if (current + space + wordWidth <= width) current += space + wordWidth;
+      else { lines += 1; current = wordWidth; }
+    }
+  }
+  return lines;
+};
+
+const blockCache = new Map<string, number>();
+
+/**
+ * Mayor cuerpo <= `size` con el que `text` entra a lo ancho (ninguna palabra se sale) y a lo
+ * alto (`líneas * cuerpo * lineHeight <= maxHeight`). Un texto largo de la IA ya no se corta
+ * por abajo: baja de cuerpo hasta `minRatio`. Si ya entraba, el tamaño no cambia.
+ */
+export const fitTextBlock = ({ text, maxWidth, maxHeight, size, lineHeight, weight = 700, family = fontStack, letterSpacing = 0, minRatio = 0.4 }: TextMetrics & {
+  text: string; maxWidth: number; maxHeight: number; lineHeight: number; minRatio?: number;
+}) => {
+  const key = [text, maxWidth, maxHeight, size, lineHeight, weight, family, letterSpacing, minRatio].join("|");
+  const cached = blockCache.get(key);
+  if (cached !== undefined) return cached;
+  const min = Math.round(size * minRatio);
+  let fitted = fitFontSize({ text, maxWidth, size, weight, family, letterSpacing, minRatio });
+  if (maxHeight > 0) while (fitted > min && countLines({ text, maxWidth, size: fitted, weight, family, letterSpacing }) * fitted * lineHeight > maxHeight) fitted -= 1;
+  blockCache.set(key, fitted);
+  return fitted;
+};
+
+/**
+ * Un cuerpo común para una lista (indicadores, acciones, consola): cada elemento entra a lo
+ * ancho y la lista completa —con `itemExtra` px de relleno por elemento, `gap` entre ellos y
+ * `extra` del contenedor— cabe en `maxHeight`.
+ */
+export const fitList = ({ items, maxWidth, maxHeight, size, lineHeight, weight = 600, family = fontStack, letterSpacing = 0, itemExtra = 0, gap = 0, extra = 0, minRatio = 0.5 }: TextMetrics & {
+  items: readonly string[]; maxWidth: number; maxHeight: number; lineHeight: number; itemExtra?: number; gap?: number; extra?: number; minRatio?: number;
+}) => {
+  if (!items.length) return size;
+  const key = [items.join("\u0000"), maxWidth, maxHeight, size, lineHeight, weight, family, letterSpacing, itemExtra, gap, extra, minRatio].join("|");
+  const cached = blockCache.get(key);
+  if (cached !== undefined) return cached;
+  const min = Math.round(size * minRatio);
+  let fitted = Math.min(...items.map((item) => fitFontSize({ text: item, maxWidth, size, weight, family, letterSpacing, minRatio })));
+  const height = (s: number) => extra + gap * (items.length - 1) + items.reduce((total, item) => total + itemExtra + countLines({ text: item, maxWidth, size: s, weight, family, letterSpacing }) * s * lineHeight, 0);
+  if (maxHeight > 0) while (fitted > min && height(fitted) > maxHeight) fitted -= 1;
+  blockCache.set(key, fitted);
+  return fitted;
+};

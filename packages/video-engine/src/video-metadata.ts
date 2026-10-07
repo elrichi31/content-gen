@@ -1,12 +1,10 @@
-import { SIL_FRAMES, TAIL_FRAMES, videoDocumentSchema, type VideoDocument, type VideoScene } from "@content-gen/domain/video";
+import { TAIL_FRAMES, timelineTotalFrames, videoDocumentSchema, type VideoDocument } from "@content-gen/domain/video";
 import type { CalculateMetadataFunction } from "remotion";
 
 export type VideoProps = { document: VideoDocument; assetBaseUrl?: string };
 
-/** Duración real en pantalla: la base del guion más el silencio de respiro del legacy. */
-export const sceneFrames = (scene: VideoScene) => scene.durationFrames + SIL_FRAMES;
-
-export const videoDurationInFrames = (document: VideoDocument) => document.scenes.reduce((total, scene) => total + sceneFrames(scene), 0);
+/** Duración total: cada escena con su respiro, más la entrada y el cierre (`sceneTimelineFrames`). */
+export const videoDurationInFrames = (document: VideoDocument) => timelineTotalFrames(document.scenes);
 
 /**
  * Ajusta la base de cada escena a su narración medida: la duración del MP3 más

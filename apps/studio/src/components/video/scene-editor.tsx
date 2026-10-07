@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { ArrowLeft, AudioLines, Captions, CheckCircle2, ImageIcon, Palette, Save, Sparkles, Timer, WandSparkles } from "lucide-react";
 import {
-  HOOK_STYLES, SCENE_LABELS, sceneAccent, sceneDurationsFor, SIL_FRAMES, TAIL_FRAMES, VIDEO_NICHES,
+  HOOK_STYLES, SCENE_LABELS, sceneAccent, sceneDurationsFor, SIL_FRAMES, TAIL_FRAMES, timelineTotalFrames, VIDEO_NICHES,
   type HookStyle, type VideoDocument, type VideoNiche, type VideoSceneKey,
 } from "@content-gen/domain/video";
 import { Button } from "@/components/ui/button";
@@ -23,8 +23,8 @@ type Field = [field: string, label: string, kind: "input" | "textarea" | "list"]
 
 const FIELDS: Record<string, Field[]> = {
   intro: [["tag", "Etiqueta", "input"], ["title", "Título", "textarea"], ["subtitle", "Subtítulo", "textarea"]],
-  layers: [["tag", "Etiqueta", "input"], ["terminal", "Terminal (una línea por fila)", "list"], ["definition", "Definición", "textarea"], ["detail", "Detalle", "textarea"]],
-  phase: [["phase", "Nombre de fase", "input"], ["timestamp", "Marca de tiempo", "input"], ["title", "Título", "textarea"], ["narrative", "Narrativa", "textarea"], ["detail", "Detalle", "textarea"], ["indicator", "Indicadores (uno por fila)", "list"]],
+  layers: [["tag", "Etiqueta", "input"], ["terminal", "Terminal (una línea por fila)", "list"], ["definition", "Definición", "textarea"]],
+  phase: [["phase", "Nombre de fase", "input"], ["timestamp", "Marca de tiempo", "input"], ["title", "Título", "textarea"], ["narrative", "Narrativa", "textarea"], ["indicator", "Indicadores (uno por fila)", "list"]],
   reality: [["tag", "Etiqueta", "input"], ["title", "Título", "textarea"], ["actions", "Acciones (una por fila)", "list"]],
   today: [["tag", "Etiqueta", "input"], ["title", "Título", "textarea"], ["actions", "Acciones (una por fila)", "list"]],
   close: [["tag", "Etiqueta", "input"], ["title", "Título", "textarea"], ["subtitle", "Subtítulo", "textarea"]],
@@ -33,7 +33,7 @@ const FIELDS: Record<string, Field[]> = {
 
 const listValue = (value: unknown) => Array.isArray(value) ? value.filter((item): item is string => typeof item === "string").join("\n") : "";
 const textValue = (value: unknown) => typeof value === "string" ? value : "";
-export const totalFrames = (document: VideoDocument) => document.scenes.reduce((total, scene) => total + scene.durationFrames + SIL_FRAMES, 0);
+export const totalFrames = (document: VideoDocument) => timelineTotalFrames(document.scenes);
 
 export function SceneEditor({
   document,

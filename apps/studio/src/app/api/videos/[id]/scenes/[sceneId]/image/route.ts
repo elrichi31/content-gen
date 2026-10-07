@@ -6,10 +6,10 @@ import { validateVideoAssets } from "@/lib/content-assets";
 import { withDatabase } from "@/lib/db";
 import { beginGenerationRun, finishGenerationRun } from "@/lib/generation-runs";
 import { openAiModel } from "@/lib/openai";
-import { replaceSceneImage } from "@/lib/video-scene-images";
+import { replaceSceneImage, videoImagePrompt } from "@/lib/video-scene-images";
 import { videoDocumentSchema } from "@content-gen/domain/video";
 
-// Los imagePrompts del guion son largos y cinematográficos, como en `video-autom`.
+// El prompt de la escena es corto; `videoImagePrompt` le añade el estilo (OpenAI) o lo reduce a palabras clave (Unsplash).
 const inputSchema = z.object({ source: z.enum(["openai", "unsplash"]), prompt: z.string().trim().min(3).max(1500), revision: z.number().int().nonnegative() });
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string; sceneId: string }> }) {
@@ -23,7 +23,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const startedAt = Date.now(); let run: Awaited<ReturnType<typeof beginGenerationRun>> | undefined;
   try {
     run = await beginGenerationRun({ contentItemId: id, operation: "video-scene-image", provider: input.data.source, model: input.data.source === "openai" ? openAiModel("image") : null });
-    const image = await createRemoteImage({ source: input.data.source, prompt: input.data.prompt, campaignId: current.campaign_id }); const asset = await storeAsset({ ...image, campaignId: current.campaign_id, contentItemId: id });
+    const image = await createRemoteImage({ source: input.data.source, prompt: videoImagePrompt(input.data.prompt, input.data.source), campaignId: current.campaign_id }); const asset = await storeAsset({ ...image, campaignId: current.campaign_id, contentItemId: id });
     const nextDocument = replaceSceneImage(document.data, sceneId, asset.id); await validateVideoAssets(nextDocument, current.campaign_id);
     const now = new Date().toISOString(); const stored = JSON.parse(current.document_json); const next = { ...stored, document: { ...stored.document, data: nextDocument }, revision: current.revision + 1, updatedAt: now };
     const result = await withDatabase(async (database) => await database.prepare("UPDATE content_items SET document_json = ?, revision = ?, updated_at = ? WHERE id = ? AND revision = ?").run(JSON.stringify(next), next.revision, now, id, current.revision) as { changes: number });

@@ -1,6 +1,6 @@
 import { speechUsage } from "@content-gen/domain/cost";
 import { z } from "zod";
-import { normalizeTextForTts, voiceSettingsFor } from "./tts-text.ts";
+import { normalizeTextForTts, supportsContextText, voiceSettingsFor } from "./tts-text.ts";
 
 const voiceSchema = z.object({ voice_id: z.string().min(1), name: z.string().min(1), category: z.string().default("premade"), labels: z.record(z.string(), z.string()).default({}), preview_url: z.string().url().nullable().default(null) });
 export type ElevenLabsVoice = z.infer<typeof voiceSchema>;
@@ -16,11 +16,19 @@ export async function listElevenLabsVoices(request: typeof fetch = fetch) {
   return (body?.voices ?? []).map((voice) => voiceSchema.safeParse(voice)).filter((result) => result.success).map((result) => result.data).sort((a, b) => Number(spanish(b)) - Number(spanish(a)) || a.name.localeCompare(b.name));
 }
 
-export async function createElevenLabsSpeech({ voiceId, text, modelId = "eleven_multilingual_v2", request = fetch }: { voiceId: string; text: string; modelId?: string; request?: typeof fetch }) {
+/**
+ * `previousText`/`nextText`: la narración de las escenas vecinas. ElevenLabs no las lee (ni las
+ * cobra) pero ajusta la entonación para que la escena no arranque ni cierre como frase suelta.
+ */
+export async function createElevenLabsSpeech({ voiceId, text, modelId = "eleven_multilingual_v2", previousText, nextText, request = fetch }: { voiceId: string; text: string; modelId?: string; previousText?: string; nextText?: string; request?: typeof fetch }) {
   if (!/^[A-Za-z0-9_-]{8,64}$/.test(voiceId) || !text.trim() || text.length > 5000 || !/^[A-Za-z0-9_.-]{3,80}$/.test(modelId)) throw new ElevenLabsError("Configuración de voz inválida.", 400);
   // Mismo preprocesado y mismos ajustes de voz que `video-autom`: 128 kbps aguanta la recompresión de TikTok/Reels.
   // Se cobra por carácter enviado, así que el consumo se mide sobre el texto ya preprocesado.
   const spoken = normalizeTextForTts(text);
-  const response = await request(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}?output_format=mp3_44100_128`, { method: "POST", headers: { "xi-api-key": key(), "Content-Type": "application/json", Accept: "audio/mpeg" }, signal: AbortSignal.timeout(120_000), body: JSON.stringify({ text: spoken, model_id: modelId, language_code: "es", voice_settings: voiceSettingsFor(modelId) }) });
+  const context = supportsContextText(modelId) ? {
+    ...(previousText?.trim() ? { previous_text: normalizeTextForTts(previousText).slice(-1000) } : {}),
+    ...(nextText?.trim() ? { next_text: normalizeTextForTts(nextText).slice(0, 1000) } : {}),
+  } : {};
+  const response = await request(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}?output_format=mp3_44100_128`, { method: "POST", headers: { "xi-api-key": key(), "Content-Type": "application/json", Accept: "audio/mpeg" }, signal: AbortSignal.timeout(120_000), body: JSON.stringify({ text: spoken, model_id: modelId, language_code: "es", voice_settings: voiceSettingsFor(modelId), ...context }) });
   if (!response.ok) throw providerError(response.status); const bytes = Buffer.from(await response.arrayBuffer()); if (!bytes.length) throw new ElevenLabsError("ElevenLabs devolvió audio vacío.", 502); return { bytes, mimeType: "audio/mpeg", filename: "elevenlabs-voice.mp3", modelId, usage: speechUsage(spoken.length) };
 }
