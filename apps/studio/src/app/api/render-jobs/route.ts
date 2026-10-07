@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { renderJobSchema } from "@content-gen/domain/schemas";
-import { videoDocumentSchema } from "@content-gen/domain/video";
+import { SCENE_LABELS, videoDocumentSchema, type VideoSceneKey } from "@content-gen/domain/video";
+import { missingVideoAssetFiles } from "../../../lib/content-assets";
 import { NextResponse } from "next/server";
 import { withDatabase } from "../../../lib/db";
 import { parseActiveRenderJobLimit } from "../../../lib/render-limits";
@@ -49,6 +50,12 @@ export async function POST(request: Request) {
   // El video educativo solo existe en HyperFrames: sus escenas son animaciones HTML.
   const { engine, ...jobInput } = input as { engine?: unknown };
   const compositionId = engine === "hyperframes" || document.data.templateId === "explainer" ? "HyperframesVideo" :document.data.templateId === "timeline" ? "TimelineVideo" : "StandardVideo";
+  // Mejor avisar ahora, escena por escena, que dejar que el worker falle a mitad con un ENOENT.
+  const missing = await missingVideoAssetFiles(document.data);
+  if (missing.length) {
+    const scenes = missing.map((item) => `${item.kind === "image" ? "la imagen" : "el audio"} de «${SCENE_LABELS[item.sceneId as VideoSceneKey] ?? item.sceneId}»`);
+    return NextResponse.json({ error: `Faltan archivos en el servidor: ${scenes.join(", ")}. El registro existe pero el archivo ya no está en el disco (se pierde si /app/storage no es un volumen persistente y se redespliega). Vuelve a ponerlos en el editor y renderiza de nuevo.`, missing }, { status: 409 });
+  }
   const hasAssets = document.data.scenes.some((scene) => scene.imageAssetId || scene.audioAssetId);
   const inputProps = { document: document.data, ...(hasAssets ? { assetBaseUrl: new URL(request.url).origin } : {}) };
   const parsed = renderJobSchema.safeParse({ ...jobInput, id: randomUUID(), schemaVersion: 1, compositionId, inputProps, status: "queued", progress: 0, outputAssetId: null, createdAt: now, completedAt: null, error: null });

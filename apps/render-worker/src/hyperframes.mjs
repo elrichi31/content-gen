@@ -1,6 +1,6 @@
 import { createRenderJob, executeRenderJob } from "@hyperframes/producer";
 import { ensureBrowser } from "@remotion/renderer";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { copyFile, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join, resolve, sep } from "node:path";
@@ -206,6 +206,7 @@ export async function runHyperframesRender(job, outputPath, { database, mediaRoo
       if (!row) throw new Error(`Falta el asset ${id} de una escena.`);
       const source = resolve(mediaRoot, JSON.parse(row.data_json).storageKey);
       if (!source.startsWith(resolve(mediaRoot) + sep)) throw new Error(`Ruta de asset inválida: ${id}.`);
+      if (!existsSync(source)) throw new Error(`El archivo del asset ${id} ya no está en el disco (¿/app/storage sin volumen persistente?). Vuelve a ponerlo en la escena.`);
       const name = `media/${basename(source)}`;
       await copyFile(source, join(projectDir, name));
       files.set(id, name);
