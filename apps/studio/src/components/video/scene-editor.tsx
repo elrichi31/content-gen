@@ -238,7 +238,7 @@ export function SceneEditor({
           </div>
         </div>
       ) : (
-        <Card className="mx-auto max-w-3xl border-border/70 bg-card/60">
+        <Card className="border-border/70 bg-card/60">
           <CardContent className="space-y-5 p-5">
             <div>
               <p className="text-xs font-semibold uppercase tracking-wider text-primary">Paso {stepNumber} de {STEPS.length} · todo el video</p>
