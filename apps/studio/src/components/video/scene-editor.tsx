@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowLeft, AudioLines, Captions, CheckCircle2, ChevronDown, ImageIcon, ImageOff, Palette, Save, Sparkles, Type } from "lucide-react";
+import { ArrowLeft, ArrowRight, AudioLines, Captions, CheckCircle2, ChevronDown, Clapperboard, ImageIcon, ImageOff, Palette, Save, Sparkles, Type, type LucideIcon } from "lucide-react";
 import {
   HOOK_STYLES, SCENE_LABELS, sceneAccent, sceneDurationsFor, SIL_FRAMES, TAIL_FRAMES, timelineTotalFrames, VIDEO_NICHES,
   type HookStyle, type VideoDocument, type VideoNiche, type VideoSceneKey,
@@ -33,6 +33,16 @@ const FIELDS: Record<string, Field[]> = {
   event: [["event", "Etiqueta del evento", "input"], ["year", "Año", "input"], ["headline", "Titular", "textarea"], ["impact", "Impacto", "textarea"]],
 };
 
+type Step = "scenes" | "voice" | "caption" | "render";
+
+/** Pasos del video completo, en orden. Lo que es de una sola escena vive dentro del paso «Escenas». */
+const STEPS: { key: Step; title: string; icon: LucideIcon; description: string }[] = [
+  { key: "scenes", title: "Escenas", icon: Clapperboard, description: "Texto, imagen y audio de cada escena." },
+  { key: "voice", title: "Voz", icon: AudioLines, description: "Escribe o genera el guion de voz y narra todas las escenas de una vez." },
+  { key: "caption", title: "Caption", icon: Captions, description: "El texto y los hashtags que acompañan al video cuando lo publiques." },
+  { key: "render", title: "Publicar", icon: Sparkles, description: "Guarda los cambios y crea el MP4. El render ocurre solo y luego lo descargas aquí." },
+];
+
 const listValue = (value: unknown) => Array.isArray(value) ? value.filter((item): item is string => typeof item === "string").join("\n") : "";
 const textValue = (value: unknown) => typeof value === "string" ? value : "";
 export const totalFrames = (document: VideoDocument) => timelineTotalFrames(document.scenes);
@@ -63,6 +73,7 @@ export function SceneEditor({
 }) {
   const [sceneIndex, setSceneIndex] = useState(0);
   const [tab, setTab] = useState("text");
+  const [step, setStep] = useState<Step>("scenes");
   const scene = document.scenes[Math.min(sceneIndex, document.scenes.length - 1)];
   const accent = sceneAccent(scene);
   const totalSeconds = Math.round(totalFrames(document) / document.fps);
@@ -81,6 +92,20 @@ export function SceneEditor({
     onChange({ ...document, targetDurationSeconds: seconds, scenes: document.scenes.map((item) => item.audioAssetId || !durations[item.id] ? item : { ...item, durationFrames: durations[item.id] * document.fps }) });
   }
 
+  const withImage = document.scenes.filter((item) => item.imageAssetId).length;
+  const withVoice = document.scenes.filter((item) => item.audioAssetId).length;
+  const caption = (document as VideoDocument & { caption?: { text?: unknown } }).caption;
+  const hasCaption = typeof caption?.text === "string" && caption.text.trim().length > 0;
+  const stepDone: Record<Step, boolean> = { scenes: withImage === document.scenes.length, voice: withVoice === document.scenes.length, caption: hasCaption, render: false };
+  const stepHint: Record<Step, string> = {
+    scenes: `${withImage}/${document.scenes.length} con imagen`,
+    voice: `${withVoice}/${document.scenes.length} narradas`,
+    caption: hasCaption ? "Listo" : "Sin caption",
+    render: "Crear el MP4",
+  };
+  const stepNumber = STEPS.findIndex((item) => item.key === step) + 1;
+  const current = STEPS[stepNumber - 1];
+
   const label = (item: VideoDocument["scenes"][number]) => SCENE_LABELS[item.id as VideoSceneKey] ?? item.id;
 
   return (
@@ -91,7 +116,7 @@ export function SceneEditor({
           <div>
             <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-primary">Editor de video</p>
             <h2 className="mt-1 text-2xl font-semibold tracking-tight text-foreground">{document.title}</h2>
-            <p className="mt-1 text-sm text-muted-foreground">{document.scenes.length} escenas · {totalSeconds}s · elige una escena a la izquierda y edítala; a la derecha ves cómo queda.</p>
+            <p className="mt-1 text-sm text-muted-foreground">{document.scenes.length} escenas · {totalSeconds}s · sigue los pasos en orden: escenas, voz, caption y publicar.</p>
           </div>
         </div>
         <div className="flex items-center gap-3">
@@ -114,89 +139,124 @@ export function SceneEditor({
         </div>
       </details>
 
-      <div className="grid items-start gap-5 lg:grid-cols-[13rem_minmax(0,1fr)] 2xl:grid-cols-[13rem_minmax(0,1fr)_20rem]">
-        <nav aria-label="Escenas" className="space-y-1.5 lg:sticky lg:top-5">
-          {document.scenes.map((item, index) => {
-            const selected = item.id === scene.id;
-            return (
-              <button key={item.id} type="button" onClick={() => setSceneIndex(index)} aria-current={selected ? "true" : undefined}
-                className={`flex w-full items-center gap-2.5 rounded-xl border p-1.5 text-left transition ${selected ? "border-primary/70 bg-primary/10" : "border-transparent hover:border-border hover:bg-muted/40"}`}>
-                <span className="relative h-14 w-8 shrink-0 overflow-hidden rounded-md bg-muted" style={{ background: item.imageAssetId ? undefined : `linear-gradient(160deg, ${sceneAccent(item)[0]}55, #050101)` }}>
-                  {item.imageAssetId ? <img src={`/api/assets/${item.imageAssetId}`} alt="" className="h-full w-full object-cover" loading="lazy" /> : <ImageOff className="absolute inset-0 m-auto h-3.5 w-3.5 text-white/70" />}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-xs font-semibold text-foreground">{String(index + 1).padStart(2, "0")} · {label(item)}</span>
-                  <span className="mt-0.5 flex items-center gap-2 text-[10px] text-muted-foreground">
-                    <span>{(item.durationFrames / document.fps).toFixed(0)}s</span>
-                    <span className={item.imageAssetId ? "text-primary" : "text-amber-600 dark:text-amber-300"}>{item.imageAssetId ? "imagen" : "sin imagen"}</span>
-                    {item.audioAssetId ? <span className="text-primary">voz</span> : null}
+      <nav aria-label="Pasos del video" className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {STEPS.map((item, index) => {
+          const selected = item.key === step;
+          const done = stepDone[item.key];
+          const Icon = item.icon;
+          return (
+            <button key={item.key} type="button" onClick={() => setStep(item.key)} aria-current={selected ? "step" : undefined}
+              className={`flex items-center gap-3 rounded-xl border p-3 text-left transition ${selected ? "border-primary/70 bg-primary/10" : "border-border/60 bg-card/40 hover:border-border hover:bg-muted/40"}`}>
+              <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold ${done ? "bg-primary text-primary-foreground" : selected ? "border border-primary text-primary" : "border border-border text-muted-foreground"}`}>
+                {done ? <CheckCircle2 className="h-4 w-4" /> : index + 1}
+              </span>
+              <span className="min-w-0">
+                <span className={`flex items-center gap-1.5 text-sm font-semibold ${selected ? "text-foreground" : "text-muted-foreground"}`}><Icon className="h-3.5 w-3.5" /> {item.title}</span>
+                <span className="block truncate text-[11px] text-muted-foreground">{stepHint[item.key]}</span>
+              </span>
+            </button>
+          );
+        })}
+      </nav>
+
+      {step === "scenes" ? (
+        <div className="grid items-start gap-5 lg:grid-cols-[13rem_minmax(0,1fr)] 2xl:grid-cols-[13rem_minmax(0,1fr)_20rem]">
+          <nav aria-label="Escenas" className="space-y-1.5 lg:sticky lg:top-5">
+            {document.scenes.map((item, index) => {
+              const selected = item.id === scene.id;
+              return (
+                <button key={item.id} type="button" onClick={() => setSceneIndex(index)} aria-current={selected ? "true" : undefined}
+                  className={`flex w-full items-center gap-2.5 rounded-xl border p-1.5 text-left transition ${selected ? "border-primary/70 bg-primary/10" : "border-transparent hover:border-border hover:bg-muted/40"}`}>
+                  <span className="relative h-14 w-8 shrink-0 overflow-hidden rounded-md bg-muted" style={{ background: item.imageAssetId ? undefined : `linear-gradient(160deg, ${sceneAccent(item)[0]}55, #050101)` }}>
+                    {item.imageAssetId ? <img src={`/api/assets/${item.imageAssetId}`} alt="" className="h-full w-full object-cover" loading="lazy" /> : <ImageOff className="absolute inset-0 m-auto h-3.5 w-3.5 text-white/70" />}
                   </span>
-                </span>
-              </button>
-            );
-          })}
-        </nav>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-xs font-semibold text-foreground">{String(index + 1).padStart(2, "0")} · {label(item)}</span>
+                    <span className="mt-0.5 flex items-center gap-2 text-[10px] text-muted-foreground">
+                      <span>{(item.durationFrames / document.fps).toFixed(0)}s</span>
+                      <span className={item.imageAssetId ? "text-primary" : "text-amber-600 dark:text-amber-300"}>{item.imageAssetId ? "imagen" : "sin imagen"}</span>
+                      {item.audioAssetId ? <span className="text-primary">voz</span> : null}
+                    </span>
+                  </span>
+                </button>
+              );
+            })}
+          </nav>
 
-        <Card className="border-border/70 bg-card/60">
-          <CardContent className="space-y-5 p-5">
-            <div className="flex items-center gap-3">
-              <span className="h-9 w-1 rounded-full" style={{ background: accent[0] }} />
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wider text-primary">Escena {sceneIndex + 1} de {document.scenes.length}</p>
-                <h3 className="text-lg font-semibold tracking-tight text-foreground">{label(scene)}</h3>
-              </div>
-            </div>
-
-            <Tabs value={tab} onValueChange={setTab}>
-              <TabsList className="grid h-auto w-full grid-cols-5 bg-muted/60 p-1">
-                <TabsTrigger value="text" className="gap-1.5 py-2 text-xs"><Type className="h-3.5 w-3.5" /> Texto</TabsTrigger>
-                <TabsTrigger value="image" className="gap-1.5 py-2 text-xs"><ImageIcon className="h-3.5 w-3.5" /> Imagen</TabsTrigger>
-                <TabsTrigger value="voice" className="gap-1.5 py-2 text-xs"><AudioLines className="h-3.5 w-3.5" /> Voz</TabsTrigger>
-                <TabsTrigger value="caption" className="gap-1.5 py-2 text-xs"><Captions className="h-3.5 w-3.5" /> Caption</TabsTrigger>
-                <TabsTrigger value="render" className="gap-1.5 py-2 text-xs"><Sparkles className="h-3.5 w-3.5" /> Publicar</TabsTrigger>
-              </TabsList>
-
-              <TabsContent value="text" className="mt-5 space-y-4">
-                <p className="text-xs text-muted-foreground">El texto que aparece en pantalla en esta escena. Los cambios se ven al momento en la vista previa; recuerda guardarlos.</p>
-                {(FIELDS[scene.kind] ?? FIELDS.intro).map(([field, fieldLabel, kind]) => (
-                  <div key={field} className="space-y-1.5">
-                    <Label htmlFor={`video-scene-${field}`}>{fieldLabel}</Label>
-                    {kind === "input"
-                      ? <Input id={`video-scene-${field}`} value={textValue(scene.content[field])} onChange={(event) => updateContent(field, event.target.value, kind)} />
-                      : <Textarea id={`video-scene-${field}`} rows={kind === "list" ? 4 : 3} value={kind === "list" ? listValue(scene.content[field]) : textValue(scene.content[field])} onChange={(event) => updateContent(field, event.target.value, kind)} />}
-                  </div>
-                ))}
-                <div className="grid gap-4 border-t border-border/60 pt-4 sm:grid-cols-2">
-                  <div className="space-y-1.5"><Label htmlFor="video-scene-duration">Duración de la escena (s)</Label><Input id="video-scene-duration" type="number" min="0.1" step="0.1" disabled={Boolean(scene.audioAssetId)} value={(scene.durationFrames / document.fps).toFixed(1)} onChange={(event) => updateScene({ durationFrames: Math.max(1, Math.round((Number(event.target.value) || 1) * document.fps)) })} /><p className="text-[10px] text-muted-foreground">{scene.audioAssetId ? "La fija la voz de la escena." : `Se agregan ${SIL_FRAMES} frames de respiro al final.`}</p></div>
-                  <div className="space-y-1.5"><Label className="flex items-center gap-1.5"><Palette className="h-3.5 w-3.5 text-primary" /> Colores de la escena</Label><div className="flex gap-2"><Input aria-label="Color principal de la escena" type="color" className="h-10 w-full p-1" value={accent[0]} onChange={(event) => updateAccent(0, event.target.value.toUpperCase())} /><Input aria-label="Color secundario de la escena" type="color" className="h-10 w-full p-1" value={accent[1]} onChange={(event) => updateAccent(1, event.target.value.toUpperCase())} /></div></div>
+          <Card className="border-border/70 bg-card/60">
+            <CardContent className="space-y-5 p-5">
+              <div className="flex items-center gap-3">
+                <span className="h-9 w-1 rounded-full" style={{ background: accent[0] }} />
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-primary">Escena {sceneIndex + 1} de {document.scenes.length}</p>
+                  <h3 className="text-lg font-semibold tracking-tight text-foreground">{label(scene)}</h3>
                 </div>
-              </TabsContent>
+              </div>
 
-              <TabsContent value="image" className="mt-5 space-y-3">
-                <p className="text-xs text-muted-foreground">La imagen de fondo de esta escena. Se guarda sola al elegirla; la anterior queda en «Imágenes anteriores» por si quieres volver.</p>
-                {contentItemId
-                  ? <SceneImagePicker key={scene.id} contentItemId={contentItemId} revision={revision} scene={scene} campaignId={campaignId} onPersisted={onImagePersisted} />
-                  : <p className="text-sm text-muted-foreground">Guarda el video primero para ponerle imágenes.</p>}
-              </TabsContent>
+              <Tabs value={tab} onValueChange={setTab}>
+                <TabsList className="grid h-auto w-full grid-cols-3 bg-muted/60 p-1">
+                  <TabsTrigger value="text" className="gap-1.5 py-2 text-xs"><Type className="h-3.5 w-3.5" /> Texto</TabsTrigger>
+                  <TabsTrigger value="image" className="gap-1.5 py-2 text-xs"><ImageIcon className="h-3.5 w-3.5" /> Imagen</TabsTrigger>
+                  <TabsTrigger value="audio" className="gap-1.5 py-2 text-xs"><AudioLines className="h-3.5 w-3.5" /> Audio</TabsTrigger>
+                </TabsList>
 
-              <TabsContent value="voice" className="mt-5 space-y-5">
-                {contentItemId ? <VoiceoverStep contentItemId={contentItemId} revision={revision} document={document} onPersisted={onPersisted} /> : <p className="text-sm text-muted-foreground">Guarda el video primero para generar guion de voz y narración.</p>}
-                <VideoAssetPanel key={scene.id} audioAssetId={scene.audioAssetId} campaignId={campaignId} contentItemId={contentItemId} onChange={(patch) => updateScene(patch)} onAudioSeconds={(seconds) => updateScene({ durationFrames: Math.max(1, Math.ceil(seconds * document.fps) + TAIL_FRAMES) })} />
-              </TabsContent>
-              <TabsContent value="caption" className="mt-5"><VideoCaptionPanel contentItemId={contentItemId} revision={revision} document={document} onPersisted={onPersisted} /></TabsContent>
-              <TabsContent value="render" className="mt-5 space-y-4">
-                <div className="rounded-xl border border-primary/20 bg-primary/[0.05] p-4 text-sm text-muted-foreground"><div className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4 text-primary" /><p className="font-semibold text-foreground">Último paso: crea el MP4</p></div><p className="mt-2">Guarda los cambios y presiona renderizar. El proceso ocurre solo y luego podrás descargar el archivo aquí.</p></div>
-                <VideoRenderPanel contentItemId={contentItemId} unsavedChanges={unsavedChanges} />
-              </TabsContent>
-            </Tabs>
+                <TabsContent value="text" className="mt-5 space-y-4">
+                  <p className="text-xs text-muted-foreground">El texto que aparece en pantalla en esta escena. Los cambios se ven al momento en la vista previa; recuerda guardarlos.</p>
+                  {(FIELDS[scene.kind] ?? FIELDS.intro).map(([field, fieldLabel, kind]) => (
+                    <div key={field} className="space-y-1.5">
+                      <Label htmlFor={`video-scene-${field}`}>{fieldLabel}</Label>
+                      {kind === "input"
+                        ? <Input id={`video-scene-${field}`} value={textValue(scene.content[field])} onChange={(event) => updateContent(field, event.target.value, kind)} />
+                        : <Textarea id={`video-scene-${field}`} rows={kind === "list" ? 4 : 3} value={kind === "list" ? listValue(scene.content[field]) : textValue(scene.content[field])} onChange={(event) => updateContent(field, event.target.value, kind)} />}
+                    </div>
+                  ))}
+                  <div className="grid gap-4 border-t border-border/60 pt-4 sm:grid-cols-2">
+                    <div className="space-y-1.5"><Label htmlFor="video-scene-duration">Duración de la escena (s)</Label><Input id="video-scene-duration" type="number" min="0.1" step="0.1" disabled={Boolean(scene.audioAssetId)} value={(scene.durationFrames / document.fps).toFixed(1)} onChange={(event) => updateScene({ durationFrames: Math.max(1, Math.round((Number(event.target.value) || 1) * document.fps)) })} /><p className="text-[10px] text-muted-foreground">{scene.audioAssetId ? "La fija la voz de la escena." : `Se agregan ${SIL_FRAMES} frames de respiro al final.`}</p></div>
+                    <div className="space-y-1.5"><Label className="flex items-center gap-1.5"><Palette className="h-3.5 w-3.5 text-primary" /> Colores de la escena</Label><div className="flex gap-2"><Input aria-label="Color principal de la escena" type="color" className="h-10 w-full p-1" value={accent[0]} onChange={(event) => updateAccent(0, event.target.value.toUpperCase())} /><Input aria-label="Color secundario de la escena" type="color" className="h-10 w-full p-1" value={accent[1]} onChange={(event) => updateAccent(1, event.target.value.toUpperCase())} /></div></div>
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="image" className="mt-5 space-y-3">
+                  <p className="text-xs text-muted-foreground">La imagen de fondo de esta escena. Se guarda sola al elegirla; la anterior queda en «Imágenes anteriores» por si quieres volver.</p>
+                  {contentItemId
+                    ? <SceneImagePicker key={scene.id} contentItemId={contentItemId} revision={revision} scene={scene} campaignId={campaignId} onPersisted={onImagePersisted} />
+                    : <p className="text-sm text-muted-foreground">Guarda el video primero para ponerle imágenes.</p>}
+                </TabsContent>
+
+                <TabsContent value="audio" className="mt-5 space-y-3">
+                  <p className="text-xs text-muted-foreground">El audio de solo esta escena. Para narrar todas las escenas de una vez usa el paso <button type="button" className="font-semibold text-primary underline-offset-2 hover:underline" onClick={() => setStep("voice")}>2 · Voz</button>.</p>
+                  <VideoAssetPanel key={scene.id} audioAssetId={scene.audioAssetId} campaignId={campaignId} contentItemId={contentItemId} onChange={(patch) => updateScene(patch)} onAudioSeconds={(seconds) => updateScene({ durationFrames: Math.max(1, Math.ceil(seconds * document.fps) + TAIL_FRAMES) })} />
+                </TabsContent>
+              </Tabs>
+            </CardContent>
+          </Card>
+
+          <div className="space-y-2 lg:col-start-2 2xl:col-start-auto 2xl:sticky 2xl:top-5">
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Vista previa · escena {sceneIndex + 1}</p>
+            <div className="mx-auto max-w-[20rem]"><ScenePlayer document={document} index={sceneIndex} /></div>
+            <p className="text-[11px] text-muted-foreground">Así sale en el render: imagen, texto, colores y voz de esta escena.</p>
+          </div>
+        </div>
+      ) : (
+        <Card className="mx-auto max-w-3xl border-border/70 bg-card/60">
+          <CardContent className="space-y-5 p-5">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider text-primary">Paso {stepNumber} de {STEPS.length} · todo el video</p>
+              <h3 className="text-lg font-semibold tracking-tight text-foreground">{current.title}</h3>
+              <p className="mt-1 text-sm text-muted-foreground">{current.description}</p>
+            </div>
+            {step === "voice" ? (contentItemId ? <VoiceoverStep contentItemId={contentItemId} revision={revision} document={document} onPersisted={onPersisted} /> : <p className="text-sm text-muted-foreground">Guarda el video primero para generar guion de voz y narración.</p>) : null}
+            {step === "caption" ? <VideoCaptionPanel contentItemId={contentItemId} revision={revision} document={document} onPersisted={onPersisted} /> : null}
+            {step === "render" ? <VideoRenderPanel contentItemId={contentItemId} unsavedChanges={unsavedChanges} /> : null}
           </CardContent>
         </Card>
+      )}
 
-        <div className="space-y-2 lg:col-start-2 2xl:col-start-auto 2xl:sticky 2xl:top-5">
-          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Vista previa · escena {sceneIndex + 1}</p>
-          <div className="mx-auto max-w-[20rem]"><ScenePlayer document={document} index={sceneIndex} /></div>
-          <p className="text-[11px] text-muted-foreground">Así sale en el render: imagen, texto, colores y voz de esta escena.</p>
-        </div>
+      <div className="flex items-center justify-between gap-3 border-t border-border/60 pt-4">
+        <Button type="button" variant="ghost" disabled={stepNumber === 1} onClick={() => setStep(STEPS[stepNumber - 2].key)}><ArrowLeft className="h-4 w-4" /> Anterior</Button>
+        {stepNumber < STEPS.length
+          ? <Button type="button" variant="outline" onClick={() => setStep(STEPS[stepNumber].key)}>Siguiente: {STEPS[stepNumber].title} <ArrowRight className="h-4 w-4" /></Button>
+          : null}
       </div>
     </div>
   );
