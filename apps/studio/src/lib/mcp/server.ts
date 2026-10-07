@@ -56,6 +56,8 @@ import { imagesToDocument } from "@/lib/carousel-automation-rules";
 import { drawAiCarousel, prepareAiCarousel } from "@/lib/carousel-pipeline";
 import { contentTitle } from "@/lib/content-title";
 import { downloadPublicFile } from "@/lib/carousel-remix";
+import { runVideoPipeline } from "./video-pipeline";
+import { videoDocumentSchema } from "@content-gen/domain/video";
 
 /*
  * Servidor MCP del Studio. Cada herramienta llama en proceso a la misma ruta de API que usa la
@@ -377,6 +379,46 @@ export function createStudioMcpServer({ origin, scopes = ["studio:read", "studio
     const { document } = await call(videoGenerate.POST, { method: "POST", body: args }) as { document: { title?: string; scenes: { id: string }[] } };
     const saved = await saveContent(args.campaignId, "video", document);
     return { contentItemId: saved.id, title: document.title, scenes: document.scenes.map((scene) => scene.id), abrir: args.templateId === "explainer" ? `/explainer?id=${saved.id}` : `/video?id=${saved.id}` };
+  });
+  tool("generar_video_completo", {
+    description: "Genera un video de principio a fin: guion, imágenes (standard/timeline) o animaciones (explainer), narración si se pasa voiceId, caption y render automático. Guarda un borrador y devuelve contentItemId y renderJob; el MP4 aún no está listo: consultar listar_renders hasta completed y abrir el outputAssetId con ver_asset. Si falla, devuelve el borrador y failedStep para continuar con las herramientas por escena, sin volver a crear ni gastar todo. Puede tardar varios minutos. No publica." + spendNote,
+    input: {
+      campaignId, topic: z.string().trim().min(3).max(240),
+      templateId: z.enum(["standard", "timeline", "explainer"]).default("standard"),
+      targetDurationSeconds: z.number().int().min(15).max(180).default(45),
+      context: z.string().max(12000).optional(), webSearch: z.boolean().default(true),
+      audience: z.string().max(160).optional(), tone: z.string().max(120).optional(),
+      language: z.string().min(2).max(40).optional(),
+      imageSource: z.enum(["none", "unsplash", "openai"]).default("unsplash").describe("Para standard/timeline; explainer siempre genera animaciones"),
+      voiceId: z.string().min(8).max(64).optional().describe("Voz de listar_voces; si se omite, video sin narración"),
+      modelId: z.string().min(3).max(80).default("eleven_multilingual_v2"),
+    },
+    spends: true,
+  }, async ({ imageSource, voiceId, modelId, ...args }) => {
+    const result = await runVideoPipeline({ topic: args.topic, imageSource, voiceId, modelId }, {
+      create: async () => {
+        const generated = await call(videoGenerate.POST, { method: "POST", body: args }) as { document: unknown };
+        const document = videoDocumentSchema.parse(generated.document);
+        return (await saveContent(args.campaignId, "video", document)).id;
+      },
+      read: async (item) => {
+        const current = await getContent(item);
+        return { type: current.type, revision: current.revision, document: videoDocumentSchema.parse(current.document.data) };
+      },
+      image: (item, sceneId, prompt, source, revision) => call(sceneImage.POST, { method: "POST", params: { id: item, sceneId }, body: { prompt, source, revision } }),
+      animation: (item, sceneId) => call(sceneAnimation.POST, { method: "POST", params: { id: item, sceneId }, body: {} }),
+      voiceover: (item, revision) => call(voiceoverScript.POST, { method: "POST", params: { id: item }, body: { action: "generate", revision } }),
+      audio: (item, sceneId, voiceId, modelId, revision) => call(sceneAudio.POST, { method: "POST", params: { id: item, sceneId }, body: { voiceId, modelId, revision } }),
+      caption: (item, revision) => call(videoCaption.POST, { method: "POST", params: { id: item }, body: { action: "generate", revision } }),
+      render: async (item) => {
+        const job = await call(renderJobs.POST, { method: "POST", body: { contentItemId: item } }) as { id: string; status: string };
+        const jobs = await call(renderJobs.GET, { query: { contentItemId: item } }) as { id: string; status: string }[];
+        const saved = jobs.find((candidate) => candidate.id === job.id);
+        if (!saved) throw new ToolError(`No se pudo verificar el render ${job.id}. Consulta listar_renders antes de reintentarlo.`);
+        return saved;
+      },
+    });
+    return { ...result, abrir: args.templateId === "explainer" ? `/explainer?id=${result.contentItemId}` : `/video?id=${result.contentItemId}`, narracion: Boolean(voiceId) };
   });
   const withRevision = async (contentItemId: string) => {
     const current = await getContent(contentItemId);

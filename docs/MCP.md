@@ -94,6 +94,26 @@ hasta 30 días (reusar uno ya canjeado revoca la conexión entera); solo se guar
 120 peticiones por minuto por conexión. Si falta la configuración, se rechaza el acceso: nunca
 queda abierto.
 
+## Generar un video completo
+
+`generar_video_completo` recibe `campaignId`, `topic` y opciones de plantilla, duración,
+contexto, idioma y búsqueda web. En una llamada prepara el guion, guarda el borrador,
+genera imágenes (`standard`/`timeline`) o animaciones (`explainer`), añade caption y encola
+el render. `imageSource` permite `unsplash` (por defecto), `openai` o `none`.
+
+Para narración, elige un `voiceId` con `listar_voces`; sin él se genera sin voz. `modelId`
+es opcional (por defecto `eleven_multilingual_v2`). Consume créditos de los proveedores.
+
+El resultado incluye `contentItemId`, `completedSteps`, `renderJob` y `abrir`. No significa
+que el MP4 haya terminado: consulta `listar_renders` con ese `contentItemId` hasta que el
+trabajo esté `completed`, y usa `ver_asset` con su `outputAssetId` para obtener la URL.
+No publica en redes.
+
+Si falla después de guardar, devuelve `status: incomplete`, `contentItemId`, `failedStep`
+y `error`. El borrador queda en la biblioteca: continúa con las herramientas de escenas,
+voz, caption y render; no repitas la generación completa porque crearía otro borrador y
+volvería a gastar. Las escenas se procesan en serie para respetar sus revisiones.
+
 ## Tiempos
 
 Casi todo responde en segundos. Tardan más: carrusel de imágenes IA (1-2 min), artículo con
