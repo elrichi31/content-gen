@@ -10,6 +10,7 @@ import * as assets from "@/app/api/assets/route";
 import * as automationItem from "@/app/api/automations/[id]/route";
 import * as automationRun from "@/app/api/automations/[id]/run/route";
 import * as automations from "@/app/api/automations/route";
+import * as automationRuns from "@/app/api/automation-runs/route";
 import * as brandItem from "@/app/api/brand-kits/[id]/route";
 import * as brands from "@/app/api/brand-kits/route";
 import * as campaignDuplicate from "@/app/api/campaigns/[id]/duplicate/route";
@@ -25,6 +26,9 @@ import * as contentItem from "@/app/api/content-items/[id]/route";
 import * as contentItems from "@/app/api/content-items/route";
 import * as costs from "@/app/api/costs/route";
 import * as radar from "@/app/api/radar/route";
+import * as radarAutomationItem from "@/app/api/radar/automations/[id]/route";
+import * as radarAutomationRun from "@/app/api/radar/automations/[id]/run/route";
+import * as radarAutomations from "@/app/api/radar/automations/route";
 import * as radarRun from "@/app/api/radar/run/route";
 import * as radarCancel from "@/app/api/radar/runs/[id]/cancel/route";
 import * as radarRestructure from "@/app/api/radar/runs/[id]/restructure/route";
@@ -56,8 +60,9 @@ import { downloadPublicFile } from "@/lib/carousel-remix";
 /*
  * Servidor MCP del Studio. Cada herramienta llama en proceso a la misma ruta de API que usa la
  * pantalla, así que hereda su validación, sus reglas de negocio y el registro de costos sin
- * duplicarlos. Lo que crea queda en borrador en la biblioteca. No hay herramientas para borrar,
- * archivar ni publicar: eso se hace desde la app, con una persona delante.
+ * duplicarlos. Lo que crea queda en borrador en la biblioteca. No se borra ni archiva contenido ni se
+ * publica: eso se hace desde la app, con una persona delante. Solo se quitan cosas de agenda
+ * (publicaciones del calendario, búsquedas programadas del radar), marcadas como destructivas.
  */
 
 type Handler = (request: Request, context: { params: Promise<Record<string, string>> }) => Response | Promise<Response>;
@@ -144,6 +149,10 @@ export function createStudioMcpServer({ origin, scopes = ["studio:read", "studio
   const platform = z.enum(["instagram", "tiktok", "youtube", "linkedin", "blog"]);
   const spendNote = " Gasta créditos de IA.";
 
+  type RadarAutomationRow = { id: string; name: string; active: boolean; frequency: string; time: string; weekday: number; monthDay: number; nextRunAt: string; scan: Record<string, unknown>; lastExecution?: unknown };
+  const radarAutomationSummary = ({ id: automation, name, active, frequency, time, weekday, monthDay, nextRunAt, scan, lastExecution }: RadarAutomationRow) =>
+    ({ id: automation, name, active, frequency, time, weekday, monthDay, nextRunAt, scan, lastExecution: lastExecution ?? null });
+
   /* ----------------------------------- Resumen ----------------------------------- */
 
   tool("resumen_estado", {
@@ -153,12 +162,13 @@ export function createStudioMcpServer({ origin, scopes = ["studio:read", "studio
   }, async () => {
     const today = new Date().toISOString().slice(0, 10);
     const week = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10);
-    const [items, upcoming, jobs, radarState, automationList] = await Promise.all([
+    const [items, upcoming, jobs, radarState, automationList, radarAutomationList] = await Promise.all([
       call(contentItems.GET) as Promise<{ id: string; type: string; updatedAt: string; document: { data?: Record<string, unknown> } }[]>,
       call(posts.GET, { query: { startDate: today, endDate: week } }) as Promise<{ id: string; date: string; time: string; platform: string; status: string; contentItemId: string | null; title: string }[]>,
       call(renderJobs.GET) as Promise<{ id: string; contentItemId: string; status: string; progress: number; error: string | null; createdAt: string }[]>,
       call(radar.GET, { query: { status: "nuevo", limit: 5 } }) as Promise<{ topics: { id: string; title: string; score: number; vertical: string }[]; counts: Record<string, number>; spend: unknown }>,
       call(automations.GET) as Promise<{ id: string; name: string; active: boolean; nextSlot: unknown; lastRunAt: string | null; lastResult: string | null; lastFailed: boolean }[]>,
+      call(radarAutomations.GET) as Promise<RadarAutomationRow[]>,
     ]);
     const byType = items.reduce<Record<string, number>>((counts, item) => ({ ...counts, [item.type]: (counts[item.type] ?? 0) + 1 }), {});
     return {
@@ -168,6 +178,7 @@ export function createStudioMcpServer({ origin, scopes = ["studio:read", "studio
       gastoDelMes: radarState.spend,
       radar: { contadores: radarState.counts, mejoresNuevos: radarState.topics.map(({ id: topic, title, score, vertical }) => ({ id: topic, title, score, vertical })) },
       automatizaciones: automationList.map(({ id: automation, name, active, nextSlot, lastRunAt, lastResult, lastFailed }) => ({ id: automation, name, active, nextSlot, lastRunAt, lastResult, lastFailed })),
+      automatizacionesRadar: radarAutomationList.map(radarAutomationSummary),
     };
   });
 
@@ -431,7 +442,7 @@ export function createStudioMcpServer({ origin, scopes = ["studio:read", "studio
 
   /* ------------------------------- Automatizaciones ------------------------------- */
 
-  tool("listar_automatizaciones", { description: "Automatizaciones de carruseles con su próximo hueco libre, temas pendientes y última ejecución.", input: {}, readOnly: true }, () => call(automations.GET));
+  tool("listar_automatizaciones", { description: "Automatizaciones de carruseles (las del radar están en listar_automatizaciones_radar) con su próximo hueco libre, temas pendientes y última ejecución.", input: {}, readOnly: true }, () => call(automations.GET));
   const automationFields = {
     name: z.string().min(1).max(120), ruleId: id("la pauta que rellena"), campaignId, brandKitId: z.string().nullable().optional(),
     kind: z.enum(["editable", "images"]), slides: z.number().int().min(3).max(10).optional(),
@@ -445,6 +456,57 @@ export function createStudioMcpServer({ origin, scopes = ["studio:read", "studio
     ({ id: automation, ...patch }) => call(automationItem.PATCH, { method: "PATCH", params: { id: automation }, body: patch }));
   tool("ejecutar_automatizacion", { description: "Ejecuta ya una automatización: genera un carrusel para su siguiente hueco libre." + spendNote, input: { id: id("la automatización") }, spends: true },
     ({ id: automation }) => call(automationRun.POST, { method: "POST", params: { id: automation } }));
+  tool("historial_automatizacion", { description: "Últimas ejecuciones de una automatización (de carruseles o del radar): estado, mensaje, costo y lo que generó.", input: { id: id("la automatización") }, readOnly: true },
+    ({ id: automation }) => call(automationRuns.GET, { query: { automationId: automation } }));
+
+  /*
+   * Búsquedas programadas del radar («Automatizar radar» en Automatizaciones). Pasan por las mismas
+   * rutas que la pantalla, así que lo que se crea aquí aparece allí tal cual, con su historial.
+   */
+  tool("listar_automatizaciones_radar", { description: "Búsquedas del radar programadas (diarias, semanales o mensuales): verticales, ajustes de búsqueda, próxima ejecución y la última.", input: {}, readOnly: true },
+    async () => (await call(radarAutomations.GET) as RadarAutomationRow[]).map(radarAutomationSummary));
+  const radarScanFields = {
+    verticals: z.array(z.string().min(1)).min(1).max(20).describe("Verticales a buscar (ver listar_verticales_radar)"),
+    focus: z.string().max(300).nullable().optional().describe("Tema concreto dentro de los verticales; vacío es el barrido normal"),
+    maxTopics: z.number().int().min(1).max(30).optional().describe("Tope de temas (10 por defecto)"),
+    maxSearches: z.number().int().min(1).max(30).optional().describe("Tope de búsquedas por vertical: la palanca de costo (3 en la app)"),
+    windowDays: z.number().int().min(1).max(90).optional().describe("Antigüedad máxima de los hechos, en días (7 por defecto)"),
+    minSources: z.number().int().min(1).max(5).optional().describe("Fuentes independientes exigidas por tema (2 por defecto)"),
+    searchContextSize: z.enum(["low", "medium", "high"]).optional().describe("Cuánto contenido de cada resultado entra; low es lo barato"),
+    verifySources: z.boolean().optional(),
+  };
+  const radarScheduleFields = {
+    name: z.string().min(1).max(120),
+    frequency: z.enum(["day", "week", "month"]),
+    time: clock.describe("Hora HH:MM, 24 h, en UTC (la app la muestra así)"),
+    weekday: z.number().int().min(0).max(6).optional().describe("Solo semanal: 0=domingo … 6=sábado (lunes por defecto)"),
+    monthDay: z.number().int().min(1).max(31).optional().describe("Solo mensual: si el mes no tiene ese día, usa el último"),
+    active: z.boolean().optional().describe("Si se omite al crear, queda pausada"),
+  };
+  tool("crear_automatizacion_radar", {
+    description: "Programa una búsqueda del radar que se lanza sola (diaria, semanal o mensual) y guarda los temas en el radar. Aparece en Automatizaciones. Cada ejecución gasta créditos de IA, con el tope de presupuesto de las automáticas.",
+    input: { ...radarScheduleFields, ...radarScanFields },
+  }, ({ name, frequency, time, weekday, monthDay, active, ...scan }) =>
+    call(radarAutomations.POST, { method: "POST", body: { name, frequency, time, weekday, monthDay, active, scan: { maxSearches: 3, ...scan } } }));
+  tool("editar_automatizacion_radar", {
+    description: "Cambia una búsqueda programada del radar: horario, verticales, ajustes, o pausarla (active=false) y reanudarla. Solo cambia lo que se pasa.",
+    input: { id: id("la búsqueda programada (ver listar_automatizaciones_radar)"), ...Object.fromEntries(Object.entries({ ...radarScheduleFields, ...radarScanFields }).map(([key, schema]) => [key, schema.optional()])) },
+  }, async ({ id: automation, ...fields }) => {
+    const scanKeys = Object.keys(radarScanFields);
+    const scanPatch = Object.fromEntries(Object.entries(fields).filter(([key, value]) => scanKeys.includes(key) && value !== undefined));
+    const patch: Record<string, unknown> = Object.fromEntries(Object.entries(fields).filter(([key, value]) => !scanKeys.includes(key) && value !== undefined));
+    // La ruta reemplaza `scan` entero: se mezcla con el actual para no perder los ajustes que no se tocan.
+    if (Object.keys(scanPatch).length) {
+      const current = (await call(radarAutomations.GET) as RadarAutomationRow[]).find((row) => row.id === automation);
+      if (!current) throw new ToolError("La búsqueda programada no existe.");
+      patch.scan = { ...current.scan, ...scanPatch };
+    }
+    return radarAutomationSummary(await call(radarAutomationItem.PATCH, { method: "PATCH", params: { id: automation }, body: patch }) as RadarAutomationRow);
+  });
+  tool("ejecutar_automatizacion_radar", { description: "Lanza ya una búsqueda programada del radar sin esperar a su hora (1-4 min). Queda en su historial de Automatizaciones." + spendNote, input: { id: id("la búsqueda programada") }, spends: true },
+    ({ id: automation }) => call(radarAutomationRun.POST, { method: "POST", params: { id: automation } }));
+  tool("eliminar_automatizacion_radar", { description: "Borra una búsqueda programada del radar. Los temas que ya encontró siguen en el radar. Para solo detenerla, usa editar_automatizacion_radar con active=false.", input: { id: id("la búsqueda programada") }, destructive: true },
+    ({ id: automation }) => call(radarAutomationItem.DELETE, { method: "DELETE", params: { id: automation } }));
 
   /* ----------------------------------- Radar ----------------------------------- */
 
