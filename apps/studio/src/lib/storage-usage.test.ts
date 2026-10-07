@@ -1,0 +1,42 @@
+import assert from "node:assert/strict";
+import { mkdtemp, mkdir, writeFile, symlink, link, rm, statfs } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { getStorageUsage, diskUsage } from "./storage-usage.ts";
+
+assert.deepEqual(diskUsage({ bsize: 4096, blocks: 100, bfree: 40, bavail: 30 }), { totalBytes: 409600, usedBytes: 245760, availableBytes: 122880, reservedBytes: 40960, usedPercent: 60 });
+assert.equal(diskUsage({ bsize: 4096, blocks: 0, bfree: 0, bavail: 0 }).usedPercent, 0);
+const root = await mkdtemp(join(tmpdir(), "content-gen-storage-test-"));
+try {
+  await mkdir(join(root, "media/assets"), { recursive: true });
+  await mkdir(join(root, "renders"));
+  await writeFile(join(root, "media/assets/video.mp4"), Buffer.alloc(123));
+  await writeFile(join(root, "media/assets/photo.webp"), Buffer.alloc(45));
+  await writeFile(join(root, "media/assets/voice.mp3"), Buffer.alloc(67));
+  await writeFile(join(root, "renders/job.mp4"), Buffer.alloc(123));
+  await writeFile(join(root, "notes.json"), "{}");
+  await symlink(root, join(root, "media/loop"));
+  await link(join(root, "media/assets/video.mp4"), join(root, "media/assets/duplicate.mp4"));
+  const usage = await getStorageUsage(root, { includeEntries: true });
+  assert.equal(usage.entries?.length, 5);
+  assert.ok(usage.entries?.every(entry => entry.version && entry.key && entry.modifiedAt));
+  assert.equal(usage.scanStatus, "complete");
+  assert.equal(usage.files, 5, "hardlinks se cuentan una sola vez");
+  assert.equal(usage.logicalBytes, 360);
+  assert.equal(usage.categories.video.files, 1);
+  assert.equal(usage.categories.video.logicalBytes, 123);
+  assert.equal(usage.categories.renders.logicalBytes, 123, "renders no se ocultan ni suman como assets");
+  assert.equal(usage.categories.image.logicalBytes, 45);
+  assert.equal(usage.categories.audio.logicalBytes, 67);
+  assert.equal(usage.categories.other.logicalBytes, 2);
+  assert.ok(usage.allocatedBytes >= usage.logicalBytes);
+  const disk = await statfs(root);
+  assert.equal(usage.disk?.totalBytes, disk.bsize * disk.blocks);
+  assert.ok(!JSON.stringify(usage).includes(root), "no expone rutas del servidor");
+  const absent = await getStorageUsage(join(root, "missing"));
+  assert.equal(absent.scanStatus, "unavailable");
+  assert.equal(absent.disk, null, "no inventa capacidad de otro volumen si falta STORAGE_ROOT");
+  const limited = await getStorageUsage(root, { maxEntries: 1 });
+  assert.equal(limited.scanStatus, "partial");
+  console.log("Almacenamiento: disco real, archivos por tipo, renders, hardlinks, symlinks, límite y carpeta ausente verificados.");
+} finally { await rm(root, { recursive: true, force: true }); }

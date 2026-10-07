@@ -1,0 +1,12 @@
+import assert from "node:assert/strict";
+import { storageDeleteInputSchema, storageDeleteOriginAllowed } from "./storage-delete-request.ts";
+const file = { key: `media/assets/${"a".repeat(64)}.mp4`, version: "b".repeat(64) };
+assert.equal(storageDeleteInputSchema.safeParse({ confirm: true, files: [file] }).success, true);
+assert.equal(storageDeleteInputSchema.safeParse({ confirm: false, files: [file] }).success, false);
+assert.equal(storageDeleteInputSchema.safeParse({ confirm: true, files: [{ ...file, key: "../../escape.mp4" }] }).success, false);
+assert.equal(storageDeleteInputSchema.safeParse({ confirm: true, files: Array.from({ length: 101 }, () => file) }).success, false);
+assert.equal(storageDeleteOriginAllowed(new Request("https://studio.example/api/storage/files", { headers: { origin: "https://studio.example" } })), true);
+assert.equal(storageDeleteOriginAllowed(new Request("https://studio.example/api/storage/files", { headers: { origin: "https://attacker.example" } })), false);
+assert.equal(storageDeleteOriginAllowed(new Request("https://studio.example/api/storage/files")), false);
+assert.equal(storageDeleteOriginAllowed(new Request("http://internal/api/storage/files", { headers: { origin: "https://studio.example" } }), "https://studio.example"), true);
+console.log("Borrado HTTP: confirmación obligatoria, selección limitada, rutas estrictas y origen comprobados.");

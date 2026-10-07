@@ -14,6 +14,10 @@
 
 # Local application data and generated media
 storage/
+!apps/studio/src/app/storage/
+!apps/studio/src/app/storage/**
+!apps/studio/src/app/api/storage/
+!apps/studio/src/app/api/storage/**
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal

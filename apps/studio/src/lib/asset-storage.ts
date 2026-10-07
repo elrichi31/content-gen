@@ -4,7 +4,8 @@ import { mkdir, open, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
 import { assetSchema } from "@content-gen/domain/schemas";
 import { assertAssetFile, assertAssetMimeType, assertAssetSignature, assetExtensions, resolveAssetPath } from "./asset-file";
-import { mediaRoot, withDatabase } from "./db";
+import { mediaRoot, withDatabase, type Database } from "./db";
+import { withAssetFileLock } from "./asset-file-lock";
 
 type AssetInput = { mimeType: string; filename: string; campaignId?: string | null; contentItemId?: string | null };
 
@@ -20,16 +21,18 @@ function buildAsset(hash: string, sizeBytes: number, { mimeType, filename, campa
   return { asset, now, path: resolveAssetPath(mediaRoot, storageKey) };
 }
 
-async function insertAsset(asset: ReturnType<typeof buildAsset>) {
-  await withDatabase((db) => db.prepare("INSERT INTO assets (id, schema_version, data_json, created_at) VALUES (?, ?, ?, ?)").run(asset.asset.id, 1, JSON.stringify(asset.asset), asset.now));
+async function insertAsset(asset: ReturnType<typeof buildAsset>, db: Database) {
+  await db.prepare("INSERT INTO assets (id, schema_version, data_json, created_at) VALUES (?, ?, ?, ?)").run(asset.asset.id, 1, JSON.stringify(asset.asset), asset.now);
   return asset.asset;
 }
 
 export async function storeAsset({ bytes, mimeType, filename, campaignId = null, contentItemId = null }: AssetInput & { bytes: Buffer }) {
   assertAssetFile(bytes, mimeType); await validateRelations(campaignId, contentItemId);
   const stored = buildAsset(createHash("sha256").update(bytes).digest("hex"), bytes.length, { mimeType, filename, campaignId, contentItemId });
-  await mkdir(dirname(stored.path), { recursive: true }); if (!existsSync(stored.path)) await writeFile(stored.path, bytes);
-  return insertAsset(stored);
+  return withDatabase((db) => withAssetFileLock(db, async () => {
+    await mkdir(dirname(stored.path), { recursive: true }); if (!existsSync(stored.path)) await writeFile(stored.path, bytes);
+    return insertAsset(stored, db);
+  }));
 }
 
 export async function storeAssetStream({ stream, mimeType, filename, campaignId = null, contentItemId = null }: AssetInput & { stream: ReadableStream<Uint8Array> }) {
@@ -53,13 +56,15 @@ export async function storeAssetStream({ stream, mimeType, filename, campaignId 
     if (!sizeBytes) throw new Error("El archivo está vacío.");
     assertAssetSignature(prefix, mimeType);
     const stored = buildAsset(hash.digest("hex"), sizeBytes, { mimeType, filename, campaignId, contentItemId });
-    await mkdir(dirname(stored.path), { recursive: true });
-    if (existsSync(stored.path)) await rm(temporaryPath, { force: true });
-    else {
-      try { await rename(temporaryPath, stored.path); }
-      catch (error) { if (existsSync(stored.path)) await rm(temporaryPath, { force: true }); else throw error; }
-    }
-    return await insertAsset(stored);
+    return await withDatabase((db) => withAssetFileLock(db, async () => {
+      await mkdir(dirname(stored.path), { recursive: true });
+      if (existsSync(stored.path)) await rm(temporaryPath, { force: true });
+      else {
+        try { await rename(temporaryPath, stored.path); }
+        catch (error) { if (existsSync(stored.path)) await rm(temporaryPath, { force: true }); else throw error; }
+      }
+      return insertAsset(stored, db);
+    }));
   } catch (error) {
     await rm(temporaryPath, { force: true }); throw error;
   }

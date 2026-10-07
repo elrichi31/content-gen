@@ -222,9 +222,13 @@ async function processNext(jobId) {
       await progress.flush();
       const latest = await latestOf(job.id);
       if (latest.status === "cancelled") return console.log(JSON.stringify({ id: latest.id, status: "cancelled" }));
-      const asset = await saveExport(database, job, outputPath, mediaRoot);
-      const completed = await update(database, claimed, { status: "completed", progress: 100, outputAssetId: asset.id, completedAt: now(), error: null, log: [...(latest.log ?? []), "Listo."].slice(-MAX_LOG_LINES) });
-      console.log(JSON.stringify({ id: job.id, status: completed?.status ?? "cancelled", assetId: asset.id }));
+      // Mismo lock que asset-file-lock.ts: nadie borra un MP4 mientras se registra y enlaza.
+      await database.query("SELECT pg_advisory_lock(7310002)");
+      try {
+        const asset = await saveExport(database, job, outputPath, mediaRoot);
+        const completed = await update(database, claimed, { status: "completed", progress: 100, outputAssetId: asset.id, completedAt: now(), error: null, log: [...(latest.log ?? []), "Listo."].slice(-MAX_LOG_LINES) });
+        console.log(JSON.stringify({ id: job.id, status: completed?.status ?? "cancelled", assetId: asset.id }));
+      } finally { await database.query("SELECT pg_advisory_unlock(7310002)"); }
     } catch (error) {
       await progress.flush();
       const latest = await latestOf(job.id);
