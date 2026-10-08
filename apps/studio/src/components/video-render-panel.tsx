@@ -5,14 +5,24 @@ import { Ban, Download, Film, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 type Status = "queued" | "processing" | "completed" | "failed" | "cancelled";
-type RenderJob = { id: string; status: Status; progress: number; outputAssetId: string | null; error: string | null; createdAt: string; log?: string[] };
+type RenderJob = { id: string; status: Status; progress: number; outputAssetId: string | null; error: string | null; createdAt: string; compositionId?: string; log?: string[] };
+type Engine = "remotion" | "hyperframes" | "canvas";
+
+const ENGINES: { id: Engine; name: string; detail: string }[] = [
+  { id: "remotion", name: "Remotion", detail: "Plantilla del video con imágenes, 30 fps" },
+  { id: "hyperframes", name: "HyperFrames", detail: "Diseño HTML; en el educativo, las animaciones de la IA" },
+  { id: "canvas", name: "Canvas", detail: "Plantillas animadas sincronizadas con la voz, 60 fps" },
+];
+const engineOf = (job: RenderJob | null): Engine | null => job?.compositionId === "CanvasVideo" ? "canvas" : job?.compositionId === "HyperframesVideo" ? "hyperframes" : job?.compositionId ? "remotion" : null;
 
 const label: Record<Status, string> = { queued: "En cola", processing: "Renderizando", completed: "Listo", failed: "Falló", cancelled: "Cancelado" };
 const tone: Record<Status, string> = { queued: "text-muted-foreground", processing: "text-primary", completed: "text-primary", failed: "text-destructive", cancelled: "text-muted-foreground" };
 const active = (job: RenderJob | null) => job !== null && (job.status === "queued" || job.status === "processing");
 
-/** `hyperframesOnly`: el video educativo no tiene versión en Remotion, solo se ofrece HyperFrames. */
+/** `hyperframesOnly`: el video educativo no tiene versión en Remotion; se elige entre HyperFrames y Canvas. */
 export function VideoRenderPanel({ contentItemId, unsavedChanges, hyperframesOnly = false }: { contentItemId: string; unsavedChanges: boolean; hyperframesOnly?: boolean }) {
+  const engines = ENGINES.filter((item) => !hyperframesOnly || item.id !== "remotion");
+  const [engine, setEngine] = useState<Engine>(engines[0].id);
   const [job, setJob] = useState<RenderJob | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -53,7 +63,9 @@ export function VideoRenderPanel({ contentItemId, unsavedChanges, hyperframesOnl
     }
   }
 
-  const render = (engine?: "hyperframes" | "canvas") => call(() => fetch("/api/render-jobs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contentItemId, engine }) }));
+  // Remotion es el motor por defecto del servidor: no se manda `engine`.
+  const render = () => call(() => fetch("/api/render-jobs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contentItemId, ...(engine === "remotion" ? {} : { engine }) }) }));
+  const jobEngine = ENGINES.find((item) => item.id === engineOf(job))?.name;
   const act = (action: "cancel" | "retry") => call(() => fetch(`/api/render-jobs/${job!.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action }) }));
 
   return (
@@ -69,7 +81,7 @@ export function VideoRenderPanel({ contentItemId, unsavedChanges, hyperframesOnl
       {job ? (
         <div className="space-y-2">
           <div className="flex items-center justify-between text-xs">
-            <span className={`font-semibold uppercase tracking-wider ${tone[job.status]}`}>{label[job.status]}</span>
+            <span className={`font-semibold uppercase tracking-wider ${tone[job.status]}`}>{label[job.status]}{jobEngine ? <span className="font-normal normal-case tracking-normal text-muted-foreground"> · {jobEngine}</span> : null}</span>
             <span className="font-mono text-muted-foreground">{job.progress}%</span>
           </div>
           <div className="h-1.5 overflow-hidden rounded-full bg-border/60">
@@ -95,22 +107,21 @@ export function VideoRenderPanel({ contentItemId, unsavedChanges, hyperframesOnl
         </div>
       ) : null}
 
+      {active(job) ? null : (
+        <div role="radiogroup" aria-label="Motor de render" className={`grid gap-2 ${engines.length === 3 ? "sm:grid-cols-3" : "sm:grid-cols-2"}`}>
+          {engines.map((item) => (
+            <button key={item.id} type="button" role="radio" aria-checked={engine === item.id} onClick={() => setEngine(item.id)} className={`rounded-md border px-3 py-2 text-left transition-colors ${engine === item.id ? "border-primary bg-primary/10" : "border-border hover:bg-muted/50"}`}>
+              <span className="block text-sm font-semibold text-foreground">{item.name}</span>
+              <span className="block text-[11px] leading-snug text-muted-foreground">{item.detail}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className="flex flex-wrap gap-2">
-        {hyperframesOnly && !active(job) ? null : (
-          <Button type="button" variant="outline" size="sm" disabled={!contentItemId || busy || active(job)} onClick={() => void render()}>
-            <Film className="h-4 w-4" /> {active(job) ? "Render en curso" : "Renderizar MP4"}
-          </Button>
-        )}
-        {active(job) ? null : (
-          <Button type="button" variant="outline" size="sm" disabled={!contentItemId || busy} onClick={() => void render("hyperframes")}>
-            <Film className="h-4 w-4" /> Renderizar con HyperFrames
-          </Button>
-        )}
-        {active(job) ? null : (
-          <Button type="button" variant="outline" size="sm" disabled={!contentItemId || busy} onClick={() => void render("canvas")}>
-            <Film className="h-4 w-4" /> Renderizar con Canvas (60 fps)
-          </Button>
-        )}
+        <Button type="button" variant="outline" size="sm" disabled={!contentItemId || busy || active(job)} onClick={() => void render()}>
+          <Film className="h-4 w-4" /> {active(job) ? "Render en curso" : `Renderizar con ${ENGINES.find((item) => item.id === engine)!.name}`}
+        </Button>
         {active(job) ? (
           <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void act("cancel")}>
             <Ban className="h-4 w-4" /> Cancelar
