@@ -79,6 +79,9 @@ for (const item of CANVAS_TEMPLATE_CATALOG) {
     ..."items" in plan ? plan.items.map((entry) => entry.cue) : [],
     ..."events" in plan ? plan.events.map((entry) => entry.cue) : [],
     ..."nodes" in plan ? plan.nodes.map((entry) => entry.cue) : [],
+    ..."lines" in plan ? plan.lines.map((entry) => entry.cue) : [],
+    ..."stages" in plan ? plan.stages.map((entry) => entry.cue) : [],
+    ..."points" in plan && plan.template === "map" ? plan.points.map((entry) => entry.cue) : [],
     ..."cues" in plan ? Object.values(plan.cues) : [],
     "cue" in plan ? plan.cue : undefined,
   ].filter((value): value is string => Boolean(value));
@@ -111,3 +114,17 @@ console.log("canvas catálogo ok");
   assert.ok(fallback.plan.template === "split" && fallback.plan.at > fallback.voiceAt && fallback.plan.at < fallback.voiceEnd, "split sin cue: el después entra a mitad de la narración");
 }
 console.log("canvas plantillas nuevas ok");
+
+// Terminal, embudo, cita y mapa: valores por defecto y cues que no se dicen.
+{
+  const terminal = canvasScenePlanSchema.parse({ template: "terminal", lines: [{ text: "ls" }, { text: "ok", output: true }] });
+  assert.ok(terminal.template === "terminal" && terminal.lines[0].output === false, "terminal: comando por defecto");
+  const map = pruneCues(canvasScenePlanSchema.parse({ template: "map", points: [{ label: "Servidor", lat: 0, lon: 0, cue: "servidor" }, { label: "X", lat: 1, lon: 1, cue: "nada" }] }), words);
+  assert.ok(map.template === "map" && map.connect === false && map.points[0].cue === "servidor" && map.points[1].cue === undefined);
+  assert.equal(canvasScenePlanSchema.safeParse({ template: "map", points: [{ label: "X", lat: 95, lon: 0 }] }).success, false, "latitud fuera de rango");
+  const funnel = sampleCanvasSpec("funnel").scenes[0];
+  assert.ok(funnel.plan.template === "funnel" && funnel.plan.stages.every((stage, i, all) => i === 0 || stage.at > all[i - 1].at), "las etapas entran en orden");
+  const quote = sampleCanvasSpec("quote").scenes[0];
+  assert.ok(quote.plan.template === "quote" && quote.plan.text.toLowerCase().includes(quote.plan.highlight), "el resaltado sale de la frase");
+}
+console.log("canvas terminal/embudo/cita/mapa ok");

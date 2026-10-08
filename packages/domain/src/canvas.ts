@@ -71,7 +71,7 @@ export function findCue(words: readonly WordTiming[], phrase: string, after = 0)
 const cue = z.string().trim().min(1).max(60);
 const label = z.string().trim().min(1).max(28);
 
-export const CANVAS_TEMPLATES = ["hook", "flow", "steps", "compare", "stat", "list", "timeline", "split", "chart", "network", "outro", "title"] as const;
+export const CANVAS_TEMPLATES = ["hook", "flow", "steps", "compare", "stat", "list", "timeline", "split", "chart", "network", "terminal", "funnel", "quote", "map", "outro", "title"] as const;
 export type CanvasTemplate = (typeof CANVAS_TEMPLATES)[number];
 
 export const canvasScenePlanSchema = z.discriminatedUnion("template", [
@@ -124,6 +124,26 @@ export const canvasScenePlanSchema = z.discriminatedUnion("template", [
     center: z.string().trim().min(1).max(18).optional(),
     nodes: z.array(z.object({ label: z.string().trim().min(1).max(18), cue: cue.optional() })).min(2).max(6),
   }),
+  // Terminal: comandos que se escriben letra a letra y salidas que aparecen.
+  z.object({
+    template: z.literal("terminal"),
+    title: z.string().trim().max(24).optional(),
+    lines: z.array(z.object({ text: z.string().trim().min(1).max(40), output: z.boolean().default(false), cue: cue.optional() })).min(2).max(5),
+  }),
+  // Embudo: etapas que se estrechan, con su cifra opcional.
+  z.object({
+    template: z.literal("funnel"),
+    stages: z.array(z.object({ label: z.string().trim().min(1).max(24), value: z.number().min(0).max(1e12).optional(), cue: cue.optional() })).min(3).max(5),
+    unit: z.string().trim().max(8).optional(),
+  }),
+  // Cita destacada: la frase entra línea a línea con una parte resaltada.
+  z.object({ template: z.literal("quote"), text: z.string().trim().min(1).max(140), author: z.string().trim().max(30).optional(), highlight: z.string().trim().max(40).optional(), cue: cue.optional() }),
+  // Mapa de puntos: lugares que se encienden al nombrarlos, opcionalmente unidos por arcos.
+  z.object({
+    template: z.literal("map"),
+    points: z.array(z.object({ label: z.string().trim().min(1).max(18), lat: z.number().min(-90).max(90), lon: z.number().min(-180).max(180), cue: cue.optional() })).min(1).max(5),
+    connect: z.boolean().default(false),
+  }),
   // Cierre.
   z.object({ template: z.literal("outro"), line: z.string().trim().min(1).max(40), cta: z.string().trim().max(40).optional() }),
   // Respaldo: el título de la escena en grande. Lo usa el motor si no hay plan.
@@ -153,7 +173,10 @@ export function pruneCues(plan: CanvasScenePlan, words: readonly WordTiming[]): 
     case "list": return { ...plan, items: plan.items.map((item) => ({ ...item, cue: keep(item.cue) })) };
     case "timeline": return { ...plan, events: plan.events.map((event) => ({ ...event, cue: keep(event.cue) })) };
     case "network": return { ...plan, nodes: plan.nodes.map((node) => ({ ...node, cue: keep(node.cue) })) };
-    case "compare": case "stat": case "split": case "chart": return { ...plan, cue: keep(plan.cue) };
+    case "terminal": return { ...plan, lines: plan.lines.map((line) => ({ ...line, cue: keep(line.cue) })) };
+    case "funnel": return { ...plan, stages: plan.stages.map((stage) => ({ ...stage, cue: keep(stage.cue) })) };
+    case "map": return { ...plan, points: plan.points.map((point) => ({ ...point, cue: keep(point.cue) })) };
+    case "compare": case "stat": case "split": case "chart": case "quote": return { ...plan, cue: keep(plan.cue) };
     default: return plan;
   }
 }
@@ -174,6 +197,10 @@ export type ResolvedPlan =
   | { template: "split"; before: { label: string; items: string[] }; after: { label: string; items: string[] }; at: number }
   | { template: "chart"; kind: "line" | "bar"; points: { label: string; value: number }[]; unit: string; at: number }
   | { template: "network"; shape: "hub" | "chain"; center: string | null; nodes: { label: string; at: number }[] }
+  | { template: "terminal"; title: string; lines: { text: string; output: boolean; at: number }[] }
+  | { template: "funnel"; stages: { label: string; value: number | null; at: number }[]; unit: string }
+  | { template: "quote"; text: string; author: string; highlight: string; at: number }
+  | { template: "map"; connect: boolean; points: { label: string; lat: number; lon: number; at: number }[] }
   | { template: "outro"; line: string; cta: string; at: number }
   | { template: "title"; at: number };
 
@@ -239,6 +266,10 @@ export function buildCanvasSpec(document: VideoDocument): CanvasSpec {
       case "split": resolved = { template: "split", before: plan.before, after: plan.after, at: at(plan.cue, 0.45) }; break;
       case "chart": resolved = { template: "chart", kind: plan.kind, points: plan.points, unit: plan.unit ?? "", at: at(plan.cue, 0.1) }; break;
       case "network": resolved = { template: "network", shape: plan.shape, center: plan.center ?? null, nodes: plan.nodes.map((node, i) => ({ label: node.label, at: at(node.cue, spread(plan.nodes.length, i, 0.08, 0.75)) })) }; break;
+      case "terminal": resolved = { template: "terminal", title: plan.title ?? "", lines: plan.lines.map((line, i) => ({ text: line.text, output: line.output, at: at(line.cue, spread(plan.lines.length, i)) })) }; break;
+      case "funnel": resolved = { template: "funnel", unit: plan.unit ?? "", stages: plan.stages.map((stage, i) => ({ label: stage.label, value: stage.value ?? null, at: at(stage.cue, spread(plan.stages.length, i)) })) }; break;
+      case "quote": resolved = { template: "quote", text: plan.text, author: plan.author ?? "", highlight: plan.highlight ?? "", at: at(plan.cue, 0.05) }; break;
+      case "map": resolved = { template: "map", connect: plan.connect, points: plan.points.map((point, i) => ({ label: point.label, lat: point.lat, lon: point.lon, at: at(point.cue, spread(plan.points.length, i, 0.1, 0.75)) })) }; break;
       case "outro": resolved = { template: "outro", line: plan.line, cta: plan.cta ?? "", at: round(voiceAt) }; break;
       default: resolved = { template: "title", at: round(voiceAt) };
     }
@@ -318,6 +349,26 @@ export const CANVAS_TEMPLATE_CATALOG: CanvasTemplateInfo[] = [
     template: "network", name: "Red de nodos", description: "Nodos que se encienden y se conectan al nombrarlos, desde un centro (hub) o uno tras otro (chain), con pulsos viajando por las conexiones.",
     useFor: "Botnets, contagios, redes, IA, cómo se propaga o se conecta algo.", fields: ["forma: hub o chain", "centro (opcional, para hub)", "2 a 6 nodos (máx. 18 letras)", "cue de cada nodo"],
     example: { title: "Cómo se arma una botnet", voiceover: "Todo empieza en un servidor de control. Infecta una cámara, luego un router, después una impresora y al final miles de dispositivos.", plan: { template: "network", shape: "hub", center: "Control", nodes: [{ label: "Cámara", cue: "cámara" }, { label: "Router", cue: "router" }, { label: "Impresora", cue: "impresora" }, { label: "Miles más", cue: "miles" }] } },
+  },
+  {
+    template: "terminal", name: "Terminal", description: "Una ventana de terminal donde cada comando se escribe letra a letra al nombrarlo y las salidas aparecen de golpe.",
+    useFor: "Tecnología, ciberseguridad, programación: mostrar qué se ejecuta y qué responde.", fields: ["título de la ventana (opcional)", "2 a 5 líneas (máx. 40): comando o salida", "cue de cada línea"],
+    example: { title: "Revisa tu servidor", voiceover: "Primero miras quién está conectado. Luego revisas los registros y ves miles de peticiones.", plan: { template: "terminal", title: "servidor-web", lines: [{ text: "who", output: false, cue: "conectado" }, { text: "tail -f /var/log/nginx/access.log", output: false, cue: "registros" }, { text: "12.430 peticiones en 10 s", output: true, cue: "miles" }] } },
+  },
+  {
+    template: "funnel", name: "Embudo", description: "Etapas apiladas que se estrechan hacia abajo; cada una entra al nombrarla con su cifra contando.",
+    useFor: "Conversiones, filtros, cuánta gente llega a cada paso.", fields: ["3 a 5 etapas: etiqueta (máx. 24) y valor opcional", "unidad (opcional)", "cue de cada etapa"],
+    example: { title: "De vista a cliente", voiceover: "De diez mil personas que ven tu video, mil visitan tu perfil, doscientas te siguen y veinte compran.", plan: { template: "funnel", stages: [{ label: "Ven el video", value: 10000, cue: "ven" }, { label: "Visitan el perfil", value: 1000, cue: "visitan" }, { label: "Te siguen", value: 200, cue: "siguen" }, { label: "Compran", value: 20, cue: "compran" }] } },
+  },
+  {
+    template: "quote", name: "Cita destacada", description: "Una frase grande entre comillas que entra línea a línea, con una parte resaltada en color y el autor debajo.",
+    useFor: "Citas, ideas clave, la frase que resume el video.", fields: ["frase (máx. 140)", "autor (opcional)", "parte resaltada, copiada de la frase (opcional)", "cue"],
+    example: { title: "Una idea clave", voiceover: "Como dijo Bruce Schneier, la seguridad es un proceso, no un producto.", plan: { template: "quote", text: "La seguridad es un proceso, no un producto.", author: "Bruce Schneier", highlight: "un proceso", cue: "seguridad" } },
+  },
+  {
+    template: "map", name: "Mapa", description: "Un mapa del mundo hecho de puntos; cada lugar se enciende con un pulso al nombrarlo y, si se pide, un arco lo une con el anterior.",
+    useFor: "Dónde pasa algo, rutas, orígenes y destinos, alcance global.", fields: ["1 a 5 lugares: etiqueta (máx. 18), latitud y longitud", "unir con arcos (sí/no)", "cue de cada lugar"],
+    example: { title: "El viaje de un paquete", voiceover: "Tu mensaje sale de Madrid, pasa por Frankfurt y llega a Singapur en menos de un segundo.", plan: { template: "map", connect: true, points: [{ label: "Madrid", lat: 40.4, lon: -3.7, cue: "Madrid" }, { label: "Frankfurt", lat: 50.1, lon: 8.7, cue: "Frankfurt" }, { label: "Singapur", lat: 1.35, lon: 103.8, cue: "Singapur" }] } },
   },
   {
     template: "outro", name: "Cierre", description: "La frase final entra línea a línea y aparece una llamada a la acción en una pastilla.",

@@ -923,6 +923,232 @@ export function canvasRuntime(spec, options) {
     });
   };
 
+  // Terminal: cada comando se escribe letra a letra desde su cue; las salidas aparecen de golpe.
+  // ponytail: monoespaciada del sistema (no va embebida); si el ancho varía entre máquinas, embeber una mono en woff2.
+  const MONO = 'ui-monospace, "DejaVu Sans Mono", Menlo, Consolas, monospace';
+  T.terminal = (ctx, plan, scene, t) => {
+    const n = plan.lines.length;
+    const longest = Math.max(...plan.lines.map((line) => line.text.length + (line.output ? 0 : 2)));
+    // Una mono mide ~0,6 em por carácter: el tamaño que hace caber la línea más larga.
+    const size = Math.min(44, Math.floor((X1 - X0 - 80) / (longest * 0.61)));
+    const lineH = size * 1.6, barH = 70;
+    const h = barH + 50 + lineH * n + 20;
+    const top = (STAGE_TOP + STAGE_BOTTOM) / 2 - h / 2;
+    const open = E.outExpo(P(t, scene.start + 0.1, scene.start + 0.7));
+    ctx.save();
+    ctx.translate(CX, top + h / 2);
+    ctx.scale(lerp(0.9, 1, open), lerp(0.9, 1, open));
+    ctx.globalAlpha = open;
+    ctx.translate(-CX, -(top + h / 2));
+    ctx.fillStyle = "#0b0d14";
+    ctx.strokeStyle = alpha(ACC, 0.45);
+    ctx.lineWidth = 3;
+    roundRect(ctx, X0, top, X1 - X0, h, 24);
+    ctx.fill(); ctx.stroke();
+    ctx.fillStyle = "rgba(255,255,255,0.06)";
+    ctx.beginPath(); ctx.roundRect(X0, top, X1 - X0, barH, [24, 24, 0, 0]); ctx.fill();
+    ["#ff5f57", "#febc2e", "#28c840"].forEach((color, i) => { ctx.fillStyle = color; ctx.beginPath(); ctx.arc(X0 + 44 + i * 36, top + barH / 2, 11, 0, Math.PI * 2); ctx.fill(); });
+    if (plan.title) text(ctx, plan.title, CX, top + barH / 2 + 2, 700, 30, "rgba(255,255,255,0.55)", "center", "middle");
+    ctx.font = `500 ${size}px ${MONO}`;
+    ctx.textAlign = "left";
+    ctx.textBaseline = "alphabetic";
+    let caret = null;
+    plan.lines.forEach((line, i) => {
+      const k = t - line.at;
+      const y = top + barH + 50 + lineH * i + size * 0.8;
+      if (k < 0) {
+        // Antes del primer comando el cursor espera en la primera línea.
+        if (i === 0) caret = [X0 + 40, y];
+        return;
+      }
+      const typed = line.output ? line.text : line.text.slice(0, Math.floor(clamp(k / Math.min(1.1, line.text.length * 0.045)) * line.text.length));
+      let x = X0 + 40;
+      if (!line.output) { ctx.fillStyle = ACC; ctx.fillText("$", x, y); x += ctx.measureText("$ ").width; }
+      ctx.fillStyle = line.output ? alpha(ACC2, clamp(k / 0.15)) : C.white;
+      ctx.fillText(typed, x, y);
+      caret = [x + ctx.measureText(typed).width + 4, y];
+    });
+    // Cursor parpadeante al final de lo último escrito.
+    if (caret && Math.floor(t * 2.4) % 2 === 0) { ctx.fillStyle = ACC; ctx.fillRect(caret[0], caret[1] - size * 0.82, size * 0.55, size * 1.02); }
+    ctx.restore();
+  };
+
+  // Embudo: etapas que se estrechan hacia abajo y entran al nombrarlas.
+  T.funnel = (ctx, plan, scene, t) => {
+    const n = plan.stages.length;
+    const gap = 16, bandH = Math.min(150, (STAGE_BOTTOM - STAGE_TOP - gap * (n - 1)) / n);
+    const top = (STAGE_TOP + STAGE_BOTTOM) / 2 - (bandH * n + gap * (n - 1)) / 2;
+    const wTop = X1 - X0, wBottom = 360;
+    const widthAt = (y) => lerp(wTop, wBottom, (y - top) / (bandH * n + gap * (n - 1)));
+    plan.stages.forEach((stage, i) => {
+      const k = t - stage.at;
+      const y0 = top + i * (bandH + gap), y1 = y0 + bandH;
+      const ghost = E.outCubic(P(t, scene.start + 0.15 + i * 0.06, scene.start + 0.6 + i * 0.06));
+      const on = E.outExpo(clamp(k / 0.6));
+      const last = i === n - 1;
+      const band = (fill) => {
+        const a = widthAt(y0) / 2, b = widthAt(y1) / 2;
+        ctx.beginPath(); ctx.moveTo(CX - a, y0); ctx.lineTo(CX + a, y0); ctx.lineTo(CX + b, y1); ctx.lineTo(CX - b, y1); ctx.closePath();
+        ctx.fillStyle = fill; ctx.fill();
+      };
+      // Antes de nombrarse la etapa se ve su silueta; al decirla se llena de izquierda a derecha.
+      ctx.globalAlpha = ghost;
+      band("rgba(255,255,255,0.06)");
+      ctx.globalAlpha = 1;
+      if (k < 0) return;
+      ctx.save();
+      ctx.beginPath(); ctx.rect(CX - wTop / 2, y0, wTop * on, bandH); ctx.clip();
+      band(last ? ACC : alpha(ACC, 0.22 + 0.5 * i / Math.max(1, n - 1)));
+      ctx.restore();
+      const room = widthAt(y1) - 60;
+      const ink = last || i / Math.max(1, n - 1) > 0.6 ? C.ink : C.white;
+      const label = fit(ctx, stage.label, 700, room, 1, 46, 26);
+      const value = stage.value === null ? "" : compactNumber(stage.value * E.outExpo(clamp(k / 1.2)), stage.value) + (plan.unit ? " " + plan.unit : "");
+      const mid = (y0 + y1) / 2;
+      ctx.save();
+      ctx.globalAlpha = clamp(k / 0.3);
+      if (value) {
+        const v = fit(ctx, value, 900, room, 1, 52, 28);
+        text(ctx, v.lines[0], CX, mid - 4, 900, v.size, ink, "center");
+        text(ctx, label.lines[0], CX, mid + label.size * 0.95, 700, label.size * 0.78, ink, "center");
+      } else text(ctx, label.lines[0], CX, mid + label.size * 0.36, 700, label.size, ink, "center");
+      ctx.restore();
+    });
+  };
+
+  // Cita: comillas grandes, la frase línea a línea con una parte resaltada y el autor debajo.
+  T.quote = (ctx, plan, scene, t) => {
+    const { size, lines } = fit(ctx, plan.text, 900, X1 - X0, 6, 96, 52);
+    const lh = size * 1.12;
+    const top = 900 - (lines.length - 1) * lh / 2;
+    // Palabras resaltadas: las de la frase `highlight`, comparadas sin tildes ni puntuación.
+    const plain = (word) => word.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
+    const all = plan.text.split(/\s+/).map(plain), wanted = plan.highlight.split(/\s+/).map(plain).filter(Boolean);
+    const from = wanted.length ? all.findIndex((_, i) => wanted.every((word, j) => all[i + j] === word)) : -1;
+    let index = 0;
+    const qk = t - plan.at + 0.3;
+    const s = spring(qk, 16, 8);
+    if (qk > 0) {
+      ctx.save();
+      ctx.translate(X0 + 30, top - size - 70);
+      ctx.scale(s, s);
+      text(ctx, "“", 0, 120, 900, 260, ACC, "left");
+      ctx.restore();
+    }
+    lines.forEach((line, i) => {
+      const progress = P(t, plan.at + i * 0.18, plan.at + i * 0.18 + 0.7);
+      if (progress <= 0) { index += line.split(" ").length; return; }
+      const y = top + i * lh;
+      ctx.save();
+      ctx.beginPath(); ctx.rect(X0 - 20, y - size * 1.02, X1 - X0 + 40, size * 1.32); ctx.clip();
+      const dy = (1 - E.outExpo(progress)) * size * 1.15;
+      let x = X0;
+      const space = measure(ctx, " ", 900, size);
+      for (const word of line.split(" ")) {
+        const marked = from >= 0 && index >= from && index < from + wanted.length;
+        index++;
+        text(ctx, word, x, y + dy, 900, size, marked ? ACC : C.white, "left");
+        x += measure(ctx, word, 900, size) + space;
+      }
+      ctx.restore();
+    });
+    if (plan.author) {
+      const k = t - plan.at - 0.5 - lines.length * 0.18;
+      const bar = E.outExpo(clamp(k / 0.6));
+      const y = top + (lines.length - 1) * lh + 110;
+      ctx.fillStyle = ACC;
+      ctx.fillRect(X0, y - 14, 60 * bar, 6);
+      ctx.save();
+      ctx.globalAlpha = clamp(k / 0.4);
+      const author = fit(ctx, plan.author, 700, X1 - X0 - 90, 1, 46, 30);
+      text(ctx, author.lines[0], X0 + 84, y, 700, author.size, "rgba(255,255,255,0.75)");
+      ctx.restore();
+    }
+  };
+
+  // Mapa de puntos: la tierra es una rejilla fija; cada lugar se enciende al nombrarlo.
+  const WORLD = options.world;
+  let worldDots = null;
+  T.map = (ctx, plan, scene, t) => {
+    // Encuadre: el mundo entero a lo ancho y, con zoom (hasta ×3), centrado en los lugares nombrados.
+    const lons = plan.points.map((point) => point.lon), lats = plan.points.map((point) => point.lat);
+    const spanLon = Math.max(...lons) - Math.min(...lons) + 60, spanLat = Math.max(...lats) - Math.min(...lats) + 40;
+    const zoom = clamp(Math.min(360 / spanLon, ((WORLD.rows * WORLD.step) / spanLat) * 1.4), 1, 3);
+    const cell = ((X1 - X0 + 40) / WORLD.cols) * zoom;
+    const midLon = clamp((Math.max(...lons) + Math.min(...lons)) / 2, -180 + 180 / zoom, 180 - 180 / zoom);
+    const midLat = (Math.max(...lats) + Math.min(...lats)) / 2;
+    const cy = (STAGE_TOP + STAGE_BOTTOM) / 2 + 30;
+    const left = CX - ((midLon + 180) / WORLD.step) * cell, top = cy - ((WORLD.lat0 - midLat) / WORLD.step) * cell;
+    const xy = (lat, lon) => [left + ((lon + 180) / WORLD.step) * cell, top + ((WORLD.lat0 - lat) / WORLD.step) * cell];
+    ctx.save();
+    ctx.beginPath(); ctx.rect(0, STAGE_TOP - 20, W, STAGE_BOTTOM - STAGE_TOP + 60); ctx.clip();
+    worldDots ??= Array.from({ length: WORLD.rows * WORLD.cols }, (_, i) => i).filter((i) => (parseInt(WORLD.bits[i >> 2], 16) >> (3 - (i & 3))) & 1);
+    const points = plan.points.map((point) => ({ ...point, pos: xy(point.lat, point.lon) }));
+    // Los puntos de tierra entran en barrido de oeste a este; cerca de un lugar encendido brillan.
+    ctx.fillStyle = "rgba(255,255,255,0.2)";
+    for (const i of worldDots) {
+      const col = i % WORLD.cols, row = Math.floor(i / WORLD.cols);
+      const x = left + (col + 0.5) * cell, y = top + (row + 0.5) * cell;
+      if (x < -cell || x > W + cell || y < STAGE_TOP - 40 || y > STAGE_BOTTOM + 60) continue;
+      const appear = P(t, scene.start + 0.1 + x / W * 0.7, scene.start + 0.4 + x / W * 0.7);
+      if (appear <= 0) continue;
+      let glow = 0;
+      for (const point of points) if (t >= point.at) glow = Math.max(glow, clamp(1 - Math.hypot(x - point.pos[0], y - point.pos[1]) / (90 * zoom)) * E.outCubic(P(t, point.at, point.at + 0.5)));
+      ctx.fillStyle = glow > 0 ? mix("#3a3f4b", ACC, glow) : "rgba(255,255,255,0.2)";
+      ctx.beginPath(); ctx.arc(x, y, cell * 0.3 * appear, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+    // Etiquetas: encima del punto, salvo que choque con la del lugar anterior (entonces va debajo).
+    const sides = [];
+    points.forEach((point, i) => {
+      const prev = points[i - 1];
+      const close = prev && Math.abs(prev.pos[0] - point.pos[0]) < 260 && Math.abs(prev.pos[1] - point.pos[1]) < 120;
+      sides.push(close ? !sides[i - 1] : point.pos[1] < STAGE_TOP + 60);
+    });
+    points.forEach((point, i) => {
+      const k = t - point.at;
+      const [x, y] = point.pos;
+      // Arco desde el lugar anterior: sale un poco antes del cue y llega justo al nombrarlo.
+      if (plan.connect && i > 0) {
+        const [x0, y0] = points[i - 1].pos;
+        const d = E.inOutCubic(P(t, point.at - 0.6, point.at));
+        if (d > 0) {
+          const cx = (x0 + x) / 2, cy = Math.min(y0, y) - Math.hypot(x - x0, y - y0) * 0.35;
+          const at = (u) => [lerp(lerp(x0, cx, u), lerp(cx, x, u), u), lerp(lerp(y0, cy, u), lerp(cy, y, u), u)];
+          ctx.strokeStyle = ACC; ctx.lineWidth = 5; ctx.lineCap = "round";
+          ctx.beginPath(); ctx.moveTo(x0, y0);
+          for (let s = 1; s <= 32; s++) { const [px, py] = at((s / 32) * d); ctx.lineTo(px, py); }
+          ctx.stroke();
+          if (d >= 1) { const [px, py] = at(((t - point.at) * 0.6) % 1); ctx.fillStyle = ACC2; ctx.beginPath(); ctx.arc(px, py, 8, 0, Math.PI * 2); ctx.fill(); }
+        }
+      }
+      if (k < 0) return;
+      for (let r = 0; r < 2; r++) {
+        const ring = ((k + r * 0.6) % 1.2) / 1.2;
+        ctx.strokeStyle = alpha(ACC, 0.6 * (1 - ring)); ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.arc(x, y, 14 + 50 * ring, 0, Math.PI * 2); ctx.stroke();
+      }
+      const s = spring(k, 20, 8);
+      ctx.save();
+      ctx.translate(x, y); ctx.scale(s, s);
+      ctx.fillStyle = ACC; ctx.beginPath(); ctx.arc(0, 0, 14, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = C.ink; ctx.lineWidth = 4; ctx.stroke();
+      ctx.restore();
+      // Etiqueta en pastilla, encima del punto (debajo si está muy arriba en el mapa).
+      const label = fit(ctx, point.label, 700, 300, 1, 38, 26);
+      const w = measure(ctx, label.lines[0], 700, label.size) + 36;
+      const below = sides[i];
+      const ly = below ? y + 56 : y - 56;
+      const lx = clamp(x, X0 - 40 + w / 2, X1 + 40 - w / 2);
+      ctx.save();
+      ctx.globalAlpha = E.outCubic(clamp(k / 0.35));
+      ctx.fillStyle = "rgba(7,8,13,0.85)"; ctx.strokeStyle = ACC; ctx.lineWidth = 3;
+      roundRect(ctx, lx - w / 2, ly - 30, w, 60, 30); ctx.fill(); ctx.stroke();
+      text(ctx, label.lines[0], lx, ly + 2, 700, label.size, C.white, "center", "middle");
+      ctx.restore();
+    });
+  };
+
   // Cierre: la frase final palabra a palabra y una llamada a la acción.
   T.outro = (ctx, plan, scene, t) => {
     const { size, lines } = fit(ctx, plan.line, 900, X1 - X0, 4, 124, 64);
@@ -960,7 +1186,7 @@ export function canvasRuntime(spec, options) {
     ctx.fillRect(CX - 80 * bar, top + (lines.length - 1) * size * 1.04 + 60, 160 * bar, 10);
   };
 
-  const FULLSCREEN = new Set(["hook", "outro", "title"]);
+  const FULLSCREEN = new Set(["hook", "outro", "title", "quote"]);
   /* ------------------------------------------------------------- imagen de la escena */
   // Fotos de las escenas (videos con imágenes): llegan ya decodificadas con `setImage(id, imagen)`.
   const images = new Map();

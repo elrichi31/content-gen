@@ -6,7 +6,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildCanvasHtml } from "../../../packages/canvas-engine/src/index.js";
 import { spawnSync } from "node:child_process";
+import { WORLD } from "../../../packages/canvas-engine/src/world.js";
 import { canvasSettings, frameRanges, imageDataUrl, muxArguments, prepareCanvasRender, renderCanvasStills, segmentArguments } from "./canvas.mjs";
+
+// Rejilla del mapa: tierra donde la hay y mar en medio del Atlántico.
+const land = (lat, lon) => { const i = Math.floor((WORLD.lat0 - lat) / WORLD.step) * WORLD.cols + Math.floor((lon + 180) / WORLD.step); return Boolean((parseInt(WORLD.bits[i >> 2], 16) >> (3 - (i & 3))) & 1); };
+assert.equal(WORLD.bits.length, (WORLD.cols * WORLD.rows) / 4);
+assert.ok(land(40.4, -3.7) && land(-15, -50) && land(45, 100), "Madrid, Brasil y Asia son tierra");
+assert.ok(!land(30, -40) && !land(0, -150), "Atlántico y Pacífico son mar");
 
 // Tramos contiguos, sin huecos ni solapes, y nunca más tramos que frames.
 assert.deepEqual(frameRanges(10, 3), [[0, 4], [4, 8], [8, 10]]);

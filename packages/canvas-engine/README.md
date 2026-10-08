@@ -42,6 +42,10 @@ con fotos en la mitad de las escenas).
   vez de no dispararse nunca. Un plan inválido cae a la plantilla `title`: el plan nunca rompe el render.
 - **Fuentes:** subconjuntos latinos de Inter Display 500/700/900 en woff2 (~20 KB cada uno, licencia OFL
   en `fonts/OFL.txt`). Se regeneran con `scripts/embed-fonts.mjs`.
+- **Mapa:** la tierra es una rejilla de 3° sacada de Natural Earth 1:110m (dominio público), 1,7 KB en
+  `src/world.js`; se regenera con `scripts/embed-world.mjs`. Sin librerías de mapas ni teselas.
+- **Terminal:** usa la monoespaciada del sistema (no va embebida); el tamaño se calcula para que quepa
+  la línea más larga, así que otra mono solo cambia un poco el aspecto.
 
 ## Números (máquina de 4 núcleos, 3 navegadores)
 

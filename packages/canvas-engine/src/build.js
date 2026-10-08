@@ -1,4 +1,5 @@
 import { INTER_DISPLAY } from "./fonts.js";
+import { WORLD } from "./world.js";
 import { canvasRuntime } from "./runtime.js";
 
 /**
@@ -17,7 +18,7 @@ export function buildCanvasHtml(spec, { fps = 60, subframes = 6, live = false, s
   const faces = Object.entries(INTER_DISPLAY)
     .map(([weight, data]) => `@font-face{font-family:"Inter Display";font-style:normal;font-weight:${weight};src:url(data:font/woff2;base64,${data}) format("woff2")}`)
     .join("\n");
-  const options = { fps, subframes: live ? 1 : subframes, scale };
+  const options = { fps, subframes: live ? 1 : subframes, scale, world: WORLD };
   // `<` escapado: un título con «</script>» no puede cerrar el bloque de código.
   const json = (value) => JSON.stringify(value).replace(/</g, "\\u003c");
   const boot = live

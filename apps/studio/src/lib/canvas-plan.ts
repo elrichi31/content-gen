@@ -22,13 +22,17 @@ PLANTILLAS (campos exactos):
 - split: antes / después en pantalla partida. { "template": "split", "before": { "label": "máx 20", "items": ["máx 30"] (1 a 3) }, "after": { "label": "máx 20", "items": [...] }, "cue": "..." }. cue = cuando entra el «después». Sin y con algo, error contra solución.
 - chart: gráfica que se dibuja. { "template": "chart", "kind": "line"|"bar", "points": [{ "label": "máx 10", "value": número }] (3 a 8), "unit": "máx 8 (opcional)", "cue": "..." }. line = tendencia en el tiempo; bar = categorías.
 - network: red de nodos que se conectan. { "template": "network", "shape": "hub"|"chain", "center": "máx 18 (opcional, solo hub)", "nodes": [{ "label": "máx 18", "cue": "..." }] (2 a 6) }. hub = todo sale de un centro (botnet, servidor, IA); chain = se propaga uno tras otro (contagio, cadena).
+- terminal: ventana de terminal. { "template": "terminal", "title": "máx 24 (opcional)", "lines": [{ "text": "máx 40", "output": true|false, "cue": "..." }] (2 a 5) }. output=false se escribe como comando; output=true es la respuesta. Tecnología, programación, seguridad defensiva.
+- funnel: embudo que se estrecha. { "template": "funnel", "stages": [{ "label": "máx 24", "value": número (opcional), "cue": "..." }] (3 a 5, de mayor a menor), "unit": "máx 8 (opcional)" }. Conversiones, filtros.
+- quote: cita destacada. { "template": "quote", "text": "máx 140", "author": "máx 30 (opcional)", "highlight": "parte literal de text a resaltar (opcional)", "cue": "..." }. Citas reales o la idea clave del video; nunca inventes autores.
+- map: mapa del mundo de puntos. { "template": "map", "points": [{ "label": "máx 18", "lat": número, "lon": número, "cue": "..." }] (1 a 5), "connect": true|false }. connect=true une los lugares en orden con arcos (rutas, viajes). Coordenadas reales del lugar.
 - outro: cierre. { "template": "outro", "line": "máx 40", "cta": "máx 40 (opcional)" }. Para la última escena.
 - title: solo el título de la escena en grande. Úsalo solo si ninguna otra encaja.
 
 REGLAS
 - Elige la plantilla que DEMUESTRE lo que dice la narración, no la que la decore. Varía: no repitas la misma plantilla en escenas seguidas salvo que la narración lo pida, y usa al menos 4 plantillas distintas en un video de 6 escenas o más (title solo como último recurso).
 - Cada "cue" es una palabra o frase de 1 a 3 palabras copiada LITERALMENTE de la narración de ESA escena (mismas palabras, mismo orden). Es el instante en que se dispara la animación. Ponlos en el orden en que se dicen.
-- Cifras (compare, stat, chart) y fechas (timeline) solo si la narración las dice o se deducen sin duda de ella. Nunca inventes datos; si no hay cifras, usa otra plantilla.
+- Cifras (compare, stat, chart, funnel) y fechas (timeline) solo si la narración las dice o se deducen sin duda de ella. Nunca inventes datos; si no hay cifras, usa otra plantilla.
 - Si la escena tiene IMAGEN, la plantilla se dibuja encima de la foto: prefiere las de pocos elementos (hook, stat, list, steps, timeline, title) y deja que la foto cuente el contexto.
 - Etiquetas cortas (1 a 3 palabras), en el idioma de la narración, sin emojis. "label" de flow máx 28 caracteres.
 - Devuelve SOLO JSON: { "scenes": [{ "sceneId": "...", ...plan }] } con una entrada por escena, en orden.`;
