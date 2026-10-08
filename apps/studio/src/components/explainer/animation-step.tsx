@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Pause, Play, RotateCcw, Sparkles, Wand2 } from "lucide-react";
+import { ImageIcon, Pause, Play, RotateCcw, Sparkles, Wand2 } from "lucide-react";
 import { buildCanvasHtml } from "@content-gen/canvas-engine";
 import Link from "next/link";
 import { buildCanvasSpec, CANVAS_TEMPLATE_CATALOG, type CanvasTemplate } from "@content-gen/domain/canvas";
@@ -21,7 +21,7 @@ const text = (value: unknown) => (typeof value === "string" ? value : "");
  * que el render, en un iframe aislado al que se le manda el tiempo por postMessage; corre en vivo a
  * media resolución y sin motion blur, y las voces suenan en la página desde el `voiceAt` de su escena.
  */
-export function ExplainerAnimationStep({ contentItemId, document, onPersisted }: { contentItemId: string; document: VideoDocument; onPersisted: (content: Persisted) => void }) {
+export function ExplainerAnimationStep({ contentItemId, revision, document, onPersisted }: { contentItemId: string; revision: number; document: VideoDocument; onPersisted: (content: Persisted) => void }) {
   const spec = useMemo(() => buildCanvasSpec(document), [document]);
   const html = useMemo(() => buildCanvasHtml(spec, { live: true, scale: 0.5 }), [spec]);
   const frame = useRef<HTMLIFrameElement>(null);
@@ -145,6 +145,36 @@ export function ExplainerAnimationStep({ contentItemId, document, onPersisted }:
     }
   }
 
+  const [photoProgress, setPhotoProgress] = useState<string | null>(null);
+  const withPhoto = document.scenes.filter((scene) => scene.imageAssetId).length;
+
+  /**
+   * Una foto de Unsplash por escena (o las quita con `remove`). La ruta exige la revisión vigente,
+   * así que van una tras otra con la que devuelve cada guardado; si una escena falla, siguen las demás.
+   */
+  async function scenePhotos(remove = false) {
+    setError(""); setNotice(""); setBusy(true); setPlaying(false);
+    const targets = document.scenes.filter((scene) => (remove ? scene.imageAssetId : !scene.imageAssetId));
+    let latest = revision; let failed = 0;
+    for (const [index, scene] of targets.entries()) {
+      setPhotoProgress(remove ? "Quitando fotos" : `Buscando foto ${index + 1} de ${targets.length}`);
+      const query = text(scene.content.imagePrompt) || text(scene.content.title) || document.title;
+      const body = remove ? { assetId: null, revision: latest } : { source: "unsplash", prompt: query.padEnd(3, "."), revision: latest };
+      try {
+        const response = await fetch(`/api/videos/${contentItemId}/scenes/${scene.id}/image`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(typeof payload.error === "string" ? payload.error : "No se pudo poner la foto.");
+        latest = (payload.content as Persisted).revision;
+        onPersisted(payload.content as Persisted);
+      } catch (reason) {
+        failed++;
+        setError(reason instanceof Error ? reason.message : "No se pudo poner la foto.");
+      }
+    }
+    if (failed && !remove) setNotice(`${failed} escena(s) se quedaron sin foto. Puedes volver a intentarlo.`);
+    setPhotoProgress(null); setBusy(false);
+  }
+
   const current = spec.scenes.reduce((found, scene, index) => (time >= scene.start ? index : found), 0);
   const withVoice = document.scenes.filter((scene) => scene.audioAssetId).length;
 
@@ -171,7 +201,7 @@ export function ExplainerAnimationStep({ contentItemId, document, onPersisted }:
             <iframe ref={frame} title="Preview de las animaciones" sandbox="allow-scripts" srcDoc={html} className="h-full w-full" />
             {busy || !planned ? (
               <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black/70 p-6 text-center backdrop-blur-sm">
-                {busy ? <AiProgress label="Animando las escenas" estimateMs={45_000} state="composing" size={64} /> : (
+                {busy ? <AiProgress label={photoProgress ?? "Animando las escenas"} estimateMs={photoProgress ? 15_000 : 45_000} state="composing" size={64} /> : (
                   <>
                     <Sparkles className="h-8 w-8 text-primary" />
                     <div className="space-y-1">
@@ -251,6 +281,16 @@ export function ExplainerAnimationStep({ contentItemId, document, onPersisted }:
               );
             })}
           </ol>
+
+          <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border p-3">
+            <ImageIcon className="h-4 w-4 shrink-0 text-primary" />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-foreground">Fotos de fondo <span className="font-normal text-muted-foreground">· {withPhoto} de {document.scenes.length}</span></p>
+              <p className="text-xs text-muted-foreground">{photoProgress ?? "Busca en Unsplash una foto para cada escena; va de fondo con un zoom lento bajo la animación. Ponlas antes de animar: la IA elige animaciones que dejan ver la foto."}</p>
+            </div>
+            {withPhoto < document.scenes.length ? <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void scenePhotos()}><ImageIcon className="h-4 w-4" /> {withPhoto ? "Completar fotos" : "Buscar fotos"}</Button> : null}
+            {withPhoto ? <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => void scenePhotos(true)}>Quitar fotos</Button> : null}
+          </div>
 
           {planned ? (
             <div className="space-y-2 rounded-lg border border-border p-3">

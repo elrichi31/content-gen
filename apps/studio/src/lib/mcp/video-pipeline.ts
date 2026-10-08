@@ -52,10 +52,10 @@ export async function runVideoPipeline(input: PipelineInput, deps: VideoPipeline
       completedSteps.push(step);
     }
     // Canvas no usa las animaciones HTML del educativo (dibuja su propio plan, que se genera al final),
-    // pero sí las imágenes de standard/timeline: van de fondo bajo la plantilla.
+    // pero sí las imágenes, también en el educativo: van de fondo bajo la plantilla.
     const canvas = input.engine === "canvas";
-    for (const scene of canvas && current.document.templateId === "explainer" ? [] : current.document.scenes) {
-      if (current.document.templateId === "explainer") {
+    for (const scene of current.document.scenes) {
+      if (current.document.templateId === "explainer" && !canvas) {
         step = `animation:${scene.id}`;
         await deps.animation(contentItemId, scene.id);
       } else if (input.imageSource !== "none") {

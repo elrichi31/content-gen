@@ -54,10 +54,13 @@ await runVideoPipeline({ topic: "Historia del mundo", imageSource: "none" }, noI
 assert.deepEqual(noImages.events.filter(e => !e.startsWith("read:")), ["create", "caption", "render"]);
 
 // Con Canvas no se gastan animaciones HTML: el plan se genera tras la voz y el render va por Canvas.
-// Las imágenes de standard/timeline sí se generan: Canvas las pone de fondo.
+// Las imágenes sí se generan, también en el educativo: Canvas las pone de fondo.
 const canvasExplainer = fixture("explainer");
 await runVideoPipeline({ topic: "Una explicación", imageSource: "openai", voiceId: "voice-123", modelId: "eleven_multilingual_v2", engine: "canvas" }, canvasExplainer.deps);
-assert.deepEqual(canvasExplainer.events.filter(e => !e.startsWith("read:")), ["create", "voiceover", "audio:intro", "audio:close", "canvas-plan", "caption", "render:canvas"]);
+assert.deepEqual(canvasExplainer.events.filter(e => !e.startsWith("read:")), ["create", "voiceover", "image:intro:openai:Una ciudad al amanecer", "image:close:openai:Una explicación", "audio:intro", "audio:close", "canvas-plan", "caption", "render:canvas"]);
+const canvasExplainerNoPhotos = fixture("explainer");
+await runVideoPipeline({ topic: "Una explicación", imageSource: "none", engine: "canvas" }, canvasExplainerNoPhotos.deps);
+assert.deepEqual(canvasExplainerNoPhotos.events.filter(e => !e.startsWith("read:")), ["create", "canvas-plan", "caption", "render:canvas"]);
 const canvasStandard = fixture();
 await runVideoPipeline({ topic: "Ciudad futura", imageSource: "unsplash", engine: "canvas" }, canvasStandard.deps);
 assert.deepEqual(canvasStandard.events.filter(e => !e.startsWith("read:")), ["create", "image:intro:unsplash:Una ciudad al amanecer", "image:close:unsplash:Ciudad futura", "canvas-plan", "caption", "render:canvas"]);

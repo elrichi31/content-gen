@@ -142,7 +142,7 @@ export default function ExplainerPage() {
 
           {step === 4 && document && contentId ? (
             <div className="space-y-6">
-              <ExplainerAnimationStep contentItemId={contentId} document={document} onPersisted={adopt} />
+              <ExplainerAnimationStep contentItemId={contentId} revision={revision} document={document} onPersisted={adopt} />
               <div className="flex justify-between gap-3 border-t border-border pt-4">
                 <Button type="button" variant="outline" onClick={() => go(3)}>← Volver a la voz</Button>
                 <Button type="button" onClick={() => go(5)}>Continuar al render →</Button>

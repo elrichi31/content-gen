@@ -22,6 +22,10 @@ assert.equal(document.templateId, "explainer");
 assert.deepEqual(document.scenes.map((scene) => scene.id), ["scene-1", "scene-2", "scene-3", "scene-4"]);
 assert.ok(document.scenes.every((scene) => scene.kind === "explainer" && scene.durationFrames >= 90));
 assert.throws(() => normalizeExplainerScript({ displayTitle: "x", scenes: [] }, input));
+// La foto sugerida por la IA queda como búsqueda de la escena; sin ella no se inventa.
+const withPhoto = normalizeExplainerScript({ displayTitle: "x", scenes: Array.from({ length: 3 }, (_, index) => ({ title: "t", voiceover: "uno dos tres", visual: "v", ...(index ? {} : { photo: "busy call center" }) })) }, input);
+assert.equal(withPhoto.scenes[0].content.imagePrompt, "busy call center");
+assert.equal(withPhoto.scenes[1].content.imagePrompt, undefined);
 // Una sola paleta para todo el video: la de la marca si es válida, cian si no.
 assert.ok(document.scenes.every((scene) => JSON.stringify(scene.accent) === JSON.stringify(explainerPalette())));
 assert.deepEqual(explainerPalette("#FF0000"), ["#ff0000", "#ff8c8c"]);

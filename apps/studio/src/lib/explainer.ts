@@ -33,12 +33,13 @@ Por escena escribe:
 - "title": 2 a 6 palabras.
 - "voiceover": una idea concreta, lenguaje cercano y preciso, en el idioma solicitado. Explica causa y efecto; respeta el máximo de palabras. Define tecnicismos y escribe cifras como se pronuncian. Sin intros ni datos inventados.
 - "visual": mini storyboard de 40 a 80 palabras: estado inicial → cambio visible → resultado. Describe objetos, posiciones y 2 o 3 acciones en el orden de la voz; indica qué frase dispara cada cambio. Demuestra la relación explicada, no solo reveles un icono. Usa diagramas, flujos, comparaciones, barras o transformaciones según el tema. Sin fotos ni colores: la paleta es fija.
+- "photo": 2 a 4 palabras en inglés para buscar una foto de stock que ambiente la escena de fondo (lugar, objeto o persona concretos; nada abstracto ni con texto).
 
 Progresión: gancho visual → mecanismo paso a paso → ejemplo o consecuencia → idea clave. Una idea por escena; reutiliza objetos y nombres cuando continúe el proceso. Las analogías deben aclarar el mecanismo, sin confundirlas con su funcionamiento literal.
 Un protagonista y hasta 3 apoyos; pocas etiquetas. Evita repetir la misma tarjeta con un icono distinto.
 Ejemplo de visual: "Servidor al centro; usuarios a la izquierda, respuestas a la derecha. Al decir 'llegan peticiones', bloques viajan al servidor; al decir 'no alcanza', la cola crece mientras las respuestas se frenan. El servidor mantiene su posición; el atasco queda visible al final." Cantidades sin escala son esquemas, no datos reales.
 
-Devuelve SOLO JSON: { "displayTitle": "...", "slug": "tema-en-kebab-case", "scenes": [{ "title": "...", "voiceover": "...", "visual": "..." }] }`;
+Devuelve SOLO JSON: { "displayTitle": "...", "slug": "tema-en-kebab-case", "scenes": [{ "title": "...", "voiceover": "...", "visual": "...", "photo": "..." }] }`;
 
 export function buildExplainerScriptPrompt(input: VideoGenerationInput & { brandName?: string }) {
   const scenes = explainerSceneCount(input.targetDurationSeconds);
@@ -54,7 +55,7 @@ IDIOMA: ${input.language}${input.audience ? `\nAUDIENCIA: ${input.audience}` : "
 const scriptSchema = z.object({
   displayTitle: z.string().trim().min(1).max(180),
   slug: z.string().trim().min(1).max(160).optional(),
-  scenes: z.array(z.object({ title: z.string().trim().min(1).max(120), voiceover: z.string().trim().min(1).max(1200), visual: z.string().trim().min(1).max(1500) })).min(3).max(12),
+  scenes: z.array(z.object({ title: z.string().trim().min(1).max(120), voiceover: z.string().trim().min(1).max(1200), visual: z.string().trim().min(1).max(1500), photo: z.string().trim().max(120).optional() })).min(3).max(12),
 });
 
 const wordCount = (text: string) => text.trim().split(/\s+/).filter(Boolean).length;
@@ -76,7 +77,8 @@ export function normalizeExplainerScript(value: unknown, input: VideoGenerationI
       // Estimación por palabras hasta que exista la voz: el audio fija luego la duración real.
       durationFrames: Math.round(Math.max(3, wordCount(scene.voiceover) / WORDS_PER_SECOND) * VIDEO_DEFAULTS.fps),
       accent: palette,
-      content: { title: scene.title, voiceover: scene.voiceover, visual: scene.visual },
+      // `imagePrompt` es la búsqueda de la foto de fondo (Canvas), igual que en standard/timeline.
+      content: { title: scene.title, voiceover: scene.voiceover, visual: scene.visual, ...(scene.photo ? { imagePrompt: scene.photo } : {}) },
     })),
   });
 }
