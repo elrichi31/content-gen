@@ -15,7 +15,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 COPY . .
-RUN npm ci
+# La caché de npm (~330MB) se borra en la misma capa: en un RUN aparte seguiría pesando en la imagen.
+RUN npm ci && npm cache clean --force
 
 # Chrome Headless Shell dentro de la imagen: si no, el primer render lo descargaría en caliente.
 RUN node --input-type=module -e "import { ensureBrowser } from '@remotion/renderer'; await ensureBrowser();"
@@ -24,7 +25,8 @@ RUN node --input-type=module -e "import { ensureBrowser } from '@remotion/render
 # Postgres. Los valores de aquí son de relleno y no quedan en la imagen: en runtime mandan las variables
 # de entorno reales (comprobado: Next no fija BETTER_AUTH_SECRET en el build, así que no hace falta
 # pasarlo como build arg, que además quedaría visible en el historial de la imagen).
-RUN DATABASE_URL=postgres://build:build@localhost:5432/build BETTER_AUTH_SECRET=solo-para-el-build npm run build
+RUN DATABASE_URL=postgres://build:build@localhost:5432/build BETTER_AUTH_SECRET=solo-para-el-build npm run build \
+    && rm -rf apps/studio/.next/cache
 
 ENV NODE_ENV=production \
     STORAGE_ROOT=/app/storage
