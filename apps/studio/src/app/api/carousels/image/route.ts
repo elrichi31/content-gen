@@ -15,7 +15,9 @@ export async function POST(request: Request) {
       return { value: created, usage: created.usage };
     });
     const asset = await storeAsset({ ...image, campaignId: parsed.data.campaignId ?? null });
-    return NextResponse.json({ asset, url: `/api/assets/${asset.id}` }, { status: 201 });
+    // Unsplash devuelve qué resultado se usó y cuántos hay, para que el panel ofrezca la siguiente foto.
+    const browse = "total" in image ? { index: image.index, total: image.total } : {};
+    return NextResponse.json({ asset, url: `/api/assets/${asset.id}`, ...browse }, { status: 201 });
   }
   catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "No se pudo crear la imagen." }, { status: 502 }); }
 }

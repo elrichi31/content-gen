@@ -25,6 +25,17 @@ try {
   const image = await createRemoteImage({ source: "unsplash", prompt: "team office workflow automation laptop" }, request);
   assert.equal(image.bytes.toString(), "fixture-image", "una búsqueda demasiado específica se simplifica y devuelve una foto");
   assert.deepEqual(queries, ["team office workflow automation laptop", "team office"], "solo reintenta una búsqueda sin resultados con palabras del mismo prompt");
+  const downloaded: string[] = [];
+  const paged: typeof fetch = async (url) => {
+    const target = new URL(String(url));
+    if (target.hostname === "api.unsplash.com") return Response.json({ results: ["a", "b", "c"].map((id) => ({ urls: { regular: `https://images.unsplash.com/${id}` } })) });
+    downloaded.push(target.pathname);
+    return new Response("fixture-image", { headers: { "content-type": "image/jpeg" } });
+  };
+  const second = await createRemoteImage({ source: "unsplash", prompt: "team office", index: 1 }, paged);
+  assert.deepEqual([second.index, second.total, downloaded.at(-1)], [1, 3, "/b"], "el índice elige otro resultado de la misma búsqueda");
+  const wrapped = await createRemoteImage({ source: "unsplash", prompt: "team office", index: 3 }, paged);
+  assert.deepEqual([wrapped.index, downloaded.at(-1)], [0, "/a"], "pasado el último resultado vuelve al primero");
   let attempts = 0;
   await assert.rejects(() => createRemoteImage({ source: "unsplash", prompt: "team office" }, async () => { attempts++; return Response.json({}, { status: 401 }); }), /credencial/i);
   assert.equal(attempts, 1, "una credencial inválida no genera reintentos");

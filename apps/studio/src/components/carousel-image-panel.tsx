@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { ImagePlus, Sparkles, Search, Upload, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, ImagePlus, Sparkles, Search, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CampaignAssetSelect } from "@/components/campaign-asset-select";
@@ -32,23 +32,28 @@ export function CarouselImagePanel({
   const [prompt, setPrompt] = useState(suggestion);
   // Al cambiar de slide cambia la sugerencia; se adopta mientras no se haya escrito otra cosa.
   const [lastSuggestion, setLastSuggestion] = useState(suggestion);
-  if (suggestion !== lastSuggestion) { setLastSuggestion(suggestion); setPrompt(suggestion); }
+  // Última búsqueda de Unsplash: permite recorrer sus resultados hasta dar con una foto que guste.
+  const [browse, setBrowse] = useState<{ query: string; index: number; total: number } | null>(null);
+  if (suggestion !== lastSuggestion) { setLastSuggestion(suggestion); setPrompt(suggestion); setBrowse(null); }
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
 
-  async function generate() {
+  /** Sin índice es una búsqueda nueva; con índice recorre los resultados de la última búsqueda. */
+  async function generate(index?: number) {
     setError("");
     setLoading(true);
+    const query = index !== undefined && browse ? browse.query : prompt;
     try {
       const response = await fetch("/api/carousels/image", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ source, prompt, ...(color ? { color } : {}), ...(campaignId ? { campaignId } : {}) }),
+        body: JSON.stringify({ source, prompt: query, ...(source === "unsplash" && index ? { index } : {}), ...(color ? { color } : {}), ...(campaignId ? { campaignId } : {}) }),
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error ?? "No se pudo obtener la imagen.");
       onApply(payload.url, domainSource[source]);
+      setBrowse(source === "unsplash" && typeof payload.total === "number" ? { query, index: payload.index ?? 0, total: payload.total } : null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "No se pudo obtener la imagen.");
     } finally {
@@ -89,7 +94,7 @@ export function CarouselImagePanel({
 
       <div role="radiogroup" aria-label="Fuente de la foto" className="grid grid-cols-4 rounded-lg border border-border p-0.5">
         {SOURCES.map((option) => (
-          <button key={option.value} type="button" role="radio" aria-checked={source === option.value} onClick={() => { setSource(option.value); setError(""); }}
+          <button key={option.value} type="button" role="radio" aria-checked={source === option.value} onClick={() => { setSource(option.value); setError(""); setBrowse(null); }}
             className={`rounded-md px-2 py-1 text-xs font-medium transition-colors ${source === option.value ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground"}`}>
             {option.label}
           </button>
@@ -125,6 +130,17 @@ export function CarouselImagePanel({
               {loading ? (source === "unsplash" ? "…" : <AiProgress label="" estimateMs={20_000} state="shaping" />) : source === "unsplash" ? <Search className="h-4 w-4" /> : <Sparkles className="h-4 w-4" />}
             </Button>
           </div>
+          {source === "unsplash" && browse && browse.total > 1 ? (
+            <div className="flex items-center gap-1.5">
+              <Button type="button" variant="outline" size="sm" aria-label="Foto anterior" disabled={loading} onClick={() => void generate((browse.index - 1 + browse.total) % browse.total)}>
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <Button type="button" variant="outline" size="sm" className="flex-1" disabled={loading} onClick={() => void generate((browse.index + 1) % browse.total)}>
+                Siguiente imagen <ChevronRight className="h-4 w-4" />
+              </Button>
+              <span className="w-12 text-right text-xs tabular-nums text-muted-foreground">{browse.index + 1}/{browse.total}</span>
+            </div>
+          ) : null}
         </>
       )}
 
