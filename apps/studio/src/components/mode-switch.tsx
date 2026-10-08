@@ -11,6 +11,7 @@ export const CAROUSEL_MODES: Mode[] = [
 export const VIDEO_MODES: Mode[] = [
   { href: "/video", label: "Con imágenes" },
   { href: "/explainer", label: "Educativo" },
+  { href: "/video/animaciones", label: "Animaciones" },
 ];
 
 /** Una herramienta, varios modos: cada modo sigue siendo su propia página. */

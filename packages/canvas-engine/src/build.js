@@ -11,8 +11,9 @@ import { canvasRuntime } from "./runtime.js";
  *   Las fotos de las escenas llegan igual: `{ type: "canvas-engine:image", id, image }` (un ImageBitmap),
  *   porque el iframe aislado no puede pedir los assets con la sesión del usuario.
  * - `images`: { assetId: data URL } embebidas en la página (render). Se decodifican antes de `ready`.
+ * - `autoplay` (con `live`): la página se reproduce sola en bucle, sin reloj del padre (biblioteca).
  */
-export function buildCanvasHtml(spec, { fps = 60, subframes = 6, live = false, scale = 1, images = {} } = {}) {
+export function buildCanvasHtml(spec, { fps = 60, subframes = 6, live = false, scale = 1, images = {}, autoplay = false } = {}) {
   const faces = Object.entries(INTER_DISPLAY)
     .map(([weight, data]) => `@font-face{font-family:"Inter Display";font-style:normal;font-weight:${weight};src:url(data:font/woff2;base64,${data}) format("woff2")}`)
     .join("\n");
@@ -28,7 +29,10 @@ export function buildCanvasHtml(spec, { fps = 60, subframes = 6, live = false, s
       if (data.type === "canvas-engine:time") { last = Number(data.t) || 0; engine.draw(last); }
       if (data.type === "canvas-engine:image" && data.image) { engine.setImage(String(data.id), data.image); engine.draw(last); }
     });
-    parent.postMessage({ type: "canvas-engine:ready", duration: engine.duration }, "*");
+    parent.postMessage({ type: "canvas-engine:ready", duration: engine.duration }, "*");${autoplay ? `
+    // Bucle: la animación completa y una pausa breve con el estado final antes de volver a empezar.
+    var start = performance.now();
+    (function loop(now) { engine.draw(((now - start) / 1000) % (engine.duration + 1)); requestAnimationFrame(loop); })(start);` : ""}
   });`
     : `// Fotos embebidas: se decodifican antes de dar la página por lista, o el primer frame saldría sin ellas.
   var fontsReady = engine.ready;

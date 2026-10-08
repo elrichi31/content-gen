@@ -11,6 +11,8 @@ export type CanvasHtmlOptions = {
   scale?: number;
   /** Fotos de las escenas como data URL, por id de asset (solo render; la preview las recibe por postMessage). */
   images?: Record<string, string>;
+  /** Con `live`: se reproduce sola en bucle, sin reloj del padre (biblioteca de animaciones). */
+  autoplay?: boolean;
 };
 
 export function buildCanvasHtml(spec: CanvasSpec, options?: CanvasHtmlOptions): string;

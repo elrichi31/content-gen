@@ -214,3 +214,76 @@ export function buildCanvasSpec(document: VideoDocument): CanvasSpec {
   });
   return { width: document.width, height: document.height, duration: round(timelineTotalFrames(document.scenes) / document.fps), palette, title: document.title, scenes };
 }
+
+/* ----------------------------------------------------------------- catálogo */
+
+export type CanvasTemplateInfo = {
+  template: CanvasTemplate;
+  name: string;
+  /** Qué se ve en pantalla. */
+  description: string;
+  /** Cuándo elegirla. */
+  useFor: string;
+  /** Datos que la IA rellena. */
+  fields: string[];
+  /** Ejemplo completo: título, narración y plan con cues que se dicen en ella. */
+  example: { title: string; voiceover: string; plan: CanvasScenePlan };
+};
+
+/**
+ * Las plantillas del motor Canvas con un ejemplo que funciona: la biblioteca del Studio las muestra
+ * en vivo con `sampleCanvasSpec` y la herramienta MCP `listar_animaciones` las describe.
+ */
+export const CANVAS_TEMPLATE_CATALOG: CanvasTemplateInfo[] = [
+  {
+    template: "hook", name: "Gancho", description: "Palabras gigantes que golpean una a una justo cuando se dicen, con onda de choque y temblor de cámara.",
+    useFor: "El arranque del video: una cifra o frase que frene el scroll.", fields: ["1 a 4 palabras (máx. 14 letras)", "cue de cada palabra"],
+    example: { title: "El gancho", voiceover: "Un millón de peticiones por segundo. Así se tumba un servidor.", plan: { template: "hook", words: [{ text: "1 millón", cue: "millón" }, { text: "peticiones", cue: "peticiones" }, { text: "por segundo", cue: "segundo" }] } },
+  },
+  {
+    template: "flow", name: "Flujo", description: "Grupos de emisores mandan paquetes a un destino; el tráfico se dispara, un escudo opcional filtra y se ve el desenlace (aguanta, se cae o se bloquea).",
+    useFor: "Redes, ataques, APIs, colas: cualquier cosa que viaje de muchos a uno.", fields: ["1 a 3 emisores con etiqueta y cantidad", "destino", "escudo (opcional)", "ritmo: calm, busy o flood", "desenlace: ok, overload o blocked", "cues: surge, shield, outcome"],
+    example: { title: "Así funciona un DDoS", voiceover: "Miles de bots envían tráfico al mismo servidor. De repente el tráfico se dispara y el servidor se cae.", plan: { template: "flow", sources: [{ label: "Bots", count: 40 }, { label: "Usuarios", count: 6 }], target: "Servidor web", rate: "flood", outcome: "overload", cues: { surge: "dispara", outcome: "cae" } } },
+  },
+  {
+    template: "steps", name: "Pasos", description: "Una línea de tiempo vertical; cada paso se enciende y el riel avanza al nombrarlo.",
+    useFor: "Procesos en orden: cómo se hace, cómo funciona por fases.", fields: ["2 a 4 pasos (máx. 36 letras)", "cue de cada paso"],
+    example: { title: "Cómo se defiende", voiceover: "Primero detectas el pico, luego filtras en el borde y por último escalas tus servidores.", plan: { template: "steps", items: [{ label: "Detectar el pico", cue: "detectas" }, { label: "Filtrar en el borde", cue: "filtras" }, { label: "Escalar servidores", cue: "escalas" }] } },
+  },
+  {
+    template: "compare", name: "Comparación", description: "Dos barras que crecen hasta su valor con la cifra contando encima; si la diferencia es grande, remata con «×N».",
+    useFor: "Antes y después, normal contra extremo, A contra B con números.", fields: ["izquierda y derecha: etiqueta, valor y unidad", "cue"],
+    example: { title: "Normal contra ataque", voiceover: "Un sitio normal recibe mil doscientas peticiones por segundo. Durante el ataque llegan casi un millón.", plan: { template: "compare", left: { label: "Normal", value: 1200, unit: "req/s" }, right: { label: "Ataque", value: 950000, unit: "req/s" }, cue: "ataque" } },
+  },
+  {
+    template: "stat", name: "Cifra", description: "Un número enorme que cuenta desde cero hasta su valor, con una regla que se llena al ritmo del conteo.",
+    useFor: "Un dato que impresiona por sí solo.", fields: ["valor, decimales y unidad", "etiqueta", "cue"],
+    example: { title: "El récord", voiceover: "El mayor ataque registrado llegó a tres coma cuarenta y siete terabits por segundo.", plan: { template: "stat", value: 3.47, decimals: 2, unit: "Tbps", label: "El mayor ataque registrado", cue: "tres" } },
+  },
+  {
+    template: "list", name: "Lista", description: "Puntos que aparecen con su marca (check, cruz o punto) cuando se nombran.",
+    useFor: "Recomendaciones (check), errores o mitos (cruz), enumeraciones (punto).", fields: ["icono: check, cross o dot", "2 a 4 puntos (máx. 40 letras)", "cue de cada punto"],
+    example: { title: "Checklist", voiceover: "Revisa tres cosas: que tengas un CDN, límites de peticiones y alertas de tráfico.", plan: { template: "list", icon: "check", items: [{ text: "Usa un CDN", cue: "CDN" }, { text: "Límites de peticiones", cue: "límites" }, { text: "Alertas de tráfico", cue: "alertas" }] } },
+  },
+  {
+    template: "outro", name: "Cierre", description: "La frase final entra línea a línea y aparece una llamada a la acción en una pastilla.",
+    useFor: "La última escena.", fields: ["frase (máx. 40 letras)", "llamada a la acción (opcional)"],
+    example: { title: "Cierre", voiceover: "Ahora ya sabes cómo tumban un servidor. Sígueme para más.", plan: { template: "outro", line: "Ahora ya sabes cómo tumban un servidor", cta: "Sígueme para más" } },
+  },
+  {
+    template: "title", name: "Título", description: "El título de la escena en grande, revelado línea a línea. Es el respaldo cuando no hay plan.",
+    useFor: "Transiciones de tema o escenas donde la foto cuenta la historia.", fields: ["ninguno: usa el título de la escena"],
+    example: { title: "Qué es un DDoS", voiceover: "Pero antes, qué es exactamente un ataque de denegación de servicio.", plan: { template: "title" } },
+  },
+];
+
+/** Spec de una sola escena con el ejemplo de la plantilla: la misma cuenta que un video real. */
+export function sampleCanvasSpec(template: CanvasTemplate, palette: [string, string] = ["#22d3ee", "#9be9f6"]): CanvasSpec {
+  const info = CANVAS_TEMPLATE_CATALOG.find((item) => item.template === template) ?? CANVAS_TEMPLATE_CATALOG[0];
+  const seconds = info.example.voiceover.split(/\s+/).length / 2.4 + 0.6;
+  return buildCanvasSpec({
+    schemaVersion: 1, slug: `demo-${template}`, templateId: "explainer", title: info.example.title, niche: "general", hookStyle: "curiosity", targetDurationSeconds: 15,
+    width: 1080, height: 1920, fps: 30,
+    scenes: [{ id: `demo-${template}`, kind: "explainer", durationFrames: Math.ceil(seconds * 30), accent: palette, content: { title: info.example.title, voiceover: info.example.voiceover, canvas: info.example.plan } }],
+  } as VideoDocument);
+}

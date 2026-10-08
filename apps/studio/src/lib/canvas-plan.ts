@@ -1,4 +1,4 @@
-import { canvasScenePlanSchema, pruneCues, sceneWords, type CanvasScenePlan } from "@content-gen/domain/canvas";
+import { CANVAS_TEMPLATE_CATALOG, canvasScenePlanSchema, pruneCues, sceneWords, type CanvasScenePlan, type CanvasTemplate } from "@content-gen/domain/canvas";
 import { videoDocumentSchema, type VideoDocument } from "@content-gen/domain/video";
 import { generateOpenAiJson, OpenAiError } from "./openai.ts";
 import { VideoGenerationError } from "./video-generation.ts";
@@ -31,7 +31,10 @@ REGLAS
 
 const text = (value: unknown) => (typeof value === "string" ? value.trim() : "");
 
-export function buildCanvasPlanPrompt(document: VideoDocument, feedback?: string) {
+/** Cambiar la animación de una sola escena: la IA solo rellena los datos de la plantilla elegida. */
+export type CanvasPlanFocus = { sceneId: string; template: CanvasTemplate };
+
+export function buildCanvasPlanPrompt(document: VideoDocument, feedback?: string, focus?: CanvasPlanFocus) {
   const scenes = document.scenes.map((scene, index) => [
     `ESCENA ${index + 1} (sceneId: ${scene.id})${index === 0 ? " — primera" : index === document.scenes.length - 1 ? " — última" : ""}`,
     `TÍTULO: ${text(scene.content.title)}`,
@@ -40,7 +43,9 @@ export function buildCanvasPlanPrompt(document: VideoDocument, feedback?: string
     scene.imageAssetId ? `IMAGEN: sí${text(scene.content.imagePrompt) ? ` (${text(scene.content.imagePrompt)})` : ""}` : "",
     scene.content.canvas ? `PLAN ACTUAL: ${JSON.stringify(scene.content.canvas)}` : "",
   ].filter(Boolean).join("\n"));
-  return `VIDEO: ${document.title}\n\n${scenes.join("\n\n")}${feedback?.trim() ? `\n\nCAMBIOS PEDIDOS: ${feedback.trim()}\nConserva los planes actuales que no afecte el cambio.` : ""}`;
+  const name = focus ? CANVAS_TEMPLATE_CATALOG.find((item) => item.template === focus.template)?.name ?? focus.template : "";
+  const only = focus ? `\n\nSOLO ESCENA ${focus.sceneId}: devuelve únicamente esa escena con la plantilla "${focus.template}" (${name}), sus datos sacados de su narración y sus cues literales. Las demás escenas no cambian.` : "";
+  return `VIDEO: ${document.title}\n\n${scenes.join("\n\n")}${feedback?.trim() ? `\n\nCAMBIOS PEDIDOS: ${feedback.trim()}\nConserva los planes actuales que no afecte el cambio.` : ""}${only}`;
 }
 
 /**
@@ -66,9 +71,19 @@ export function replaceCanvasPlans(document: VideoDocument, plans: Record<string
   return videoDocumentSchema.parse({ ...document, scenes: document.scenes.map((scene) => (plans[scene.id] ? { ...scene, content: { ...scene.content, canvas: plans[scene.id] } } : scene)) });
 }
 
-export async function generateCanvasPlan(document: VideoDocument, feedback?: string, request: typeof fetch = fetch) {
+export async function generateCanvasPlan(document: VideoDocument, feedback?: string, request: typeof fetch = fetch, focus?: CanvasPlanFocus) {
+  if (focus && !document.scenes.some((scene) => scene.id === focus.sceneId)) throw new VideoGenerationError("La escena seleccionada no existe.", 404);
   try {
-    const result = await generateOpenAiJson({ system: CANVAS_PLAN_SYSTEM_PROMPT, prompt: buildCanvasPlanPrompt(document, feedback), purpose: "explainer", timeoutMs: 180_000, request });
+    const result = await generateOpenAiJson({ system: CANVAS_PLAN_SYSTEM_PROMPT, prompt: buildCanvasPlanPrompt(document, feedback, focus), purpose: "explainer", timeoutMs: 180_000, request });
+    if (focus) {
+      // Solo cuenta la escena pedida, y solo si viene con la plantilla elegida: las demás no se tocan.
+      const entries = Array.isArray((result.value as { scenes?: unknown })?.scenes) ? (result.value as { scenes: unknown[] }).scenes : [];
+      const entry = entries.find((item) => (item as { sceneId?: unknown })?.sceneId === focus.sceneId) ?? (entries.length === 1 ? entries[0] : null);
+      const parsed = canvasScenePlanSchema.safeParse(entry);
+      if (!parsed.success || parsed.data.template !== focus.template) throw new VideoGenerationError("La IA no devolvió un plan válido con esa animación. Intenta de nuevo.", 422);
+      const scene = document.scenes.find((item) => item.id === focus.sceneId)!;
+      return { ...result, plans: { [focus.sceneId]: pruneCues(parsed.data, sceneWords(scene, document.fps)) }, skipped: [] as string[] };
+    }
     const { plans, skipped } = normalizeCanvasPlans(result.value, document);
     if (!Object.keys(plans).length) throw new VideoGenerationError("La IA no devolvió ningún plan válido para las escenas.", 422);
     return { ...result, plans, skipped };

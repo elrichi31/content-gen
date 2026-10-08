@@ -51,4 +51,12 @@ assert.equal(withPlan.scenes[1].content.voiceover, document.scenes[1].content.vo
 const generated = await generateCanvasPlan(document, undefined, async () => new Response(JSON.stringify({ output_text: JSON.stringify(answer), usage: { output_tokens: 10 } })));
 assert.deepEqual(Object.keys(generated.plans).sort(), ["scene-1", "scene-2"]);
 await assert.rejects(generateCanvasPlan(document, undefined, async () => new Response(JSON.stringify({ output_text: "{\"scenes\":[]}" }))), /ningún plan válido/);
+// Una sola escena con la animación elegida: solo cambia esa, y si la IA no respeta la plantilla, falla.
+assert.match(buildCanvasPlanPrompt(document, undefined, { sceneId: "scene-2", template: "steps" }), /SOLO ESCENA scene-2: devuelve únicamente esa escena con la plantilla "steps" \(Pasos\)/);
+const stepsAnswer = { scenes: [{ sceneId: "scene-2", template: "steps", items: [{ label: "Bots", cue: "bots" }, { label: "Caída", cue: "cae" }] }, { sceneId: "scene-1", template: "title" }] };
+const focused = await generateCanvasPlan(document, undefined, async () => new Response(JSON.stringify({ output_text: JSON.stringify(stepsAnswer) })), { sceneId: "scene-2", template: "steps" });
+assert.deepEqual(Object.keys(focused.plans), ["scene-2"], "las demás escenas no se tocan aunque la IA las devuelva");
+assert.equal(focused.plans["scene-2"].template, "steps");
+await assert.rejects(generateCanvasPlan(document, undefined, async () => new Response(JSON.stringify({ output_text: JSON.stringify(answer) })), { sceneId: "scene-2", template: "steps" }), /esa animación/);
+await assert.rejects(generateCanvasPlan(document, undefined, async () => new Response("{}"), { sceneId: "nope", template: "steps" }), /no existe/);
 console.log("canvas plan ok");

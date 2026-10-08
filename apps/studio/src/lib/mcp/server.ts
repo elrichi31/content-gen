@@ -58,6 +58,7 @@ import { drawAiCarousel, prepareAiCarousel } from "@/lib/carousel-pipeline";
 import { contentTitle } from "@/lib/content-title";
 import { downloadPublicFile } from "@/lib/carousel-remix";
 import { runVideoPipeline } from "./video-pipeline";
+import { CANVAS_TEMPLATE_CATALOG, CANVAS_TEMPLATES } from "@content-gen/domain/canvas";
 import { videoDocumentSchema } from "@content-gen/domain/video";
 
 /*
@@ -438,11 +439,16 @@ export function createStudioMcpServer({ origin, scopes = ["studio:read", "studio
     input: { contentItemId: id("el video"), sceneId: id("la escena"), feedback: z.string().max(2000).optional() },
     spends: true,
   }, ({ contentItemId, sceneId, feedback }) => call(sceneAnimation.POST, { method: "POST", params: { id: contentItemId, sceneId }, body: feedback ? { feedback } : {} }));
+  tool("listar_animaciones", { description: "Biblioteca de animaciones del motor Canvas: cada plantilla con qué muestra, cuándo usarla, qué datos lleva y un ejemplo. Úsala para elegir la animación de una escena con generar_plan_canvas.", input: {}, readOnly: true },
+    async () => CANVAS_TEMPLATE_CATALOG.map(({ template, name, description, useFor, fields, example }) => ({ template, name, description, useFor, fields, example: { voiceover: example.voiceover, plan: example.plan } })));
   tool("generar_plan_canvas", {
-    description: "Genera (o corrige con feedback) el plan del motor Canvas de todas las escenas de un video: plantilla animada, datos y momentos anclados a palabras de la narración. Hazlo antes de renderizar_video con engine=canvas; sin plan, Canvas solo muestra el título de cada escena." + spendNote,
-    input: { contentItemId: id("el video"), feedback: z.string().max(2000).optional() },
+    description: "Genera (o corrige con feedback) el plan del motor Canvas: plantilla animada, datos y momentos anclados a palabras de la narración. Sin sceneId planifica todas las escenas; con sceneId y template cambia solo la animación de esa escena (ver listar_animaciones). Hazlo antes de renderizar_video con engine=canvas; sin plan, Canvas solo muestra el título de cada escena." + spendNote,
+    input: { contentItemId: id("el video"), feedback: z.string().max(2000).optional(), sceneId: z.string().min(1).optional().describe("Escena a cambiar; va con template"), template: z.enum(CANVAS_TEMPLATES).optional().describe("Animación para esa escena") },
     spends: true,
-  }, ({ contentItemId, feedback }) => call(canvasPlan.POST, { method: "POST", params: { id: contentItemId }, body: feedback ? { feedback } : {} }));
+  }, ({ contentItemId, feedback, sceneId, template }) => {
+    if (Boolean(sceneId) !== Boolean(template)) throw new ToolError("sceneId y template van juntos.");
+    return call(canvasPlan.POST, { method: "POST", params: { id: contentItemId }, body: { ...(feedback ? { feedback } : {}), ...(sceneId && template ? { sceneId, template } : {}) } });
+  });
   tool("generar_guion_voz", { description: "Escribe el texto del narrador de cada escena de un video guardado." + spendNote, input: { contentItemId: id("el video") }, spends: true },
     async ({ contentItemId }) => call(voiceoverScript.POST, { method: "POST", params: { id: contentItemId }, body: { action: "generate", revision: await withRevision(contentItemId) } }));
   tool("listar_voces", { description: "Voces de ElevenLabs disponibles para la narración.", input: {}, readOnly: true }, () => call(voices.GET));

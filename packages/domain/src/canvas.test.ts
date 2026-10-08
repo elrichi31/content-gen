@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { buildCanvasSpec, captionChunks, canvasScenePlanSchema, estimateWordTimings, findCue, pruneCues, wordsFromAlignment } from "./canvas.ts";
+import { buildCanvasSpec, CANVAS_TEMPLATE_CATALOG, CANVAS_TEMPLATES, captionChunks, canvasScenePlanSchema, estimateWordTimings, findCue, pruneCues, sampleCanvasSpec, wordsFromAlignment } from "./canvas.ts";
 import { videoDocumentSchema } from "./video.ts";
 
 // Alineación por carácter de ElevenLabs → palabras con su inicio y fin.
@@ -67,3 +67,23 @@ assert.equal(third.plan.template, "outro", "la última escena sin plan cierra el
 assert.ok(second.captions.length > 0, "sin tiempos guardados los subtítulos se estiman");
 assert.equal(spec.duration, Math.round((first.duration + second.duration + third.duration) * 1000) / 1000);
 console.log("canvas ok");
+
+// Catálogo: una entrada por plantilla, ejemplos válidos y cues que de verdad se dicen en su narración.
+assert.deepEqual(CANVAS_TEMPLATE_CATALOG.map((item) => item.template), [...CANVAS_TEMPLATES]);
+for (const item of CANVAS_TEMPLATE_CATALOG) {
+  const plan = item.example.plan;
+  assert.ok(canvasScenePlanSchema.safeParse(plan).success, `ejemplo válido: ${item.template}`);
+  const spoken = estimateWordTimings(item.example.voiceover, 5);
+  const cues = [
+    ..."words" in plan ? plan.words.map((word) => word.cue) : [],
+    ..."items" in plan ? plan.items.map((entry) => entry.cue) : [],
+    ..."cues" in plan ? Object.values(plan.cues) : [],
+    "cue" in plan ? plan.cue : undefined,
+  ].filter((value): value is string => Boolean(value));
+  for (const phrase of cues) assert.notEqual(findCue(spoken, phrase), null, `${item.template}: el cue «${phrase}» se dice`);
+  const sample = sampleCanvasSpec(item.template);
+  assert.equal(sample.scenes.length, 1);
+  assert.equal(sample.scenes[0].plan.template, item.template, `la muestra de ${item.template} usa su plantilla`);
+  assert.ok(sample.duration > 3 && sample.scenes[0].captions.length > 0);
+}
+console.log("canvas catálogo ok");

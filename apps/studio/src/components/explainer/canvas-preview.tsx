@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pause, Play, Sparkles, Wand2 } from "lucide-react";
 import { buildCanvasHtml } from "@content-gen/canvas-engine";
-import { buildCanvasSpec } from "@content-gen/domain/canvas";
+import Link from "next/link";
+import { buildCanvasSpec, CANVAS_TEMPLATE_CATALOG, type CanvasTemplate } from "@content-gen/domain/canvas";
 import type { VideoDocument } from "@content-gen/domain/video";
 import { AiProgress } from "@/components/ai-progress";
 import { Button } from "@/components/ui/button";
@@ -12,7 +13,6 @@ import { Input } from "@/components/ui/input";
 
 type Persisted = { revision: number; document: { data: unknown } };
 
-const TEMPLATE_LABELS: Record<string, string> = { hook: "Gancho", flow: "Flujo", steps: "Pasos", compare: "Comparación", stat: "Cifra", list: "Lista", outro: "Cierre", title: "Título" };
 const clock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
 
 /**
@@ -114,10 +114,14 @@ export function CanvasPreview({ contentItemId, document, onPersisted }: { conten
     setPlaying((current) => !current);
   }
 
-  async function generate(withFeedback: boolean) {
-    setError(""); setNotice(""); setBusy(true); setPlaying(false);
+  const [changing, setChanging] = useState<string | null>(null);
+
+  /** Sin `focus` planifica todo el video; con `focus`, cambia la animación de esa escena. */
+  async function generate(withFeedback: boolean, focus?: { sceneId: string; template: CanvasTemplate }) {
+    setError(""); setNotice(""); setBusy(true); setPlaying(false); setChanging(focus?.sceneId ?? null);
     try {
-      const response = await fetch(`/api/videos/${contentItemId}/canvas-plan`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(withFeedback && feedback.trim() ? { feedback } : {}) });
+      const body = { ...(withFeedback && feedback.trim() ? { feedback } : {}), ...(focus ?? {}) };
+      const response = await fetch(`/api/videos/${contentItemId}/canvas-plan`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const payload = await response.json();
       if (!response.ok) throw new Error(typeof payload.error === "string" ? payload.error : "No se pudo generar el plan.");
       onPersisted(payload.content as Persisted);
@@ -128,6 +132,7 @@ export function CanvasPreview({ contentItemId, document, onPersisted }: { conten
       setError(reason instanceof Error ? reason.message : "No se pudo generar el plan.");
     } finally {
       setBusy(false);
+      setChanging(null);
     }
   }
 
@@ -164,15 +169,26 @@ export function CanvasPreview({ contentItemId, document, onPersisted }: { conten
               <Button type="button" size="sm" disabled={busy || !feedback.trim()} onClick={() => void generate(true)}><Wand2 className="h-4 w-4" /> Aplicar</Button>
             </div>
           ) : null}
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Animación por escena</p>
+            <Link href="/video/animaciones" target="_blank" className="text-xs text-primary hover:underline">Ver la biblioteca de animaciones</Link>
+          </div>
           <ol className="space-y-1.5">
             {spec.scenes.map((scene, index) => (
-              <li key={scene.id}>
-                <button type="button" onClick={() => seek(scene.start)} className={`flex w-full items-center gap-3 rounded-md border px-3 py-2 text-left text-sm transition-colors ${index === current ? "border-primary/60 bg-primary/10" : "border-border hover:bg-muted/50"}`}>
+              <li key={scene.id} className={`flex items-center gap-2 rounded-md border px-2 py-1.5 text-sm transition-colors ${index === current ? "border-primary/60 bg-primary/10" : "border-border"}`}>
+                <button type="button" onClick={() => seek(scene.start)} className="flex min-w-0 flex-1 items-center gap-3 rounded px-1 py-0.5 text-left hover:bg-muted/50">
                   <span className="font-mono text-xs text-muted-foreground">{String(index + 1).padStart(2, "0")}</span>
                   <span className="min-w-0 flex-1 truncate text-foreground">{scene.title || document.title}</span>
-                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${document.scenes[index].content.canvas ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"}`}>{TEMPLATE_LABELS[scene.plan.template] ?? scene.plan.template}</span>
                   <span className="font-mono text-[11px] text-muted-foreground">{scene.duration.toFixed(1)}s</span>
                 </button>
+                {changing === scene.id ? <AiProgress label="Cambiando" estimateMs={30_000} state="composing" /> : (
+                  // Elegir otra plantilla pide a la IA solo los datos de esa escena, con cues de su narración.
+                  <select aria-label={`Animación de la escena ${index + 1}`} value={scene.plan.template} disabled={busy}
+                    onChange={(event) => void generate(false, { sceneId: scene.id, template: event.target.value as CanvasTemplate })}
+                    className={`h-7 rounded-md border border-border bg-background px-2 text-xs ${document.scenes[index].content.canvas ? "text-primary" : "text-muted-foreground"}`}>
+                    {CANVAS_TEMPLATE_CATALOG.map((item) => <option key={item.template} value={item.template}>{item.name}</option>)}
+                  </select>
+                )}
               </li>
             ))}
           </ol>

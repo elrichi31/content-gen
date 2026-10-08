@@ -5,9 +5,12 @@ import { withDatabase } from "@/lib/db";
 import { beginGenerationRun, finishGenerationRun } from "@/lib/generation-runs";
 import { openAiModel } from "@/lib/openai";
 import { VideoGenerationError } from "@/lib/video-generation";
+import { CANVAS_TEMPLATES } from "@content-gen/domain/canvas";
 import { videoDocumentSchema } from "@content-gen/domain/video";
 
-const inputSchema = z.object({ feedback: z.string().trim().max(2000).optional() });
+// `sceneId` + `template`: cambia la animación de una sola escena; sin ellos, se planifican todas.
+const inputSchema = z.object({ feedback: z.string().trim().max(2000).optional(), sceneId: z.string().min(1).optional(), template: z.enum(CANVAS_TEMPLATES).optional() })
+  .refine((input) => Boolean(input.sceneId) === Boolean(input.template), { message: "sceneId y template van juntos." });
 
 type Row = { document_json: string; revision: number };
 const load = (id: string) => withDatabase(async (database) => await database.prepare("SELECT document_json, revision FROM content_items WHERE id = ? AND type = 'video' AND archived_at IS NULL").get(id) as Row | undefined);
@@ -33,7 +36,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const startedAt = Date.now(); let run: Awaited<ReturnType<typeof beginGenerationRun>> | undefined;
   try {
     run = await beginGenerationRun({ contentItemId: id, operation: "video-canvas-plan", model: openAiModel("explainer") });
-    const generated = await generateCanvasPlan(document, input.data.feedback);
+    const { feedback, sceneId, template } = input.data;
+    const generated = await generateCanvasPlan(document, feedback, fetch, sceneId && template ? { sceneId, template } : undefined);
     for (let attempt = 0; attempt < 5; attempt++) {
       const latest = await load(id);
       const latestDocument = latest ? videoDocument(latest) : null;
