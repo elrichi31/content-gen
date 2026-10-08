@@ -5,9 +5,10 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   Activity, BarChart3, CalendarDays, Clapperboard, FileText, FolderKanban, GalleryHorizontal, Home, Library,
-  LogOut, Megaphone, Menu, PanelLeft, Palette, Radar, Sparkles, Wallet, Workflow, HardDrive, type LucideIcon,
+  LogOut, Megaphone, Menu, PanelLeft, Palette, Radar, Wallet, Workflow, HardDrive, type LucideIcon,
 } from "lucide-react";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import { LogoMark } from "@/components/logo-mark";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { TopBarClock } from "@/components/top-bar-clock";
 import { authClient } from "@/lib/auth-client";
@@ -58,9 +59,7 @@ export function initials(name?: string | null) {
 function Brand({ collapsed }: { collapsed?: boolean }) {
   return (
     <Link href="/" className={cn("flex h-14 shrink-0 items-center gap-2.5 border-b border-sidebar-border px-3", collapsed && "justify-center px-0")}>
-      <span className="grid size-8 shrink-0 place-items-center rounded-lg border border-sidebar-border bg-card">
-        <Sparkles className="size-4 text-primary" strokeWidth={1.75} />
-      </span>
+      <LogoMark className="size-8 shrink-0" />
       {collapsed ? null : (
         <span className="min-w-0 flex-1 leading-tight">
           <span className="block truncate text-[13px] font-semibold text-foreground">Content Gen</span>

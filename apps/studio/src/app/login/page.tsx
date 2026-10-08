@@ -2,7 +2,7 @@
 
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Sparkles } from "lucide-react";
+import { LogoMark } from "@/components/logo-mark";
 import { authClient } from "@/lib/auth-client";
 import { safeLoginReturn } from "@/lib/safe-login-return";
 import { Button } from "@/components/ui/button";
@@ -35,9 +35,7 @@ function LoginForm() {
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="w-full max-w-sm space-y-6">
         <div className="flex flex-col items-center gap-2 text-center">
-          <div className="flex h-9 w-9 items-center justify-center rounded-md bg-primary">
-            <Sparkles className="h-4 w-4 text-primary-foreground" strokeWidth={1.5} />
-          </div>
+          <LogoMark className="size-10" />
           <h1 className="text-lg font-semibold tracking-tight text-foreground">Content Gen</h1>
           <p className="text-sm text-muted-foreground">Iniciá sesión para entrar al estudio.</p>
         </div>
