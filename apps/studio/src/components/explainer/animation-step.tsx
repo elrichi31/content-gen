@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pause, Play, RotateCcw, Sparkles, Wand2 } from "lucide-react";
 import { buildCanvasHtml } from "@content-gen/canvas-engine";
-import { buildCanvasSpec } from "@content-gen/domain/canvas";
+import Link from "next/link";
+import { buildCanvasSpec, CANVAS_TEMPLATE_CATALOG, type CanvasTemplate } from "@content-gen/domain/canvas";
 import type { VideoDocument } from "@content-gen/domain/video";
 import { AiProgress } from "@/components/ai-progress";
 import { Button } from "@/components/ui/button";
@@ -11,7 +12,6 @@ import { Textarea } from "@/components/ui/textarea";
 
 type Persisted = { revision: number; document: { data: unknown } };
 
-const TEMPLATE_LABELS: Record<string, string> = { hook: "Gancho", flow: "Flujo", steps: "Pasos", compare: "Comparación", stat: "Cifra", list: "Lista", outro: "Cierre", title: "Solo título" };
 const clock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
 const text = (value: unknown) => (typeof value === "string" ? value : "");
 
@@ -121,21 +121,27 @@ export function ExplainerAnimationStep({ contentItemId, document, onPersisted }:
     setPlaying(true);
   }
 
-  async function generate(withFeedback: boolean) {
-    setError(""); setNotice(""); setBusy(true); setPlaying(false);
+  const [changing, setChanging] = useState<string | null>(null);
+
+  /** Sin `focus` anima todo el video; con `focus`, cambia la animación de esa escena y deja las demás. */
+  async function generate(withFeedback: boolean, focus?: { sceneId: string; template: CanvasTemplate }) {
+    setError(""); setNotice(""); setBusy(true); setPlaying(false); setChanging(focus?.sceneId ?? null);
     try {
-      const response = await fetch(`/api/videos/${contentItemId}/canvas-plan`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(withFeedback && feedback.trim() ? { feedback } : {}) });
+      const body = { ...(withFeedback && feedback.trim() ? { feedback } : {}), ...(focus ?? {}) };
+      const response = await fetch(`/api/videos/${contentItemId}/canvas-plan`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const payload = await response.json();
       if (!response.ok) throw new Error(typeof payload.error === "string" ? payload.error : "No se pudieron generar las animaciones.");
       onPersisted(payload.content as Persisted);
       if (withFeedback) setFeedback("");
       const skipped = (payload.skipped as string[] | undefined) ?? [];
       if (skipped.length) setNotice(`${skipped.length} escena(s) no recibieron una animación válida: saldrán solo con su título. Puedes regenerar o pedir un cambio.`);
-      seek(0);
+      const scene = focus ? spec.scenes.find((item) => item.id === focus.sceneId) : undefined;
+      seek(scene?.start ?? 0);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "No se pudieron generar las animaciones.");
     } finally {
       setBusy(false);
+      setChanging(null);
     }
   }
 
@@ -206,7 +212,7 @@ export function ExplainerAnimationStep({ contentItemId, document, onPersisted }:
 
         <div className="min-w-0 space-y-4">
           <div className="flex items-center justify-between gap-3">
-            <p className="text-sm font-semibold text-foreground">Escenas</p>
+            <p className="text-sm font-semibold text-foreground">Escenas <Link href="/video/animaciones" target="_blank" className="ml-2 text-xs font-normal text-primary hover:underline">Ver la biblioteca de animaciones</Link></p>
             <p className="text-xs text-muted-foreground"><span className="font-semibold text-foreground">{plannedCount}</span> de {document.scenes.length} animadas</p>
           </div>
 
@@ -216,20 +222,31 @@ export function ExplainerAnimationStep({ contentItemId, document, onPersisted }:
               const animated = Boolean(source.content.canvas);
               const active = index === current;
               return (
-                <li key={scene.id}>
-                  <button type="button" onClick={() => playScene(scene.start)} disabled={!ready || busy} className={`group flex w-full gap-3 rounded-lg border p-3 text-left transition-colors disabled:cursor-default ${active ? "border-primary/60 bg-primary/10" : "border-border hover:border-border hover:bg-muted/40"}`}>
+                <li key={scene.id} className={`rounded-lg border transition-colors ${active ? "border-primary/60 bg-primary/10" : "border-border hover:bg-muted/40"}`}>
+                  <button type="button" onClick={() => playScene(scene.start)} disabled={!ready || busy} className="group flex w-full gap-3 p-3 pb-2 text-left disabled:cursor-default">
                     <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full font-mono text-xs ${active ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
                       {active && playing ? <Play className="h-3 w-3" /> : index + 1}
                     </span>
                     <span className="min-w-0 flex-1 space-y-1">
                       <span className="flex items-center gap-2">
                         <span className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">{scene.title || document.title}</span>
-                        <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${animated ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"}`}>{animated ? TEMPLATE_LABELS[scene.plan.template] ?? scene.plan.template : "Sin animar"}</span>
                         <span className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground">{scene.duration.toFixed(1)}s</span>
                       </span>
                       <span className="line-clamp-2 block text-xs text-muted-foreground">{text(source.content.voiceover)}</span>
                     </span>
                   </button>
+                  <div className="flex items-center gap-2 px-3 pb-3 pl-[3.25rem]">
+                    <span className="text-[11px] text-muted-foreground">Animación</span>
+                    {changing === scene.id ? <AiProgress label="Cambiando" estimateMs={30_000} state="composing" /> : (
+                      // Elegir otra plantilla pide a la IA solo los datos de esta escena, con cues de su narración.
+                      <select aria-label={`Animación de la escena ${index + 1}`} value={animated ? scene.plan.template : ""} disabled={busy}
+                        onChange={(event) => void generate(false, { sceneId: scene.id, template: event.target.value as CanvasTemplate })}
+                        className={`h-7 rounded-md border border-border bg-background px-2 text-xs ${animated ? "text-primary" : "text-muted-foreground"}`}>
+                        {animated ? null : <option value="" disabled>Sin animar</option>}
+                        {CANVAS_TEMPLATE_CATALOG.map((item) => <option key={item.template} value={item.template}>{item.name}</option>)}
+                      </select>
+                    )}
+                  </div>
                 </li>
               );
             })}
