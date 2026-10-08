@@ -19,9 +19,9 @@ const label: Record<Status, string> = { queued: "En cola", processing: "Renderiz
 const tone: Record<Status, string> = { queued: "text-muted-foreground", processing: "text-primary", completed: "text-primary", failed: "text-destructive", cancelled: "text-muted-foreground" };
 const active = (job: RenderJob | null) => job !== null && (job.status === "queued" || job.status === "processing");
 
-/** `hyperframesOnly`: el video educativo no tiene versión en Remotion; se elige entre HyperFrames y Canvas. */
-export function VideoRenderPanel({ contentItemId, unsavedChanges, hyperframesOnly = false }: { contentItemId: string; unsavedChanges: boolean; hyperframesOnly?: boolean }) {
-  const engines = ENGINES.filter((item) => !hyperframesOnly || item.id !== "remotion");
+/** `hyperframesOnly`: el video educativo no tiene versión en Remotion; se elige entre HyperFrames y Canvas. `defaultEngine` va primero y preseleccionado. */
+export function VideoRenderPanel({ contentItemId, unsavedChanges, hyperframesOnly = false, defaultEngine }: { contentItemId: string; unsavedChanges: boolean; hyperframesOnly?: boolean; defaultEngine?: Engine }) {
+  const engines = ENGINES.filter((item) => !hyperframesOnly || item.id !== "remotion").sort((a, b) => Number(b.id === defaultEngine) - Number(a.id === defaultEngine));
   const [engine, setEngine] = useState<Engine>(engines[0].id);
   const [job, setJob] = useState<RenderJob | null>(null);
   const [busy, setBusy] = useState(false);

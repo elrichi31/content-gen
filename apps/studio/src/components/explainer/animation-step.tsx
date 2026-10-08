@@ -1,118 +1,250 @@
 "use client";
 
-import { useRef, useState } from "react";
-import { Play, RefreshCw, Sparkles } from "lucide-react";
-import { SIL_FRAMES, type VideoDocument } from "@content-gen/domain/video";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Pause, Play, RotateCcw, Sparkles, Wand2 } from "lucide-react";
+import { buildCanvasHtml } from "@content-gen/canvas-engine";
+import { buildCanvasSpec } from "@content-gen/domain/canvas";
+import type { VideoDocument } from "@content-gen/domain/video";
 import { AiProgress } from "@/components/ai-progress";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 
-type Scene = VideoDocument["scenes"][number];
 type Persisted = { revision: number; document: { data: unknown } };
 
-const text = (scene: Scene, key: string) => (typeof scene.content[key] === "string" ? scene.content[key] as string : "");
-const PREVIEW_SCALE = 0.25;
+const TEMPLATE_LABELS: Record<string, string> = { hook: "Gancho", flow: "Flujo", steps: "Pasos", compare: "Comparación", stat: "Cifra", list: "Lista", outro: "Cierre", title: "Solo título" };
+const clock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
+const text = (value: unknown) => (typeof value === "string" ? value : "");
 
 /**
- * La animación en vivo: el mismo HTML que renderiza HyperFrames, dentro de un iframe sin scripts.
- * Las animaciones son CSS, así que corren igual que en el render; `key` las reinicia.
+ * Paso de animaciones del video educativo, sobre el motor Canvas: la IA elige una plantilla animada
+ * por escena y ancla sus momentos clave a palabras de la narración. La preview es la misma runtime
+ * que el render, en un iframe aislado al que se le manda el tiempo por postMessage; corre en vivo a
+ * media resolución y sin motion blur, y las voces suenan en la página desde el `voiceAt` de su escena.
  */
-function AnimationPreview({ html, playKey }: { html: string; playKey: number }) {
-  const srcDoc = `<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;background:#07080d;overflow:hidden}#stage{position:relative;width:1080px;height:1920px;transform:scale(${PREVIEW_SCALE});transform-origin:0 0}</style></head><body><div id="stage">${html}</div></body></html>`;
-  return <iframe key={playKey} title="Preview de la animación" sandbox="" srcDoc={srcDoc} className="h-[480px] w-[270px] shrink-0 rounded-lg border border-border bg-black" />;
-}
-
 export function ExplainerAnimationStep({ contentItemId, document, onPersisted }: { contentItemId: string; document: VideoDocument; onPersisted: (content: Persisted) => void }) {
-  const [pending, setPending] = useState<Set<string>>(new Set());
-  const [feedback, setFeedback] = useState<Record<string, string>>({});
-  const [plays, setPlays] = useState<Record<string, number>>({});
+  const spec = useMemo(() => buildCanvasSpec(document), [document]);
+  const html = useMemo(() => buildCanvasHtml(spec, { live: true, scale: 0.5 }), [spec]);
+  const frame = useRef<HTMLIFrameElement>(null);
+  const voices = useRef<Map<string, HTMLAudioElement>>(new Map());
+  const [ready, setReady] = useState(false);
+  const [playing, setPlaying] = useState(false);
+  const [time, setTime] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [feedback, setFeedback] = useState("");
   const [error, setError] = useState("");
-  const audio = useRef<HTMLAudioElement>(null);
-  // Las respuestas llegan en cualquier orden: solo se adopta una revisión más nueva que la vista.
-  const newest = useRef(0);
+  const [notice, setNotice] = useState("");
+  const position = useRef(0);
+  const plannedCount = document.scenes.filter((scene) => scene.content.canvas).length;
+  const planned = plannedCount > 0;
 
-  async function generate(sceneIds: string[], withFeedback = false) {
-    setError("");
-    setPending((current) => new Set([...current, ...sceneIds]));
-    await Promise.all(sceneIds.map(async (sceneId) => {
-      try {
-        const response = await fetch(`/api/videos/${contentItemId}/scenes/${sceneId}/animation`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(withFeedback && feedback[sceneId]?.trim() ? { feedback: feedback[sceneId] } : {}),
-        });
-        const payload = await response.json();
-        if (!response.ok) throw new Error(typeof payload.error === "string" ? payload.error : "No se pudo generar la animación.");
-        const content = payload.content as Persisted;
-        if (content.revision > newest.current) { newest.current = content.revision; onPersisted(content); }
-        if (withFeedback) setFeedback((current) => ({ ...current, [sceneId]: "" }));
-        setPlays((current) => ({ ...current, [sceneId]: (current[sceneId] ?? 0) + 1 }));
-      } catch (reason) {
-        setError(reason instanceof Error ? reason.message : "No se pudo generar la animación.");
-      } finally {
-        setPending((current) => { const next = new Set(current); next.delete(sceneId); return next; });
-      }
+  const send = useCallback((t: number) => frame.current?.contentWindow?.postMessage({ type: "canvas-engine:time", t }, "*"), []);
+
+  // Una voz por escena con audio; solo se rehacen si cambian los audios, no con cada edición.
+  const audioKey = JSON.stringify(document.scenes.flatMap((scene) => (scene.audioAssetId ? [[scene.id, scene.audioAssetId]] : [])));
+  useEffect(() => {
+    const map = new Map((JSON.parse(audioKey) as [string, string][]).map(([sceneId, assetId]) => [sceneId, new Audio(`/api/assets/${assetId}`)]));
+    voices.current = map;
+    return () => map.forEach((audio) => audio.pause());
+  }, [audioKey]);
+
+  // Fotos de las escenas: el iframe aislado no puede pedirlas con la sesión, así que se descargan aquí
+  // (una vez por asset) y se le pasan ya decodificadas como ImageBitmap.
+  const photos = useRef<Map<string, Promise<Blob | null>>>(new Map());
+  const sendImages = useCallback(async (target: Window) => {
+    const ids = [...new Set(spec.scenes.map((scene) => scene.image).filter((id): id is string => Boolean(id)))];
+    await Promise.all(ids.map(async (id) => {
+      if (!photos.current.has(id)) photos.current.set(id, fetch(`/api/assets/${id}`).then((response) => (response.ok ? response.blob() : null)).catch(() => null));
+      const blob = await photos.current.get(id);
+      if (!blob) return;
+      const image = await createImageBitmap(blob).catch(() => null);
+      if (image) target.postMessage({ type: "canvas-engine:image", id, image }, "*", [image]);
     }));
+  }, [spec]);
+
+  // El iframe avisa cuando cargó sus fuentes; cada documento nuevo es un iframe nuevo.
+  useEffect(() => {
+    setReady(false);
+    const onMessage = (event: MessageEvent) => {
+      if (event.source !== frame.current?.contentWindow || event.data?.type !== "canvas-engine:ready") return;
+      setReady(true);
+      send(position.current);
+      void sendImages(event.source as Window);
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [html, send, sendImages]);
+
+  /** Pone cada voz donde toca en `t`: suena si su escena está hablando, si no, en pausa. */
+  const syncVoices = useCallback((t: number, play: boolean) => {
+    spec.scenes.forEach((scene) => {
+      const audio = voices.current.get(scene.id);
+      if (!audio) return;
+      const local = t - scene.voiceAt;
+      const inside = local >= 0 && (Number.isNaN(audio.duration) || local < audio.duration);
+      if (!play || !inside) { if (!audio.paused) audio.pause(); return; }
+      if (audio.paused) { audio.currentTime = local; void audio.play().catch(() => undefined); }
+      else if (Math.abs(audio.currentTime - local) > 0.25) audio.currentTime = local;
+    });
+  }, [spec]);
+
+  useEffect(() => {
+    if (!playing) { syncVoices(position.current, false); return; }
+    const startedAt = performance.now() - position.current * 1000;
+    let handle = 0;
+    const tick = () => {
+      const t = Math.min(spec.duration, (performance.now() - startedAt) / 1000);
+      position.current = t;
+      setTime(t);
+      send(t);
+      syncVoices(t, true);
+      if (t >= spec.duration) { setPlaying(false); return; }
+      handle = requestAnimationFrame(tick);
+    };
+    handle = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(handle);
+  }, [playing, spec, send, syncVoices]);
+
+  function seek(t: number) {
+    position.current = t;
+    setTime(t);
+    send(t);
+    if (!playing) syncVoices(t, false);
   }
 
-  function play(scene: Scene) {
-    setPlays((current) => ({ ...current, [scene.id]: (current[scene.id] ?? 0) + 1 }));
-    if (audio.current && scene.audioAssetId) { audio.current.src = `/api/assets/${scene.audioAssetId}`; void audio.current.play(); }
+  function toggle() {
+    if (!playing && position.current >= spec.duration - 0.05) seek(0);
+    setPlaying((current) => !current);
   }
 
-  const missing = document.scenes.filter((scene) => !text(scene, "animationHtml")).map((scene) => scene.id);
+  function playScene(start: number) {
+    seek(start);
+    setPlaying(true);
+  }
+
+  async function generate(withFeedback: boolean) {
+    setError(""); setNotice(""); setBusy(true); setPlaying(false);
+    try {
+      const response = await fetch(`/api/videos/${contentItemId}/canvas-plan`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(withFeedback && feedback.trim() ? { feedback } : {}) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(typeof payload.error === "string" ? payload.error : "No se pudieron generar las animaciones.");
+      onPersisted(payload.content as Persisted);
+      if (withFeedback) setFeedback("");
+      const skipped = (payload.skipped as string[] | undefined) ?? [];
+      if (skipped.length) setNotice(`${skipped.length} escena(s) no recibieron una animación válida: saldrán solo con su título. Puedes regenerar o pedir un cambio.`);
+      seek(0);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "No se pudieron generar las animaciones.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const current = spec.scenes.reduce((found, scene, index) => (time >= scene.start ? index : found), 0);
+  const withVoice = document.scenes.filter((scene) => scene.audioAssetId).length;
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
+      <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h2 className="text-2xl font-bold tracking-tight text-foreground">Animaciones</h2>
-          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">La IA escribe la animación de cada escena en HTML y CSS a partir de la narración y de lo que pediste. Si una no queda bien, dile qué cambiar y regenérala.</p>
+          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">La IA elige una animación para cada escena y hace que sus momentos clave caigan justo cuando la voz dice la palabra. Lo que ves aquí es exactamente lo que saldrá en el render.</p>
         </div>
-        <Button type="button" disabled={!missing.length || pending.size > 0} onClick={() => void generate(missing)}>
-          <Sparkles className="h-4 w-4" /> {missing.length ? `Generar las ${missing.length} que faltan` : "Todas generadas"}
-        </Button>
+        {planned ? (
+          <Button type="button" variant="outline" disabled={busy} onClick={() => void generate(false)}>
+            <RotateCcw className="h-4 w-4" /> Regenerar todo
+          </Button>
+        ) : null}
       </div>
-      {error ? <p className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p> : null}
-      <audio ref={audio} className="hidden" />
 
-      <div className="grid gap-4 2xl:grid-cols-2">
-        {document.scenes.map((scene, index) => {
-          const html = text(scene, "animationHtml");
-          const busy = pending.has(scene.id);
-          return (
-            <Card key={scene.id}>
-              <CardContent className="flex flex-col gap-4 sm:flex-row">
-                {html ? <AnimationPreview html={html} playKey={plays[scene.id] ?? 0} /> : (
-                  <div className="flex h-[480px] w-[270px] shrink-0 items-center justify-center rounded-lg border border-dashed border-border text-xs text-muted-foreground">
-                    {busy ? <AiProgress label="Animando" estimateMs={60_000} state="composing" /> : "Sin animación"}
-                  </div>
-                )}
-                <div className="min-w-0 flex-1 space-y-3">
-                  <div>
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Escena {index + 1} · {((scene.durationFrames + SIL_FRAMES) / document.fps).toFixed(1)}s{scene.audioAssetId ? " · con voz" : ""}</p>
-                    <p className="text-lg font-semibold text-foreground">{text(scene, "title")}</p>
-                  </div>
-                  <p className="text-sm text-muted-foreground">{text(scene, "voiceover")}</p>
-                  <p className="rounded-md bg-muted/50 p-2 text-xs text-muted-foreground"><span className="font-semibold text-foreground">Animación: </span>{text(scene, "visual")}</p>
-                  <div className="flex flex-wrap gap-2">
-                    {html ? <Button type="button" variant="outline" size="sm" onClick={() => play(scene)}><Play className="h-4 w-4" /> Reproducir{scene.audioAssetId ? " con voz" : ""}</Button> : null}
-                    <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void generate([scene.id])}>
-                      {busy ? <AiProgress label="Animando" estimateMs={60_000} state="composing" /> : <><RefreshCw className="h-4 w-4" /> {html ? "Regenerar desde cero" : "Generar"}</>}
-                    </Button>
-                  </div>
-                  {html ? (
-                    <div className="flex gap-2">
-                      <Input aria-label={`Cambios para la animación de la escena ${index + 1}`} value={feedback[scene.id] ?? ""} onChange={(event) => setFeedback((current) => ({ ...current, [scene.id]: event.target.value }))} placeholder="Qué cambiar: más grande el servidor, paquetes más rápidos…" className="h-8 text-xs" />
-                      <Button type="button" size="sm" disabled={busy || !feedback[scene.id]?.trim()} onClick={() => void generate([scene.id], true)}>Aplicar</Button>
+      {error ? <p className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p> : null}
+      {notice ? <p className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">{notice}</p> : null}
+
+      <div className="grid gap-6 lg:grid-cols-[auto_minmax(0,1fr)]">
+        <div className="space-y-3 lg:sticky lg:top-4 lg:self-start">
+          <div className="relative h-[576px] w-[324px] overflow-hidden rounded-xl border border-border bg-black">
+            <iframe ref={frame} title="Preview de las animaciones" sandbox="allow-scripts" srcDoc={html} className="h-full w-full" />
+            {busy || !planned ? (
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black/70 p-6 text-center backdrop-blur-sm">
+                {busy ? <AiProgress label="Animando las escenas" estimateMs={45_000} state="composing" size={64} /> : (
+                  <>
+                    <Sparkles className="h-8 w-8 text-primary" />
+                    <div className="space-y-1">
+                      <p className="text-base font-semibold text-white">Aún no hay animaciones</p>
+                      <p className="text-xs text-white/70">Sin ellas, cada escena sale solo con su título. Genera todas de una vez; tarda menos de un minuto.</p>
                     </div>
-                  ) : null}
-                </div>
-              </CardContent>
-            </Card>
-          );
-        })}
+                    <Button type="button" onClick={() => void generate(false)}><Sparkles className="h-4 w-4" /> Generar animaciones</Button>
+                  </>
+                )}
+              </div>
+            ) : null}
+          </div>
+
+          <div className="w-[324px] space-y-2">
+            {/* Barra por escenas: cada tramo mide lo que dura su escena; el range invisible encima da arrastre y teclado. */}
+            <div className="relative h-2">
+              <div className="flex h-full gap-0.5 overflow-hidden rounded-full">
+                {spec.scenes.map((scene) => {
+                  const fill = Math.min(1, Math.max(0, (time - scene.start) / scene.duration));
+                  return (
+                    <div key={scene.id} className="relative h-full bg-border/70" style={{ flexGrow: scene.duration, flexBasis: 0 }}>
+                      <div className="absolute inset-y-0 left-0 bg-primary" style={{ width: `${fill * 100}%` }} />
+                    </div>
+                  );
+                })}
+              </div>
+              <input type="range" min={0} max={spec.duration} step={1 / 30} value={time} disabled={busy} onChange={(event) => seek(Number(event.target.value))} aria-label="Posición de la preview" className="absolute inset-x-0 -inset-y-2 h-6 w-full cursor-pointer opacity-0" />
+            </div>
+            <div className="flex items-center gap-3">
+              <Button type="button" size="sm" disabled={!ready || busy} onClick={toggle} aria-label={playing ? "Pausar" : "Reproducir"}>
+                {playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />} {playing ? "Pausar" : "Reproducir"}
+              </Button>
+              <span className="font-mono text-xs tabular-nums text-muted-foreground">{clock(time)} / {clock(spec.duration)}</span>
+              <span className="ml-auto text-[11px] text-muted-foreground">{withVoice ? "Con voz" : "Sin voz"}</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="min-w-0 space-y-4">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm font-semibold text-foreground">Escenas</p>
+            <p className="text-xs text-muted-foreground"><span className="font-semibold text-foreground">{plannedCount}</span> de {document.scenes.length} animadas</p>
+          </div>
+
+          <ol className="space-y-2">
+            {spec.scenes.map((scene, index) => {
+              const source = document.scenes[index];
+              const animated = Boolean(source.content.canvas);
+              const active = index === current;
+              return (
+                <li key={scene.id}>
+                  <button type="button" onClick={() => playScene(scene.start)} disabled={!ready || busy} className={`group flex w-full gap-3 rounded-lg border p-3 text-left transition-colors disabled:cursor-default ${active ? "border-primary/60 bg-primary/10" : "border-border hover:border-border hover:bg-muted/40"}`}>
+                    <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full font-mono text-xs ${active ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
+                      {active && playing ? <Play className="h-3 w-3" /> : index + 1}
+                    </span>
+                    <span className="min-w-0 flex-1 space-y-1">
+                      <span className="flex items-center gap-2">
+                        <span className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">{scene.title || document.title}</span>
+                        <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${animated ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"}`}>{animated ? TEMPLATE_LABELS[scene.plan.template] ?? scene.plan.template : "Sin animar"}</span>
+                        <span className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground">{scene.duration.toFixed(1)}s</span>
+                      </span>
+                      <span className="line-clamp-2 block text-xs text-muted-foreground">{text(source.content.voiceover)}</span>
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ol>
+
+          {planned ? (
+            <div className="space-y-2 rounded-lg border border-border p-3">
+              <label htmlFor="animation-feedback" className="flex items-center gap-2 text-sm font-semibold text-foreground"><Wand2 className="h-4 w-4 text-primary" /> Pedir cambios</label>
+              <Textarea id="animation-feedback" value={feedback} onChange={(event) => setFeedback(event.target.value)} placeholder="Ej.: la escena 3 como comparación, más mensajes acumulándose en la 2…" className="min-h-[64px] text-sm" />
+              <div className="flex justify-end">
+                <Button type="button" size="sm" disabled={busy || !feedback.trim()} onClick={() => void generate(true)}><Wand2 className="h-4 w-4" /> Aplicar cambios</Button>
+              </div>
+            </div>
+          ) : null}
+        </div>
       </div>
     </div>
   );

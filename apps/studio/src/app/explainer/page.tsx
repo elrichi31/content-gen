@@ -8,7 +8,6 @@ import { ModeSwitch, VIDEO_MODES } from "@/components/mode-switch";
 import { Button } from "@/components/ui/button";
 import { Notice, noticeError, type NoticeState } from "@/components/ui/notice";
 import { ExplainerAnimationStep } from "@/components/explainer/animation-step";
-import { CanvasPreview } from "@/components/explainer/canvas-preview";
 import { ExplainerScriptStep } from "@/components/explainer/script-step";
 import { StepIndicator, type WizardStep } from "@/components/video/step-indicator";
 import { TopicForm, type TopicFormValues } from "@/components/video/topic-form";
@@ -143,7 +142,6 @@ export default function ExplainerPage() {
 
           {step === 4 && document && contentId ? (
             <div className="space-y-6">
-              <CanvasPreview contentItemId={contentId} document={document} onPersisted={adopt} />
               <ExplainerAnimationStep contentItemId={contentId} document={document} onPersisted={adopt} />
               <div className="flex justify-between gap-3 border-t border-border pt-4">
                 <Button type="button" variant="outline" onClick={() => go(3)}>← Volver a la voz</Button>
@@ -154,8 +152,8 @@ export default function ExplainerPage() {
 
           {step === 5 && document && contentId ? (
             <div className="mx-auto max-w-2xl space-y-3">
-              {document.scenes.some((scene) => typeof scene.content.animationHtml !== "string") ? <p className="text-sm text-muted-foreground">Hay escenas sin animación: en el video saldrán solo con su título.</p> : null}
-              <VideoRenderPanel contentItemId={contentId} unsavedChanges={unsaved} hyperframesOnly />
+              {document.scenes.some((scene) => !scene.content.canvas) ? <p className="text-sm text-muted-foreground">Hay escenas sin animación: en el video saldrán solo con su título.</p> : null}
+              <VideoRenderPanel contentItemId={contentId} unsavedChanges={unsaved} hyperframesOnly defaultEngine="canvas" />
             </div>
           ) : null}
         </>
