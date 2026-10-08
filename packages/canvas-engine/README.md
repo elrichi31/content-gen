@@ -15,6 +15,15 @@ voz de ElevenLabs por escena y sin música (se pone en TikTok). Hereda la técni
 | Plan con IA | `apps/studio/src/lib/canvas-plan.ts` y `POST /api/videos/[id]/canvas-plan` | La IA elige plantilla, datos y cues de cada escena; se guarda en `scene.content.canvas` |
 | Preview | `apps/studio/src/components/explainer/canvas-preview.tsx` | La misma runtime en un iframe aislado, en vivo y con las voces |
 
+## Videos con imágenes
+
+Si la escena tiene `imageAssetId`, la foto va de fondo a pantalla completa con un zoom lento (Ken Burns)
+y un velo oscuro para que se lean el título, la plantilla y los subtítulos. Sirve para standard/timeline
+igual que para el educativo. En el render, ffmpeg reduce cada foto a un JPEG del tamaño justo y va
+embebida en la página; en la preview del Studio el padre la descarga y la pasa al iframe como ImageBitmap.
+La foto escalada se pinta una vez por frame y los subframes la copian (445 → 378 s en el video de prueba
+con fotos en la mitad de las escenas).
+
 ## Decisiones
 
 - **La runtime se inyecta con `Function.prototype.toString`.** Así el mismo código sirve al worker y al

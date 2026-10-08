@@ -45,6 +45,20 @@ export function CanvasPreview({ contentItemId, document, onPersisted }: { conten
     return () => map.forEach((audio) => audio.pause());
   }, [audioKey]);
 
+  // Fotos de las escenas: el iframe aislado no puede pedirlas con la sesión, así que se descargan aquí
+  // (una vez por asset) y se le pasan ya decodificadas como ImageBitmap.
+  const photos = useRef<Map<string, Promise<Blob | null>>>(new Map());
+  const sendImages = useCallback(async (target: Window) => {
+    const ids = [...new Set(spec.scenes.map((scene) => scene.image).filter((id): id is string => Boolean(id)))];
+    await Promise.all(ids.map(async (id) => {
+      if (!photos.current.has(id)) photos.current.set(id, fetch(`/api/assets/${id}`).then((response) => (response.ok ? response.blob() : null)).catch(() => null));
+      const blob = await photos.current.get(id);
+      if (!blob) return;
+      const image = await createImageBitmap(blob).catch(() => null);
+      if (image) target.postMessage({ type: "canvas-engine:image", id, image }, "*", [image]);
+    }));
+  }, [spec]);
+
   // El iframe avisa cuando cargó sus fuentes; cada documento nuevo es un iframe nuevo.
   useEffect(() => {
     setReady(false);
@@ -52,10 +66,11 @@ export function CanvasPreview({ contentItemId, document, onPersisted }: { conten
       if (event.source !== frame.current?.contentWindow || event.data?.type !== "canvas-engine:ready") return;
       setReady(true);
       send(position.current);
+      void sendImages(event.source as Window);
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [html, send]);
+  }, [html, send, sendImages]);
 
   /** Pone cada voz donde toca en `t`: suena si su escena está hablando, si no, en pausa. */
   const syncVoices = useCallback((t: number, play: boolean) => {
@@ -134,7 +149,7 @@ export function CanvasPreview({ contentItemId, document, onPersisted }: { conten
         <div className="min-w-0 flex-1 space-y-4">
           <div>
             <h3 className="text-lg font-semibold text-foreground">Motor Canvas (60 fps)</h3>
-            <p className="mt-1 text-sm text-muted-foreground">Cada escena usa una plantilla animada cuyos momentos clave caen justo cuando la voz dice la palabra. La IA elige la plantilla y los datos; aquí lo ves en vivo, igual que saldrá en el render con «Renderizar con Canvas».</p>
+            <p className="mt-1 text-sm text-muted-foreground">Cada escena usa una plantilla animada cuyos momentos clave caen justo cuando la voz dice la palabra; si la escena tiene imagen, va de fondo con un zoom lento. La IA elige la plantilla y los datos; aquí lo ves en vivo, igual que saldrá en el render con Canvas.</p>
           </div>
           {error ? <p className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p> : null}
           {notice ? <p className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">{notice}</p> : null}

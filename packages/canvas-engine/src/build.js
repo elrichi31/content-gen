@@ -8,8 +8,11 @@ import { canvasRuntime } from "./runtime.js";
  * - Render (`live: false`): expone `window.canvasEngine.renderFrame(frame)` → data URL del frame.
  * - Preview (`live: true`): el padre manda `{ type: "canvas-engine:time", t }` por postMessage y la
  *   página pinta ese instante; avisa con `{ type: "canvas-engine:ready" }` cuando cargan las fuentes.
+ *   Las fotos de las escenas llegan igual: `{ type: "canvas-engine:image", id, image }` (un ImageBitmap),
+ *   porque el iframe aislado no puede pedir los assets con la sesión del usuario.
+ * - `images`: { assetId: data URL } embebidas en la página (render). Se decodifican antes de `ready`.
  */
-export function buildCanvasHtml(spec, { fps = 60, subframes = 6, live = false, scale = 1 } = {}) {
+export function buildCanvasHtml(spec, { fps = 60, subframes = 6, live = false, scale = 1, images = {} } = {}) {
   const faces = Object.entries(INTER_DISPLAY)
     .map(([weight, data]) => `@font-face{font-family:"Inter Display";font-style:normal;font-weight:${weight};src:url(data:font/woff2;base64,${data}) format("woff2")}`)
     .join("\n");
@@ -17,12 +20,23 @@ export function buildCanvasHtml(spec, { fps = 60, subframes = 6, live = false, s
   // `<` escapado: un título con «</script>» no puede cerrar el bloque de código.
   const json = (value) => JSON.stringify(value).replace(/</g, "\\u003c");
   const boot = live
-    ? `engine.ready.then(function () {
+    ? `var last = 0;
+  engine.ready.then(function () {
     engine.draw(0);
-    addEventListener("message", function (event) { if (event.data && event.data.type === "canvas-engine:time") engine.draw(Number(event.data.t) || 0); });
+    addEventListener("message", function (event) {
+      var data = event.data || {};
+      if (data.type === "canvas-engine:time") { last = Number(data.t) || 0; engine.draw(last); }
+      if (data.type === "canvas-engine:image" && data.image) { engine.setImage(String(data.id), data.image); engine.draw(last); }
+    });
     parent.postMessage({ type: "canvas-engine:ready", duration: engine.duration }, "*");
   });`
-    : "";
+    : `// Fotos embebidas: se decodifican antes de dar la página por lista, o el primer frame saldría sin ellas.
+  var fontsReady = engine.ready;
+  engine.ready = Promise.all([fontsReady].concat(Object.keys(IMAGES).map(function (id) {
+    var image = new Image();
+    image.src = IMAGES[id];
+    return image.decode().then(function () { engine.setImage(id, image); });
+  }))).then(function () { return true; });`;
   return `<!doctype html>
 <html lang="es">
 <head>
@@ -37,6 +51,7 @@ canvas{display:block;${live ? "width:100vw;height:100vh;object-fit:contain" : "d
 <body>
 <canvas id="c"></canvas>
 <script>
+var IMAGES = ${live ? "{}" : json(images)};
 var engine = window.canvasEngine = (${canvasRuntime.toString()})(${json(spec)}, Object.assign(${json(options)}, { canvas: document.getElementById("c") }));
 ${boot}
 </script>

@@ -15,6 +15,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { VideoAssetPanel } from "@/components/video-asset-panel";
 import { VideoCaptionPanel } from "@/components/video-caption-panel";
+import { CanvasPreview } from "@/components/explainer/canvas-preview";
 import { VideoRenderPanel } from "@/components/video-render-panel";
 import { VoiceoverStep } from "@/components/video/voiceover-step";
 import { SceneImagePicker } from "@/components/video/scene-image-picker";
@@ -247,7 +248,12 @@ export function SceneEditor({
             </div>
             {step === "voice" ? (contentItemId ? <VoiceoverStep contentItemId={contentItemId} revision={revision} document={document} onPersisted={onPersisted} /> : <p className="text-sm text-muted-foreground">Guarda el video primero para generar guion de voz y narración.</p>) : null}
             {step === "caption" ? <VideoCaptionPanel contentItemId={contentItemId} revision={revision} document={document} onPersisted={onPersisted} /> : null}
-            {step === "render" ? <VideoRenderPanel contentItemId={contentItemId} unsavedChanges={unsavedChanges} /> : null}
+            {step === "render" ? (
+              <div className="space-y-4">
+                {contentItemId ? <CanvasPreview contentItemId={contentItemId} document={document} onPersisted={onPersisted} /> : null}
+                <VideoRenderPanel contentItemId={contentItemId} unsavedChanges={unsavedChanges} />
+              </div>
+            ) : null}
           </CardContent>
         </Card>
       )}

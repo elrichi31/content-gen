@@ -1,7 +1,7 @@
 import { ensureBrowser } from "@remotion/renderer";
 import { Buffer } from "node:buffer";
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { availableParallelism, tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
@@ -107,7 +107,7 @@ export async function renderCanvasStills(spec, frames, outputDir, options = {}) 
   mkdirSync(outputDir, { recursive: true });
   const browser = await launch(await chromePath());
   try {
-    const page = await openPage(browser, buildCanvasHtml(spec, settings));
+    const page = await openPage(browser, buildCanvasHtml(spec, { ...settings, images: options.images }));
     const written = [];
     for (const frame of frames) {
       const path = join(outputDir, `f${String(frame).padStart(5, "0")}.png`);
@@ -120,11 +120,14 @@ export async function renderCanvasStills(spec, frames, outputDir, options = {}) 
   }
 }
 
-/** Video completo de `spec` a `outputPath`. `voices`: [{ path, at }] con `at` en segundos. */
-export async function renderCanvasVideo(spec, voices, outputPath, { onUpdate = () => {}, ...options } = {}) {
+/**
+ * Video completo de `spec` a `outputPath`. `voices`: [{ path, at }] con `at` en segundos;
+ * `images`: { assetId: data URL } con las fotos de las escenas.
+ */
+export async function renderCanvasVideo(spec, voices, outputPath, { onUpdate = () => {}, images = {}, ...options } = {}) {
   const { fps, subframes, workers } = { ...canvasSettings(), ...options };
   const frames = Math.round(spec.duration * fps);
-  const html = buildCanvasHtml(spec, { fps, subframes });
+  const html = buildCanvasHtml(spec, { fps, subframes, images });
   const ranges = frameRanges(frames, workers);
   const tmp = mkdtempSync(join(tmpdir(), "canvas-"));
   const executablePath = await chromePath();
@@ -174,10 +177,10 @@ export async function renderCanvasVideo(spec, voices, outputPath, { onUpdate = (
   }
 }
 
-/** Ruta en disco de cada asset de audio del documento, validada contra `mediaRoot`. */
-async function audioPaths(document, { database, mediaRoot }) {
+/** Ruta en disco de cada asset (voz e imagen) de las escenas, validada contra `mediaRoot`. */
+async function assetPaths(document, { database, mediaRoot }) {
   const paths = new Map();
-  for (const id of new Set(document.scenes.map((scene) => scene.audioAssetId).filter(Boolean))) {
+  for (const id of new Set(document.scenes.flatMap((scene) => [scene.audioAssetId, scene.imageAssetId]).filter(Boolean))) {
     const row = (await database.query("SELECT data_json FROM assets WHERE id = $1", [id])).rows[0];
     if (!row) throw new Error(`Falta el asset ${id} de una escena.`);
     const path = resolve(mediaRoot, JSON.parse(row.data_json).storageKey);
@@ -188,33 +191,53 @@ async function audioPaths(document, { database, mediaRoot }) {
   return paths;
 }
 
-/** Documento + rutas de los MP3 → spec y voces. Mide los MP3 reales como HyperFrames y Remotion. */
+/**
+ * Foto de escena → data URL JPEG del tamaño justo para cubrir 1080x1920 con el zoom del Ken Burns.
+ * Las originales pueden pesar varios MB (y ser PNG o WebP): van embebidas en la página de cada
+ * navegador, así que se reducen una vez aquí con ffmpeg. Nunca se agrandan más de lo necesario.
+ */
+export function imageDataUrl(path) {
+  return new Promise((resolveImage, reject) => {
+    const child = spawn("ffmpeg", ["-loglevel", "error", "-i", path, "-frames:v", "1", "-vf", "scale=w=1330:h=2290:force_original_aspect_ratio=increase", "-pix_fmt", "yuvj420p", "-q:v", "3", "-f", "image2pipe", "-c:v", "mjpeg", "-"], { stdio: ["ignore", "pipe", "pipe"] });
+    const chunks = [];
+    let stderr = "";
+    child.stdout.on("data", (chunk) => chunks.push(chunk));
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.on("error", reject);
+    child.on("exit", (code) => (code === 0 && chunks.length ? resolveImage(`data:image/jpeg;base64,${Buffer.concat(chunks).toString("base64")}`) : reject(new Error(`No se pudo leer la imagen de una escena: ${stderr.slice(-300)}`))));
+  });
+}
+
+/** Documento + rutas de los assets → spec, voces e imágenes. Mide los MP3 reales como HyperFrames y Remotion. */
 export async function prepareCanvasRender(document, pathOf) {
   const measured = await withMeasuredAudio(document, pathOf);
   const spec = buildCanvasSpec(measured);
   const voices = measured.scenes
     .map((scene, index) => (scene.audioAssetId ? { path: pathOf(scene.audioAssetId), at: spec.scenes[index].voiceAt } : null))
     .filter(Boolean);
-  return { spec, voices };
+  const ids = [...new Set(measured.scenes.map((scene) => scene.imageAssetId).filter(Boolean))];
+  const images = Object.fromEntries(await Promise.all(ids.map(async (id) => [id, await imageDataUrl(pathOf(id))])));
+  return { spec, voices, images };
 }
 
 export async function runCanvasRender(job, outputPath, { database, mediaRoot, onUpdate }) {
   onUpdate({ log: "Preparando el render de Canvas…" });
-  const paths = await audioPaths(job.inputProps.document, { database, mediaRoot });
-  const { spec, voices } = await prepareCanvasRender(job.inputProps.document, (id) => paths.get(id));
-  await renderCanvasVideo(spec, voices, outputPath, { onUpdate });
+  const paths = await assetPaths(job.inputProps.document, { database, mediaRoot });
+  const { spec, voices, images } = await prepareCanvasRender(job.inputProps.document, (id) => paths.get(id));
+  await renderCanvasVideo(spec, voices, outputPath, { onUpdate, images });
 }
 
-// Uso local, sin base de datos (los audios se buscan en <dir-del-json>/<audioAssetId>.mp3):
+// Uso local, sin base de datos (cada asset se busca en <dir-del-json>/<assetId>.<extensión>):
 //   node apps/render-worker/src/canvas.mjs stills <documento.json> <carpeta> 0,120,600
 //   node apps/render-worker/src/canvas.mjs video <documento.json> <salida.mp4>
 if (process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, "/"))) {
   const [mode, documentPath, output, list] = process.argv.slice(2);
   const document = JSON.parse(await readFile(documentPath, "utf8"));
   const base = resolve(documentPath, "..");
-  const { spec, voices } = await prepareCanvasRender(document, (id) => join(base, `${id}.mp3`));
+  const files = readdirSync(base);
+  const { spec, voices, images } = await prepareCanvasRender(document, (id) => join(base, files.find((name) => name.startsWith(`${id}.`)) ?? `${id}.mp3`));
   if (mode === "spec") console.log(JSON.stringify(spec, null, 2));
-  else if (mode === "stills") console.log((await renderCanvasStills(spec, list.split(",").map(Number), resolve(output))).join("\n"));
-  else if (mode === "video") await renderCanvasVideo(spec, voices, resolve(output), { onUpdate: (patch) => patch.log && console.log(patch.log) });
+  else if (mode === "stills") console.log((await renderCanvasStills(spec, list.split(",").map(Number), resolve(output), { images })).join("\n"));
+  else if (mode === "video") await renderCanvasVideo(spec, voices, resolve(output), { images, onUpdate: (patch) => patch.log && console.log(patch.log) });
   else throw new Error("Usa stills, video o spec.");
 }

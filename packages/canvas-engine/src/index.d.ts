@@ -9,6 +9,8 @@ export type CanvasHtmlOptions = {
   live?: boolean;
   /** Escala del lienzo respecto a `spec.width × spec.height` (preview más liviano). */
   scale?: number;
+  /** Fotos de las escenas como data URL, por id de asset (solo render; la preview las recibe por postMessage). */
+  images?: Record<string, string>;
 };
 
 export function buildCanvasHtml(spec: CanvasSpec, options?: CanvasHtmlOptions): string;
@@ -17,5 +19,6 @@ export function canvasRuntime(spec: CanvasSpec, options: { fps: number; subframe
   frames: number;
   ready: Promise<boolean>;
   draw(t: number, frame?: number): void;
+  setImage(id: string, image: CanvasImageSource & { width: number; height: number }): void;
   renderFrame(frame: number, type?: string, quality?: number): string;
 };

@@ -5,7 +5,8 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildCanvasHtml } from "../../../packages/canvas-engine/src/index.js";
-import { canvasSettings, frameRanges, muxArguments, prepareCanvasRender, renderCanvasStills, segmentArguments } from "./canvas.mjs";
+import { spawnSync } from "node:child_process";
+import { canvasSettings, frameRanges, imageDataUrl, muxArguments, prepareCanvasRender, renderCanvasStills, segmentArguments } from "./canvas.mjs";
 
 // Tramos contiguos, sin huecos ni solapes, y nunca más tramos que frames.
 assert.deepEqual(frameRanges(10, 3), [[0, 4], [4, 8], [8, 10]]);
@@ -45,6 +46,10 @@ assert.match(html, /"subframes":6/);
 const live = buildCanvasHtml(spec, { live: true, scale: 0.5 });
 assert.match(live, /"subframes":1/, "la preview no promedia subframes");
 assert.ok(live.includes("canvas-engine:time") && live.includes("canvas-engine:ready"));
+assert.ok(live.includes("canvas-engine:image"), "la preview recibe las fotos por postMessage");
+const withImages = buildCanvasHtml(spec, { images: { "img-1": "data:image/jpeg;base64,AAAA" } });
+assert.ok(withImages.includes('var IMAGES = {"img-1":"data:image/jpeg;base64,AAAA"}') && withImages.includes("image.decode()"), "las fotos van embebidas y se decodifican antes de empezar");
+assert.ok(buildCanvasHtml(spec, { live: true, images: { "img-1": "data:x" } }).includes("var IMAGES = {}"), "la preview no embebe fotos");
 
 // Documento → spec y voces: se mide el MP3 real y cada voz va en el `voiceAt` de su escena.
 const mp3 = Buffer.concat(Array.from({ length: 100 }, () => { const bytes = new Uint8Array(417); bytes.set([0xff, 0xfb, 0x90, 0x00]); return bytes; }));
@@ -57,7 +62,18 @@ const document = {
     { id: "scene-2", kind: "explainer", durationFrames: 30, content: { title: "Dos", voiceover: "Fin." } },
   ],
 };
-const prepared = await prepareCanvasRender(document, (id) => join(dir, `${id}.mp3`));
+// Foto de escena: ffmpeg la reduce a un JPEG que cubre 1080x1920 con el zoom (sin quedarse corto).
+spawnSync("ffmpeg", ["-y", "-loglevel", "error", "-f", "lavfi", "-i", "color=c=0x336699:s=3000x2000", "-frames:v", "1", join(dir, "img.png")]);
+const photo = Buffer.from((await imageDataUrl(join(dir, "img.png"))).split(",")[1], "base64");
+assert.deepEqual([...photo.subarray(0, 2)], [0xff, 0xd8], "sale como JPEG");
+const sof = photo.indexOf(Buffer.from([0xff, 0xc0]));
+assert.deepEqual([photo.readUInt16BE(sof + 7), photo.readUInt16BE(sof + 5)], [3435, 2290], "foto horizontal: alto justo para cubrir la pantalla vertical");
+await assert.rejects(imageDataUrl(join(dir, "no-existe.png")), /No se pudo leer la imagen/);
+
+document.scenes[1].imageAssetId = "img";
+const prepared = await prepareCanvasRender(document, (id) => join(dir, id === "img" ? "img.png" : `${id}.mp3`));
+assert.deepEqual(Object.keys(prepared.images), ["img"], "cada foto se prepara una vez");
+assert.equal(prepared.spec.scenes[1].image, "img");
 assert.equal(prepared.voices.length, 1);
 assert.deepEqual(prepared.voices[0], { path: join(dir, "a.mp3"), at: 0.3 });
 assert.ok(prepared.spec.scenes[0].duration > 2.6, "la escena se alarga hasta lo que mide su voz");
@@ -66,10 +82,13 @@ assert.equal(prepared.spec.scenes[0].plan.template, "hook");
 
 // Con un Chrome a mano (CANVAS_CHROME_PATH) se pinta de verdad: frames del tamaño pedido y no vacíos.
 if (process.env.CANVAS_CHROME_PATH) {
-  const [still] = await renderCanvasStills(prepared.spec, [60], join(dir, "stills"), { subframes: 2 });
+  const [still, withPhoto] = await renderCanvasStills(prepared.spec, [60, Math.round((prepared.spec.scenes[1].start + 1) * 60)], join(dir, "stills"), { subframes: 2, images: prepared.images });
   const png = readFileSync(still);
   assert.deepEqual([png.readUInt32BE(16), png.readUInt32BE(20)], [1080, 1920]);
   assert.ok(png.length > 50_000, "el frame tiene contenido");
+  // La escena con foto azul (0x336699) bajo el velo: un píxel libre de texto tira a azul, no al fondo casi negro del motor.
+  const [r, g, b] = spawnSync("ffmpeg", ["-loglevel", "error", "-i", withPhoto, "-vf", "crop=1:1:1000:1500,format=rgb24", "-f", "rawvideo", "-"]).stdout;
+  assert.ok(b > 40 && b > r + 15 && b > g, `la foto se ve de fondo (rgb ${r},${g},${b})`);
 
   // Preview del Studio: la página en modo vivo dentro de un iframe aislado (sandbox="allow-scripts")
   // avisa cuando está lista y pinta el instante que le manda el padre.

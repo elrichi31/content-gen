@@ -147,7 +147,8 @@ export type ResolvedPlan =
   | { template: "outro"; line: string; cta: string; at: number }
   | { template: "title"; at: number };
 
-export type CanvasSceneSpec = { id: string; start: number; duration: number; voiceAt: number; voiceEnd: number; title: string; plan: ResolvedPlan; captions: CaptionChunk[] };
+/** `image`: asset de la foto de fondo de la escena (videos con imágenes), o `null`. */
+export type CanvasSceneSpec = { id: string; start: number; duration: number; voiceAt: number; voiceEnd: number; title: string; image: string | null; plan: ResolvedPlan; captions: CaptionChunk[] };
 export type CanvasSpec = { width: number; height: number; duration: number; palette: [string, string]; title: string; scenes: CanvasSceneSpec[] };
 
 /** Agrupa palabras en bloques cortos para subtítulos estilo TikTok: máx. 3 palabras o 20 letras, corta en puntuación. */
@@ -207,7 +208,7 @@ export function buildCanvasSpec(document: VideoDocument): CanvasSpec {
       case "outro": resolved = { template: "outro", line: plan.line, cta: plan.cta ?? "", at: round(voiceAt) }; break;
       default: resolved = { template: "title", at: round(voiceAt) };
     }
-    const spec = { id: scene.id, start: round(start), duration: round(duration), voiceAt: round(voiceAt), voiceEnd: round(voiceEnd), title: sceneText(scene, "title"), plan: resolved, captions: captionChunks(words) };
+    const spec = { id: scene.id, start: round(start), duration: round(duration), voiceAt: round(voiceAt), voiceEnd: round(voiceEnd), title: sceneText(scene, "title"), image: scene.imageAssetId ?? null, plan: resolved, captions: captionChunks(words) };
     start += duration;
     return spec;
   });

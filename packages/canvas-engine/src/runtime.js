@@ -624,8 +624,54 @@ export function canvasRuntime(spec, options) {
   };
 
   const FULLSCREEN = new Set(["hook", "outro", "title"]);
-  function sceneContent(ctx, index, t) {
+  /* ------------------------------------------------------------- imagen de la escena */
+  // Fotos de las escenas (videos con imágenes): llegan ya decodificadas con `setImage(id, imagen)`.
+  const images = new Map();
+  // Igual que el fondo: dentro de un frame el zoom apenas cambia, así que la foto escalada y su velo se
+  // pintan una vez por frame (con margen para el temblor) y los subframes la copian 1:1.
+  const MARGIN = 60;
+  const photoCache = new Map();
+  function sceneImage(ctx, scene, t) {
+    const image = scene.image ? images.get(scene.image) : null;
+    if (!image || !image.width || !image.height) return;
+    const frame = Math.round(t * FPS);
+    let cached = photoCache.get(scene.id);
+    if (!cached) {
+      const c = doc.createElement("canvas");
+      c.width = Math.round((W + 2 * MARGIN) * SCALE);
+      c.height = Math.round((H + 2 * MARGIN) * SCALE);
+      cached = { canvas: c, frame: -1 };
+      photoCache.set(scene.id, cached);
+    }
+    if (cached.frame !== frame) {
+      const pctx = cached.canvas.getContext("2d");
+      pctx.setTransform(SCALE, 0, 0, SCALE, MARGIN * SCALE, MARGIN * SCALE);
+      paintPhoto(pctx, image, scene, frame / FPS);
+      cached.frame = frame;
+    }
+    ctx.drawImage(cached.canvas, -MARGIN, -MARGIN, W + 2 * MARGIN, H + 2 * MARGIN);
+  }
+  function paintPhoto(ctx, image, scene, t) {
+    const iw = image.width, ih = image.height;
+    // Cover a pantalla completa (con el margen) y un zoom lento (Ken Burns) a lo largo de la escena.
+    const zoom = lerp(1.04, 1.14, E.inOutCubic(P(t, scene.start - TRANSITION, scene.start + scene.duration)));
+    const cover = Math.max((W + 2 * MARGIN) / iw, (H + 2 * MARGIN) / ih) * zoom;
+    const dw = iw * cover, dh = ih * cover;
+    ctx.drawImage(image, CX - dw / 2, H / 2 - dh / 2, dw, dh);
+    // Velo oscuro: arriba para el título, más fuerte abajo para los subtítulos. El texto siempre se lee.
+    const shade = ctx.createLinearGradient(0, 0, 0, H);
+    shade.addColorStop(0, "rgba(7,8,13,0.72)");
+    shade.addColorStop(0.3, "rgba(7,8,13,0.5)");
+    shade.addColorStop(0.6, "rgba(7,8,13,0.62)");
+    shade.addColorStop(1, "rgba(7,8,13,0.9)");
+    ctx.fillStyle = shade;
+    ctx.fillRect(-MARGIN, -MARGIN, W + 2 * MARGIN, H + 2 * MARGIN);
+  }
+
+  function sceneContent(ctx, index, t, offset = 0) {
     const scene = spec.scenes[index];
+    sceneImage(ctx, scene, t);
+    if (offset) ctx.translate(0, offset);
     if (!FULLSCREEN.has(scene.plan.template)) header(ctx, scene, index, t);
     (T[scene.plan.template] || T.title)(ctx, scene.plan, scene, t);
   }
@@ -727,8 +773,7 @@ export function canvasRuntime(spec, options) {
       ctx.save(); clipBelow(ctx, y, false); ctx.clip(); sceneContent(ctx, a, t); ctx.restore();
       ctx.save(); clipBelow(ctx, y, true); ctx.clip();
       background(ctx, t);
-      ctx.translate(0, (1 - E.outExpo(p)) * 140);
-      sceneContent(ctx, b, t);
+      sceneContent(ctx, b, t, (1 - E.outExpo(p)) * 140);
       ctx.restore();
       const tilt = Math.tan(-7 * Math.PI / 180) * W / 2;
       [[ACC, 0, 34], [ACC2, 34, 12]].forEach(([color, offset, thickness]) => {
@@ -806,12 +851,13 @@ export function canvasRuntime(spec, options) {
     out.globalCompositeOperation = "source-over";
   }
 
-  const weights = [500, 700, 700, 900];
+  const weights = [500, 700, 900];
   return {
     duration: spec.duration,
     frames: Math.round(spec.duration * FPS),
     ready: Promise.all(weights.map((w) => doc.fonts.load(font(w, 40), "Áa1"))).then(() => true),
     draw,
+    setImage(id, image) { images.set(id, image); photoCache.clear(); },
     renderFrame(frame, type = "image/png", quality) { draw(frame / FPS, frame); return canvas.toDataURL(type, quality); },
   };
 }

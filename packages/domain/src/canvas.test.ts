@@ -61,6 +61,8 @@ if (first.plan.template === "flow") {
 }
 assert.equal(second.start, first.duration, "las escenas van una detrás de otra");
 assert.equal(second.plan.template, "title", "un plan inválido cae al respaldo, no rompe el render");
+assert.equal(first.image, null, "sin imagen, la escena va sobre el fondo del motor");
+assert.equal(buildCanvasSpec({ ...document, scenes: document.scenes.map((scene, i) => (i === 1 ? { ...scene, imageAssetId: "11111111-1111-4111-8111-111111111111" } : scene)) }).scenes[1].image, "11111111-1111-4111-8111-111111111111", "la foto de la escena pasa a la spec");
 assert.equal(third.plan.template, "outro", "la última escena sin plan cierra el video");
 assert.ok(second.captions.length > 0, "sin tiempos guardados los subtítulos se estiman");
 assert.equal(spec.duration, Math.round((first.duration + second.duration + third.duration) * 1000) / 1000);

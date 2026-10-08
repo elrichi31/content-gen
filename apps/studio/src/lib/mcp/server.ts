@@ -382,7 +382,7 @@ export function createStudioMcpServer({ origin, scopes = ["studio:read", "studio
     return { contentItemId: saved.id, title: document.title, scenes: document.scenes.map((scene) => scene.id), abrir: args.templateId === "explainer" ? `/explainer?id=${saved.id}` : `/video?id=${saved.id}` };
   });
   tool("generar_video_completo", {
-    description: "Genera un video de principio a fin: guion, imágenes (standard/timeline) o animaciones (explainer), narración si se pasa voiceId, caption y render automático con el motor elegido (engine). Con engine=canvas no genera imágenes ni animaciones HTML: genera el plan de Canvas y renderiza a 60 fps. Guarda un borrador y devuelve contentItemId y renderJob; el MP4 aún no está listo: consultar listar_renders hasta completed y abrir el outputAssetId con ver_asset. Si falla, devuelve el borrador y failedStep para continuar con las herramientas por escena, sin volver a crear ni gastar todo. Puede tardar varios minutos. No publica." + spendNote,
+    description: "Genera un video de principio a fin: guion, imágenes (standard/timeline) o animaciones (explainer), narración si se pasa voiceId, caption y render automático con el motor elegido (engine). Con engine=canvas no genera las animaciones HTML del educativo (sí las imágenes de standard/timeline, que van de fondo): genera el plan de Canvas y renderiza a 60 fps. Guarda un borrador y devuelve contentItemId y renderJob; el MP4 aún no está listo: consultar listar_renders hasta completed y abrir el outputAssetId con ver_asset. Si falla, devuelve el borrador y failedStep para continuar con las herramientas por escena, sin volver a crear ni gastar todo. Puede tardar varios minutos. No publica." + spendNote,
     input: {
       campaignId, topic: z.string().trim().min(3).max(240),
       templateId: z.enum(["standard", "timeline", "explainer"]).default("standard"),
@@ -390,7 +390,7 @@ export function createStudioMcpServer({ origin, scopes = ["studio:read", "studio
       context: z.string().max(12000).optional(), webSearch: z.boolean().default(true),
       audience: z.string().max(160).optional(), tone: z.string().max(120).optional(),
       language: z.string().min(2).max(40).optional(),
-      imageSource: z.enum(["none", "unsplash", "openai"]).default("unsplash").describe("Para standard/timeline; explainer siempre genera animaciones"),
+      imageSource: z.enum(["none", "unsplash", "openai"]).default("unsplash").describe("Para standard/timeline (también con engine=canvas, que las pone de fondo); explainer genera animaciones HTML salvo con canvas"),
       voiceId: z.string().min(8).max(64).optional().describe("Voz de listar_voces; si se omite, video sin narración"),
       modelId: z.string().min(3).max(80).default("eleven_multilingual_v2"),
       engine: z.enum(["remotion", "hyperframes", "canvas"]).optional().describe("Motor de render. Por defecto Remotion (standard/timeline) o HyperFrames (explainer); canvas = plantillas animadas a 60 fps sincronizadas con la voz"),

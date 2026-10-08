@@ -14,7 +14,9 @@ export function replaceSceneAudio(document: VideoDocument, sceneId: string, audi
     // La escena pasa a durar la narración más `TAIL_FRAMES`, igual que en `video-autom`;
     // el silencio de respiro lo añade después el motor de video.
     const durationFrames = durationSeconds ? Math.ceil(durationSeconds * document.fps) + TAIL_FRAMES : scene.durationFrames;
-    const { wordTimings: _stale, ...content } = scene.content;
+    // Los tiempos por palabra son del audio anterior: se quitan y, si llegan nuevos, se ponen los nuevos.
+    const content = { ...scene.content };
+    delete content.wordTimings;
     return { ...scene, audioAssetId, durationFrames, content: { ...content, ...(words.length ? { wordTimings: words } : {}), voiceId, voiceModelId: modelId, audioDurationSeconds: durationSeconds, audioAssetHistory: scene.audioAssetId && scene.audioAssetId !== audioAssetId ? [...new Set([...history, scene.audioAssetId])] : history } };
   });
   if (!found) throw new Error("La escena seleccionada no existe."); return videoDocumentSchema.parse({ ...document, scenes });

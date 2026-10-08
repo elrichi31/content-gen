@@ -25,6 +25,7 @@ REGLAS
 - Elige la plantilla que DEMUESTRE lo que dice la narración, no la que la decore. Varía: no repitas la misma plantilla en escenas seguidas salvo que la narración lo pida.
 - Cada "cue" es una palabra o frase de 1 a 3 palabras copiada LITERALMENTE de la narración de ESA escena (mismas palabras, mismo orden). Es el instante en que se dispara la animación. Ponlos en el orden en que se dicen.
 - Cifras (compare, stat) solo si la narración las dice o se deducen sin duda de ella. Nunca inventes datos; si no hay cifras, usa otra plantilla.
+- Si la escena tiene IMAGEN, la plantilla se dibuja encima de la foto: prefiere las de pocos elementos (hook, stat, list, steps, title) y deja que la foto cuente el contexto.
 - Etiquetas cortas (1 a 3 palabras), en el idioma de la narración, sin emojis. "label" de flow máx 28 caracteres.
 - Devuelve SOLO JSON: { "scenes": [{ "sceneId": "...", ...plan }] } con una entrada por escena, en orden.`;
 
@@ -36,6 +37,7 @@ export function buildCanvasPlanPrompt(document: VideoDocument, feedback?: string
     `TÍTULO: ${text(scene.content.title)}`,
     `NARRACIÓN: ${text(scene.content.voiceover)}`,
     text(scene.content.visual) ? `IDEA VISUAL: ${text(scene.content.visual)}` : "",
+    scene.imageAssetId ? `IMAGEN: sí${text(scene.content.imagePrompt) ? ` (${text(scene.content.imagePrompt)})` : ""}` : "",
     scene.content.canvas ? `PLAN ACTUAL: ${JSON.stringify(scene.content.canvas)}` : "",
   ].filter(Boolean).join("\n"));
   return `VIDEO: ${document.title}\n\n${scenes.join("\n\n")}${feedback?.trim() ? `\n\nCAMBIOS PEDIDOS: ${feedback.trim()}\nConserva los planes actuales que no afecte el cambio.` : ""}`;

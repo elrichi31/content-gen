@@ -19,6 +19,9 @@ assert.match(prompt, /ESCENA 1 \(sceneId: scene-1\) — primera/);
 assert.match(prompt, /ESCENA 3 \(sceneId: scene-3\) — última/);
 assert.match(prompt, /NARRACIÓN: Miles de bots envían tráfico y el servidor se cae\./);
 assert.ok(!prompt.includes("CAMBIOS PEDIDOS"), "sin feedback no pide cambios");
+assert.ok(!prompt.includes("IMAGEN:"), "sin fotos no se mencionan");
+const withImage = videoDocumentSchema.parse({ ...document, scenes: document.scenes.map((scene, i) => (i === 1 ? { ...scene, imageAssetId: "11111111-1111-4111-8111-111111111111", content: { ...scene.content, imagePrompt: "servidores en llamas" } } : scene)) });
+assert.match(buildCanvasPlanPrompt(withImage), /NARRACIÓN: Miles de bots[^\n]*\nIDEA VISUAL: bots contra servidor\nIMAGEN: sí \(servidores en llamas\)/, "la IA sabe qué escenas llevan foto");
 assert.match(buildCanvasPlanPrompt(document, "más paquetes"), /CAMBIOS PEDIDOS: más paquetes/);
 assert.match(CANVAS_PLAN_SYSTEM_PROMPT, /LITERALMENTE/, "pide cues copiados de la narración");
 

@@ -51,9 +51,10 @@ export async function runVideoPipeline(input: PipelineInput, deps: VideoPipeline
       await deps.voiceover(contentItemId, (await read()).revision);
       completedSteps.push(step);
     }
-    // Canvas no usa imágenes ni las animaciones HTML: dibuja su propio plan, que se genera al final.
+    // Canvas no usa las animaciones HTML del educativo (dibuja su propio plan, que se genera al final),
+    // pero sí las imágenes de standard/timeline: van de fondo bajo la plantilla.
     const canvas = input.engine === "canvas";
-    for (const scene of canvas ? [] : current.document.scenes) {
+    for (const scene of canvas && current.document.templateId === "explainer" ? [] : current.document.scenes) {
       if (current.document.templateId === "explainer") {
         step = `animation:${scene.id}`;
         await deps.animation(contentItemId, scene.id);
