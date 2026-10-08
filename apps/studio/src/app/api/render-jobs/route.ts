@@ -46,10 +46,11 @@ export async function POST(request: Request) {
   if (!content || content.type !== "video") return NextResponse.json({ error: "El video no existe o está archivado." }, { status: 400 });
   const document = videoDocumentSchema.safeParse(JSON.parse(content.document_json).document.data);
   if (!document.success) return NextResponse.json({ error: document.error.flatten() }, { status: 400 });
-  // `engine: "hyperframes"` usa el motor HTML de HyperFrames; si no, Remotion con la plantilla del documento.
-  // El video educativo solo existe en HyperFrames: sus escenas son animaciones HTML.
+  // `engine: "canvas"` usa el motor Canvas (60 fps, plantillas animadas); `engine: "hyperframes"`, el
+  // motor HTML de HyperFrames; si no, Remotion con la plantilla del documento. El video educativo no
+  // tiene versión en Remotion: sin motor explícito va por HyperFrames.
   const { engine, ...jobInput } = input as { engine?: unknown };
-  const compositionId = engine === "hyperframes" || document.data.templateId === "explainer" ? "HyperframesVideo" :document.data.templateId === "timeline" ? "TimelineVideo" : "StandardVideo";
+  const compositionId = engine === "canvas" ? "CanvasVideo" : engine === "hyperframes" || document.data.templateId === "explainer" ? "HyperframesVideo" : document.data.templateId === "timeline" ? "TimelineVideo" : "StandardVideo";
   // Mejor avisar ahora, escena por escena, que dejar que el worker falle a mitad con un ENOENT.
   const missing = await missingVideoAssetFiles(document.data);
   if (missing.length) {

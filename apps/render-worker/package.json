@@ -9,6 +9,7 @@
     "@hyperframes/producer": "0.8.94",
     "@remotion/bundler": "^4.0.509",
     "@remotion/renderer": "^4.0.509",
-    "pg": "^8.23.0"
+    "pg": "^8.23.0",
+    "puppeteer-core": "25.12.0"
   }
 }

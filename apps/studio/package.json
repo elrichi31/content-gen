@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@content-gen/canvas-engine": "0.1.0",
     "@content-gen/domain": "0.1.0",
     "@content-gen/video-engine": "0.1.0",
     "@modelcontextprotocol/sdk": "^1.32.1",

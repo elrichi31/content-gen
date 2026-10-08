@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { buildCanvasSpec, captionChunks, canvasScenePlanSchema, estimateWordTimings, findCue, wordsFromAlignment } from "./canvas.ts";
+import { buildCanvasSpec, captionChunks, canvasScenePlanSchema, estimateWordTimings, findCue, pruneCues, wordsFromAlignment } from "./canvas.ts";
 import { videoDocumentSchema } from "./video.ts";
 
 // Alineación por carácter de ElevenLabs → palabras con su inicio y fin.
@@ -35,6 +35,12 @@ assert.ok(chunks[0].e <= chunks[1].s + 1e-9, "un bloque no pisa al siguiente");
 assert.ok(canvasScenePlanSchema.safeParse({ template: "flow", sources: [{ label: "Bots", count: 40 }], target: "Servidor", outcome: "overload" }).success);
 assert.ok(!canvasScenePlanSchema.safeParse({ template: "flow", sources: [], target: "Servidor" }).success, "flow necesita emisores");
 assert.ok(!canvasScenePlanSchema.safeParse({ template: "hook", words: [{ text: "PALABRA-DEMASIADO-LARGA" }] }).success);
+
+// Los cues que no se dicen se quitan; los que sí, se quedan.
+const pruned = pruneCues(canvasScenePlanSchema.parse({ template: "steps", items: [{ label: "Satura", cue: "satura" }, { label: "Bloquea", cue: "bloquea" }] }), words);
+assert.deepEqual(pruned.template === "steps" && pruned.items.map((item) => item.cue), ["satura", undefined]);
+const prunedFlow = pruneCues(canvasScenePlanSchema.parse({ template: "flow", sources: [{ label: "Bots", count: 3 }], target: "Servidor", cues: { surge: "DDoS", outcome: "se cae" } }), words);
+assert.deepEqual(prunedFlow.template === "flow" && prunedFlow.cues, { surge: "DDoS", shield: undefined, outcome: undefined });
 
 // Spec: tiempos absolutos con la entrada de la primera escena, cues resueltos y respaldo sin plan.
 const document = videoDocumentSchema.parse({

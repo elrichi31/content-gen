@@ -7,6 +7,7 @@ import { createServer } from "node:http";
 import { dirname, resolve, sep } from "node:path";
 import { clearInterval, setInterval } from "node:timers";
 import pg from "pg";
+import { runCanvasRender } from "./canvas.mjs";
 import { runHyperframesRender } from "./hyperframes.mjs";
 
 const jobArgumentIndex = process.argv.indexOf("--job");
@@ -214,10 +215,11 @@ async function processNext(jobId) {
     const heartbeat = setInterval(() => progress.report({}), 15_000);
     heartbeat.unref();
     try {
-      if (!["StandardVideo", "TimelineVideo", "HyperframesVideo"].includes(job.compositionId)) throw new Error("La composición de video no está registrada.");
+      if (!["StandardVideo", "TimelineVideo", "HyperframesVideo", "CanvasVideo"].includes(job.compositionId)) throw new Error("La composición de video no está registrada.");
       mkdirSync(dirname(outputPath), { recursive: true });
       const onUpdate = (patch) => progress.report(patch);
       if (job.compositionId === "HyperframesVideo") await runHyperframesRender(job, outputPath, { database, mediaRoot, onUpdate });
+      else if (job.compositionId === "CanvasVideo") await runCanvasRender(job, outputPath, { database, mediaRoot, onUpdate });
       else await runRemotionRender(job, outputPath, onUpdate, { database, mediaRoot });
       await progress.flush();
       const latest = await latestOf(job.id);

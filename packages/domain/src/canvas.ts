@@ -115,6 +115,23 @@ export function scenePlan(scene: VideoScene, index: number, count: number): Canv
   return { template: "title" };
 }
 
+/**
+ * Quita los cues que no se dicen en la narración (la IA a veces parafrasea o cambia una palabra).
+ * Sin cue, `buildCanvasSpec` reparte ese momento a lo largo de la escena: mejor eso que un cue
+ * que nunca dispara y deja la animación a medias.
+ */
+export function pruneCues(plan: CanvasScenePlan, words: readonly WordTiming[]): CanvasScenePlan {
+  const keep = (phrase: string | undefined) => (phrase && findCue(words, phrase) !== null ? phrase : undefined);
+  switch (plan.template) {
+    case "hook": return { ...plan, words: plan.words.map((word) => ({ ...word, cue: keep(word.cue) })) };
+    case "flow": return { ...plan, cues: { surge: keep(plan.cues.surge), shield: keep(plan.cues.shield), outcome: keep(plan.cues.outcome) } };
+    case "steps": return { ...plan, items: plan.items.map((item) => ({ ...item, cue: keep(item.cue) })) };
+    case "list": return { ...plan, items: plan.items.map((item) => ({ ...item, cue: keep(item.cue) })) };
+    case "compare": case "stat": return { ...plan, cue: keep(plan.cue) };
+    default: return plan;
+  }
+}
+
 const sceneText = (scene: VideoScene, key: string) => (typeof scene.content[key] === "string" ? (scene.content[key] as string).trim() : "");
 
 /* ----------------------------------------------------------------- spec para la runtime */

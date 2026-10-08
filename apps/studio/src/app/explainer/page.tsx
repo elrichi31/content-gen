@@ -8,6 +8,7 @@ import { ModeSwitch, VIDEO_MODES } from "@/components/mode-switch";
 import { Button } from "@/components/ui/button";
 import { Notice, noticeError, type NoticeState } from "@/components/ui/notice";
 import { ExplainerAnimationStep } from "@/components/explainer/animation-step";
+import { CanvasPreview } from "@/components/explainer/canvas-preview";
 import { ExplainerScriptStep } from "@/components/explainer/script-step";
 import { StepIndicator, type WizardStep } from "@/components/video/step-indicator";
 import { TopicForm, type TopicFormValues } from "@/components/video/topic-form";
@@ -106,7 +107,7 @@ export default function ExplainerPage() {
       <ModeSwitch modes={VIDEO_MODES} current="/explainer" className="mb-4" />
       <PageHeading
         title="Video educativo"
-        description="Explica cómo funciona algo con narración y animaciones generadas por IA, sin imágenes. Se renderiza con HyperFrames."
+        description="Explica cómo funciona algo con narración y animaciones generadas por IA, sin imágenes. Se renderiza con HyperFrames o con el motor Canvas a 60 fps."
         actions={<><Button type="button" variant={view === "wizard" ? "default" : "outline"} onClick={startNew}><Plus className="h-4 w-4" /> Nuevo</Button><Button type="button" variant={view === "list" ? "default" : "outline"} onClick={() => { setView("list"); setNotice(null); }}><GraduationCap className="h-4 w-4" /> Mis videos educativos</Button></>}
       />
 
@@ -142,6 +143,7 @@ export default function ExplainerPage() {
 
           {step === 4 && document && contentId ? (
             <div className="space-y-6">
+              <CanvasPreview contentItemId={contentId} document={document} onPersisted={adopt} />
               <ExplainerAnimationStep contentItemId={contentId} document={document} onPersisted={adopt} />
               <div className="flex justify-between gap-3 border-t border-border pt-4">
                 <Button type="button" variant="outline" onClick={() => go(3)}>← Volver a la voz</Button>

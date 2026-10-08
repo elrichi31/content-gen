@@ -446,9 +446,9 @@ export function createStudioMcpServer({ origin, scopes = ["studio:read", "studio
   tool("generar_caption_video", { description: "Escribe el caption y hashtags de un video guardado." + spendNote, input: { contentItemId: id("el video") }, spends: true },
     async ({ contentItemId }) => call(videoCaption.POST, { method: "POST", params: { id: contentItemId }, body: { action: "generate", revision: await withRevision(contentItemId) } }));
   tool("renderizar_video", {
-    description: "Encola el render del video (Remotion, o HyperFrames para los educativos). Devuelve el trabajo; consulta su avance con listar_renders.",
-    input: { contentItemId: id("el video"), engine: z.enum(["remotion", "hyperframes"]).optional() },
-  }, ({ contentItemId, engine }) => call(renderJobs.POST, { method: "POST", body: { contentItemId, ...(engine === "hyperframes" ? { engine } : {}) } }));
+    description: "Encola el render del video (Remotion, o HyperFrames para los educativos; Canvas a 60 fps con las plantillas animadas). Devuelve el trabajo; consulta su avance con listar_renders.",
+    input: { contentItemId: id("el video"), engine: z.enum(["remotion", "hyperframes", "canvas"]).optional() },
+  }, ({ contentItemId, engine }) => call(renderJobs.POST, { method: "POST", body: { contentItemId, ...(engine === "hyperframes" || engine === "canvas" ? { engine } : {}) } }));
   tool("listar_renders", { description: "Trabajos de render con estado, progreso y el asset de salida cuando terminan.", input: { contentItemId: z.string().optional() }, readOnly: true },
     (query) => call(renderJobs.GET, { query }));
   tool("gestionar_render", { description: "Cancela un render en curso o reintenta uno fallido.", input: { id: id("el trabajo de render"), action: z.enum(["cancel", "retry"]) } },

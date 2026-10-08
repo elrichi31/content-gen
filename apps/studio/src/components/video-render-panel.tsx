@@ -53,7 +53,7 @@ export function VideoRenderPanel({ contentItemId, unsavedChanges, hyperframesOnl
     }
   }
 
-  const render = (engine?: "hyperframes") => call(() => fetch("/api/render-jobs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contentItemId, engine }) }));
+  const render = (engine?: "hyperframes" | "canvas") => call(() => fetch("/api/render-jobs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contentItemId, engine }) }));
   const act = (action: "cancel" | "retry") => call(() => fetch(`/api/render-jobs/${job!.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action }) }));
 
   return (
@@ -104,6 +104,11 @@ export function VideoRenderPanel({ contentItemId, unsavedChanges, hyperframesOnl
         {active(job) ? null : (
           <Button type="button" variant="outline" size="sm" disabled={!contentItemId || busy} onClick={() => void render("hyperframes")}>
             <Film className="h-4 w-4" /> Renderizar con HyperFrames
+          </Button>
+        )}
+        {active(job) ? null : (
+          <Button type="button" variant="outline" size="sm" disabled={!contentItemId || busy} onClick={() => void render("canvas")}>
+            <Film className="h-4 w-4" /> Renderizar con Canvas (60 fps)
           </Button>
         )}
         {active(job) ? (

@@ -8,7 +8,7 @@ if (existsSync(workspaceEnv)) process.loadEnvFile(workspaceEnv);
 process.env.STORAGE_ROOT ??= fileURLToPath(new URL("../../storage", import.meta.url));
 
 const nextConfig: NextConfig = {
-  transpilePackages: ["@content-gen/domain", "@content-gen/video-engine"],
+  transpilePackages: ["@content-gen/canvas-engine", "@content-gen/domain", "@content-gen/video-engine"],
   // El proxy de auth pasa por TODAS las rutas (login obligatorio en toda la app), y Next
   // clona/buferiza el body de cada request para que el proxy pueda leerlo: por default
   // corta a los 10MB, lo que truncaba en silencio los assets subidos más grandes (imágenes,

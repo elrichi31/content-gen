@@ -1,0 +1,220 @@
+import { ensureBrowser } from "@remotion/renderer";
+import { Buffer } from "node:buffer";
+import { spawn } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
+import { availableParallelism, tmpdir } from "node:os";
+import { join, resolve, sep } from "node:path";
+import puppeteer from "puppeteer-core";
+import { buildCanvasHtml } from "../../../packages/canvas-engine/src/index.js";
+import { buildCanvasSpec } from "../../../packages/domain/src/canvas.ts";
+import { withMeasuredAudio } from "./hyperframes.mjs";
+
+/**
+ * Motor Canvas: la runtime de packages/canvas-engine pinta cada frame en Chrome headless (Canvas 2D,
+ * función pura del tiempo) y ffmpeg lo codifica. El video se reparte en tramos contiguos entre
+ * varios navegadores en paralelo; cada uno codifica su tramo y al final se concatenan sin
+ * recodificar y se mezclan las voces. Ver showreel/DECISIONES.md para el porqué de cada pieza.
+ */
+
+const intFromEnv = (name, fallback, min, max) => {
+  const value = Number.parseInt(process.env[name] ?? "", 10);
+  return Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback;
+};
+
+export const canvasSettings = () => ({
+  fps: intFromEnv("CANVAS_FPS", 60, 24, 60),
+  subframes: intFromEnv("CANVAS_SUBFRAMES", 6, 1, 16),
+  workers: intFromEnv("CANVAS_WORKERS", Math.max(1, Math.min(4, availableParallelism() - 1)), 1, 16),
+});
+
+/** Reparte `frames` en `workers` tramos contiguos [desde, hasta) sin tramos vacíos. */
+export function frameRanges(frames, workers) {
+  const count = Math.max(1, Math.min(workers, frames));
+  const per = Math.ceil(frames / count);
+  return Array.from({ length: count }, (_, index) => [index * per, Math.min(frames, (index + 1) * per)]).filter(([from, to]) => to > from);
+}
+
+/**
+ * Argumentos de ffmpeg para el MP4 final: video concatenado (copia) + voces de cada escena
+ * desplazadas a su `voiceAt`. Sin voces se pone una pista muda: algunas apps rechazan MP4 sin audio.
+ */
+export function muxArguments({ concatList, voices, duration, output }) {
+  const inputs = ["-f", "concat", "-safe", "0", "-i", concatList];
+  for (const voice of voices) inputs.push("-i", voice.path);
+  let filter;
+  if (voices.length) {
+    const delayed = voices.map((voice, index) => `[${index + 1}:a]aresample=48000,adelay=${Math.max(0, Math.round(voice.at * 1000))}:all=1[v${index}]`);
+    const mixed = voices.length > 1 ? `${voices.map((_, index) => `[v${index}]`).join("")}amix=inputs=${voices.length}:normalize=0:dropout_transition=0[mix];[mix]` : "[v0]";
+    // Voz sola a -16 LUFS / -1.5 dBTP: deja aire para la música que se suma en TikTok.
+    filter = `${delayed.join(";")};${mixed}loudnorm=I=-16:TP=-1.5:LRA=11,aresample=48000,apad[aout]`;
+  } else {
+    inputs.push("-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000");
+  }
+  return [
+    "-y", "-loglevel", "error", ...inputs,
+    ...(filter ? ["-filter_complex", filter, "-map", "0:v", "-map", "[aout]"] : ["-map", "0:v", "-map", "1:a"]),
+    "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2", "-t", String(duration), "-movflags", "+faststart", output,
+  ];
+}
+
+/** Codificación de cada tramo: ya con la calidad final, para concatenar sin recodificar. */
+// Los frames viajan como JPEG q95: codificar PNG de 1080x1920 con grano costaba ~5x más (4 MB por
+// frame) y el resultado final es H.264 4:2:0 igual. La matriz BT.709 se fija a mano: por defecto
+// swscale convierte con BT.601 y el video, etiquetado 709, salía con los colores corridos.
+export const FRAME_FORMAT = { type: "image/jpeg", quality: 0.95, codec: "mjpeg" };
+export const segmentArguments = (fps, output) => [
+  "-y", "-loglevel", "error", "-f", "image2pipe", "-framerate", String(fps), "-c:v", FRAME_FORMAT.codec, "-i", "-",
+  "-vf", "scale=in_range=full:out_range=tv:in_color_matrix=bt601:out_color_matrix=bt709,format=yuv420p",
+  "-c:v", "libx264", "-preset", "medium", "-crf", "17", "-profile:v", "high",
+  "-x264-params", `keyint=${fps * 2}:min-keyint=${fps}`, "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709",
+  "-r", String(fps), output,
+];
+
+function run(command, args) {
+  return new Promise((resolveRun, reject) => {
+    const child = spawn(command, args, { stdio: ["ignore", "ignore", "pipe"] });
+    let stderr = "";
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.on("error", reject);
+    child.on("exit", (code) => (code === 0 ? resolveRun() : reject(new Error(`${command} salió con ${code}: ${stderr.slice(-800)}`))));
+  });
+}
+
+/** Chrome para el render: el que fije CANVAS_CHROME_PATH o el Headless Shell que ya baja Remotion. */
+async function chromePath() {
+  return process.env.CANVAS_CHROME_PATH || (await ensureBrowser()).path;
+}
+
+const launch = async (executablePath) => puppeteer.launch({
+  executablePath,
+  headless: true,
+  args: ["--no-sandbox", "--disable-gpu", "--disable-gpu-vsync", "--force-color-profile=srgb", "--disable-dev-shm-usage", "--font-render-hinting=none"],
+});
+
+async function openPage(browser, html) {
+  const page = await browser.newPage();
+  await page.setContent(html, { waitUntil: "load" });
+  await page.evaluate(() => globalThis.canvasEngine.ready);
+  return page;
+}
+
+const grab = async (page, frame, format = FRAME_FORMAT) => Buffer.from((await page.evaluate((index, type, quality) => globalThis.canvasEngine.renderFrame(index, type, quality), frame, format.type, format.quality)).split(",")[1], "base64");
+
+/** PNG de frames sueltos (para revisar a ojo). `frames` son índices a los fps de `options`. */
+export async function renderCanvasStills(spec, frames, outputDir, options = {}) {
+  const settings = { ...canvasSettings(), ...options };
+  mkdirSync(outputDir, { recursive: true });
+  const browser = await launch(await chromePath());
+  try {
+    const page = await openPage(browser, buildCanvasHtml(spec, settings));
+    const written = [];
+    for (const frame of frames) {
+      const path = join(outputDir, `f${String(frame).padStart(5, "0")}.png`);
+      writeFileSync(path, await grab(page, frame, { type: "image/png" }));
+      written.push(path);
+    }
+    return written;
+  } finally {
+    await browser.close();
+  }
+}
+
+/** Video completo de `spec` a `outputPath`. `voices`: [{ path, at }] con `at` en segundos. */
+export async function renderCanvasVideo(spec, voices, outputPath, { onUpdate = () => {}, ...options } = {}) {
+  const { fps, subframes, workers } = { ...canvasSettings(), ...options };
+  const frames = Math.round(spec.duration * fps);
+  const html = buildCanvasHtml(spec, { fps, subframes });
+  const ranges = frameRanges(frames, workers);
+  const tmp = mkdtempSync(join(tmpdir(), "canvas-"));
+  const executablePath = await chromePath();
+  const started = Date.now();
+  let done = 0, lastStep = -1;
+  try {
+    onUpdate({ log: `Renderizando ${spec.duration.toFixed(1)}s a ${fps}fps (${spec.width}x${spec.height}) con Canvas: ${frames} frames, ${subframes} subframes, ${ranges.length} navegadores…` });
+    await Promise.all(ranges.map(async ([from, to], index) => {
+      // Un navegador por tramo: cada uno tiene su propio proceso de render y no se pisan la CPU.
+      const browser = await launch(executablePath);
+      const encoder = spawn("ffmpeg", segmentArguments(fps, join(tmp, `seg${index}.mp4`)), { stdio: ["pipe", "ignore", "pipe"] });
+      let stderr = "";
+      encoder.stderr.on("data", (chunk) => { stderr += chunk; });
+      const encoded = new Promise((resolveEncode, reject) => {
+        encoder.on("error", reject);
+        encoder.on("exit", (code) => (code === 0 ? resolveEncode() : reject(new Error(`ffmpeg (tramo ${index + 1}) salió con ${code}: ${stderr.slice(-800)}`))));
+      });
+      try {
+        const page = await openPage(browser, html);
+        for (let frame = from; frame < to; frame++) {
+          const image = await grab(page, frame);
+          if (!encoder.stdin.write(image)) await new Promise((resolveDrain) => encoder.stdin.once("drain", resolveDrain));
+          done++;
+          const step = Math.floor((done / frames) * 20); // una línea cada ~5%
+          onUpdate({ progress: 10 + Math.round((done / frames) * 80) });
+          if (step !== lastStep) {
+            lastStep = step;
+            onUpdate({ log: `Frame ${done}/${frames} · ${((Date.now() - started) / 1000).toFixed(0)}s` });
+          }
+        }
+        encoder.stdin.end();
+        await encoded;
+      } catch (error) {
+        encoder.kill("SIGKILL");
+        throw error;
+      } finally {
+        await browser.close();
+      }
+    }));
+    onUpdate({ progress: 92, log: "Uniendo tramos y mezclando la voz…" });
+    const concatList = join(tmp, "list.txt");
+    writeFileSync(concatList, ranges.map((_, index) => `file 'seg${index}.mp4'`).join("\n"));
+    await run("ffmpeg", muxArguments({ concatList, voices, duration: frames / fps, output: outputPath }));
+    onUpdate({ log: `Render de video completo en ${((Date.now() - started) / 1000).toFixed(0)}s, guardando MP4…` });
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+/** Ruta en disco de cada asset de audio del documento, validada contra `mediaRoot`. */
+async function audioPaths(document, { database, mediaRoot }) {
+  const paths = new Map();
+  for (const id of new Set(document.scenes.map((scene) => scene.audioAssetId).filter(Boolean))) {
+    const row = (await database.query("SELECT data_json FROM assets WHERE id = $1", [id])).rows[0];
+    if (!row) throw new Error(`Falta el asset ${id} de una escena.`);
+    const path = resolve(mediaRoot, JSON.parse(row.data_json).storageKey);
+    if (!path.startsWith(resolve(mediaRoot) + sep)) throw new Error(`Ruta de asset inválida: ${id}.`);
+    if (!existsSync(path)) throw new Error(`El archivo del asset ${id} ya no está en el disco (¿/app/storage sin volumen persistente?). Vuelve a ponerlo en la escena.`);
+    paths.set(id, path);
+  }
+  return paths;
+}
+
+/** Documento + rutas de los MP3 → spec y voces. Mide los MP3 reales como HyperFrames y Remotion. */
+export async function prepareCanvasRender(document, pathOf) {
+  const measured = await withMeasuredAudio(document, pathOf);
+  const spec = buildCanvasSpec(measured);
+  const voices = measured.scenes
+    .map((scene, index) => (scene.audioAssetId ? { path: pathOf(scene.audioAssetId), at: spec.scenes[index].voiceAt } : null))
+    .filter(Boolean);
+  return { spec, voices };
+}
+
+export async function runCanvasRender(job, outputPath, { database, mediaRoot, onUpdate }) {
+  onUpdate({ log: "Preparando el render de Canvas…" });
+  const paths = await audioPaths(job.inputProps.document, { database, mediaRoot });
+  const { spec, voices } = await prepareCanvasRender(job.inputProps.document, (id) => paths.get(id));
+  await renderCanvasVideo(spec, voices, outputPath, { onUpdate });
+}
+
+// Uso local, sin base de datos (los audios se buscan en <dir-del-json>/<audioAssetId>.mp3):
+//   node apps/render-worker/src/canvas.mjs stills <documento.json> <carpeta> 0,120,600
+//   node apps/render-worker/src/canvas.mjs video <documento.json> <salida.mp4>
+if (process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, "/"))) {
+  const [mode, documentPath, output, list] = process.argv.slice(2);
+  const document = JSON.parse(await readFile(documentPath, "utf8"));
+  const base = resolve(documentPath, "..");
+  const { spec, voices } = await prepareCanvasRender(document, (id) => join(base, `${id}.mp3`));
+  if (mode === "spec") console.log(JSON.stringify(spec, null, 2));
+  else if (mode === "stills") console.log((await renderCanvasStills(spec, list.split(",").map(Number), resolve(output))).join("\n"));
+  else if (mode === "video") await renderCanvasVideo(spec, voices, resolve(output), { onUpdate: (patch) => patch.log && console.log(patch.log) });
+  else throw new Error("Usa stills, video o spec.");
+}
