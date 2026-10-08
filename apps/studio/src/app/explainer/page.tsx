@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { GraduationCap, Plus } from "lucide-react";
-import { videoDocumentSchema, type VideoDocument } from "@content-gen/domain/video";
+import { Check, GraduationCap, Plus, TriangleAlert } from "lucide-react";
+import { timelineTotalFrames, videoDocumentSchema, type VideoDocument } from "@content-gen/domain/video";
 import { PageHeading, PageShell } from "@/components/page-shell";
 import { ModeSwitch, VIDEO_MODES } from "@/components/mode-switch";
 import { Button } from "@/components/ui/button";
@@ -151,9 +151,18 @@ export default function ExplainerPage() {
           ) : null}
 
           {step === 5 && document && contentId ? (
-            <div className="mx-auto max-w-2xl space-y-3">
-              {document.scenes.some((scene) => !scene.content.canvas) ? <p className="text-sm text-muted-foreground">Hay escenas sin animación: en el video saldrán solo con su título.</p> : null}
-              <VideoRenderPanel contentItemId={contentId} unsavedChanges={unsaved} hyperframesOnly defaultEngine="canvas" />
+            <div className="space-y-6">
+              <div>
+                <h2 className="text-2xl font-bold tracking-tight text-foreground">Render</h2>
+                <p className="mt-1 max-w-2xl text-sm text-muted-foreground">Revisa que todo esté listo y crea el MP4. El render sigue en el servidor aunque cambies de pantalla.</p>
+              </div>
+              <div className="grid gap-6 lg:grid-cols-[minmax(0,320px)_minmax(0,1fr)]">
+                <RenderChecklist document={document} onGo={go} />
+                <VideoRenderPanel contentItemId={contentId} unsavedChanges={unsaved} hyperframesOnly defaultEngine="canvas" />
+              </div>
+              <div className="flex justify-start border-t border-border pt-4">
+                <Button type="button" variant="outline" onClick={() => go(4)}>← Volver a las animaciones</Button>
+              </div>
             </div>
           ) : null}
         </>
@@ -161,5 +170,36 @@ export default function ExplainerPage() {
         <VideoList videos={videos} campaignNames={campaignNames} onEdit={(item) => open(item)} onRegenerate={() => startNew()} onNew={startNew} />
       )}
     </PageShell>
+  );
+}
+
+/** Lo que va a salir en el MP4; cada punto pendiente lleva al paso donde se arregla. */
+function RenderChecklist({ document, onGo }: { document: VideoDocument; onGo: (step: WizardStep) => void }) {
+  const total = document.scenes.length;
+  const animated = document.scenes.filter((scene) => scene.content.canvas).length;
+  const voiced = document.scenes.filter((scene) => scene.audioAssetId).length;
+  const seconds = timelineTotalFrames(document.scenes) / document.fps;
+  const items: { ok: boolean; text: string; fix: string; step: WizardStep }[] = [
+    { ok: voiced === total, text: voiced === total ? "Narración en todas las escenas" : `${total - voiced} escena(s) sin voz`, fix: "Ir a la voz", step: 3 },
+    { ok: animated === total, text: animated === total ? "Todas las escenas animadas" : `${total - animated} escena(s) sin animación: saldrán solo con su título`, fix: "Ir a las animaciones", step: 4 },
+  ];
+  return (
+    <div className="space-y-4 rounded-xl border border-border bg-card/60 p-4">
+      <div>
+        <p className="truncate text-sm font-semibold text-foreground">{document.title}</p>
+        <p className="mt-0.5 font-mono text-xs text-muted-foreground">{Math.floor(seconds / 60)}:{String(Math.floor(seconds % 60)).padStart(2, "0")} · {total} escenas · 1080×1920</p>
+      </div>
+      <ul className="space-y-2">
+        {items.map((item) => (
+          <li key={item.fix} className="flex items-start gap-2 text-sm">
+            {item.ok ? <Check className="mt-0.5 h-4 w-4 shrink-0 text-primary" /> : <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />}
+            <span className="min-w-0 flex-1">
+              <span className={item.ok ? "text-foreground" : "text-muted-foreground"}>{item.text}</span>
+              {item.ok ? null : <button type="button" onClick={() => onGo(item.step)} className="block text-xs font-medium text-primary hover:underline">{item.fix} →</button>}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
