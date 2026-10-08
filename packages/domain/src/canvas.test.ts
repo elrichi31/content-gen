@@ -164,3 +164,7 @@ console.log("canvas terminal/embudo/cita/mapa ok");
   assert.ok(Array.isArray(storedBeats(pruned)));
 }
 console.log("canvas varias animaciones ok");
+
+// Las escenas de evento (timeline) guardan su título en `headline`.
+assert.equal(buildCanvasSpec(videoDocumentSchema.parse({ ...document, scenes: [{ id: "scene-1", kind: "explainer", durationFrames: 60, content: { headline: "Cae el muro", voiceover: "Cae el muro." } }] })).scenes[0].title, "Cae el muro");
+console.log("canvas títulos ok");

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import type { CanvasScenePlan } from "@content-gen/domain/canvas";
 import { videoDocumentSchema } from "@content-gen/domain/video";
-import { buildCanvasPlanPrompt, CANVAS_PLAN_SYSTEM_PROMPT, generateCanvasPlan, normalizeCanvasPlans, replaceCanvasPlans } from "./canvas-plan.ts";
+import { buildCanvasPlanPrompt, CANVAS_PLAN_SYSTEM_PROMPT, generateCanvasPlan, normalizeCanvasPlans, planVarietyIssues, replaceCanvasPlans } from "./canvas-plan.ts";
 
 process.env.CONTENT_GEN_AI_PROVIDER = "openai"; process.env.OPENAI_API_KEY = "test";
 
@@ -80,4 +80,39 @@ assert.deepEqual(normalizeCanvasPlans({ scenes: [{ sceneId: "scene-1", beats: [{
 assert.match(CANVAS_PLAN_SYSTEM_PROMPT, /"from"/);
 const focusBeats = await generateCanvasPlan(document, undefined, async () => new Response(JSON.stringify({ output_text: JSON.stringify({ scenes: [{ sceneId: "scene-2", beats: [{ template: "steps", items: [{ label: "A" }, { label: "B" }] }, { template: "title", from: "servidor" }] }] }) })), { sceneId: "scene-2", template: "steps" });
 assert.ok(Array.isArray(focusBeats.plans["scene-2"]), "al cambiar la animación principal puede seguir con otras");
+
+// Videos con imágenes: los datos de la escena (año, titular, listas) llegan a la IA, sin repetir lo que ya va aparte.
+const timelineLike = videoDocumentSchema.parse({ ...document, scenes: document.scenes.map((scene, i) => (i === 1 ? { ...scene, content: { ...scene.content, year: "1989", headline: "Cae el muro", indicator: ["Protestas", "Fronteras abiertas"], wordTimings: [{ w: "x", s: 0, e: 0.2 }] } } : scene)) });
+const dataPrompt = buildCanvasPlanPrompt(timelineLike);
+assert.match(dataPrompt, /DATOS DE LA ESCENA:\n- year: 1989\n- headline: Cae el muro\n- indicator: Protestas \| Fronteras abiertas/);
+assert.ok(!/- (voiceover|wordTimings|visual):/.test(dataPrompt), "lo que ya va aparte o no es contenido no se repite");
+assert.ok(!/prefiere las de pocos elementos/.test(CANVAS_PLAN_SYSTEM_PROMPT), "la foto ya no empuja a plantillas pobres");
+assert.match(CANVAS_PLAN_SYSTEM_PROMPT, /fechas o años → timeline/);
+
+// Variedad: escenas que solo muestran el título (salvo la última) y pocas plantillas distintas.
+const five = videoDocumentSchema.parse({ ...document, scenes: Array.from({ length: 6 }, (_, i) => ({ id: `scene-${i + 1}`, kind: "explainer", durationFrames: 90, content: { title: `T${i}`, voiceover: "Uno dos tres." } })) });
+const poor = { "scene-1": { template: "hook", words: [{ text: "Uno" }] }, "scene-2": { template: "title" }, "scene-3": { template: "title" }, "scene-4": { template: "list", icon: "dot", items: [{ text: "a" }, { text: "b" }] }, "scene-5": { template: "list", icon: "dot", items: [{ text: "a" }, { text: "b" }] }, "scene-6": { template: "title" } } as never;
+const poorIssues = planVarietyIssues(five, poor);
+assert.match(poorIssues[0], /Las escenas 2, 3 solo muestran el título/, "la última escena puede ser solo título");
+assert.match(poorIssues[1], /Solo usaste 2 plantillas distintas \(hook, list\); usa al menos 5/);
+const rich = Object.fromEntries(["hook", "list", "stat", "steps", "quote", "outro"].map((template, i) => [`scene-${i + 1}`, template === "hook" ? { template, words: [{ text: "Uno" }] } : template === "list" ? { template, icon: "dot", items: [{ text: "a" }, { text: "b" }] } : template === "stat" ? { template, value: 3, decimals: 0, label: "x" } : template === "steps" ? { template, items: [{ label: "a" }, { label: "b" }] } : template === "quote" ? { template, text: "Uno dos" } : { template, line: "Fin" }]));
+assert.deepEqual(planVarietyIssues(five, rich as never), [], "un plan variado no tiene problemas");
+
+// Revisión automática: un plan pobre se devuelve una vez con sus problemas y se queda el mejor; el costo suma las dos llamadas.
+const calls: string[] = [];
+const reply = (plans: Record<string, unknown>) => new Response(JSON.stringify({ output_text: JSON.stringify({ scenes: Object.entries(plans).map(([sceneId, plan]) => ({ sceneId, ...(plan as object) })) }), usage: { input_tokens: 100, output_tokens: 10 } }));
+const reviewed = await generateCanvasPlan(five, undefined, async (_url, init) => { calls.push(String(init?.body)); return reply(calls.length === 1 ? poor : rich); });
+assert.equal(calls.length, 2);
+assert.match(calls[1], /REVISIÓN DE TU PLAN ANTERIOR: Las escenas 2, 3 solo muestran el título/);
+assert.equal(reviewed.reviewed, true);
+assert.equal(single(reviewed.plans["scene-3"]).template, "stat");
+assert.equal(reviewed.usage.inputTokens, 200, "se cobran las dos llamadas");
+// Si la revisión no mejora, se queda el primero; si el primero ya es bueno, no hay segunda llamada.
+let count = 0;
+const kept = await generateCanvasPlan(five, undefined, async () => { count++; return reply(poor); });
+assert.equal(single(kept.plans["scene-2"]).template, "title");
+assert.equal(count, 2);
+count = 0;
+await generateCanvasPlan(five, undefined, async () => { count++; return reply(rich); });
+assert.equal(count, 1, "un plan variado no gasta otra llamada");
 console.log("canvas plan ok");

@@ -313,7 +313,7 @@ export function buildCanvasSpec(document: VideoDocument): CanvasSpec {
       }
       return { start: k ? from : round(start), end: round(starts[k + 1] ?? start + duration), plan: resolved };
     });
-    const spec = { id: scene.id, start: round(start), duration: round(duration), voiceAt: round(voiceAt), voiceEnd: round(voiceEnd), title: sceneText(scene, "title"), image: scene.imageAssetId ?? null, plan: resolvedBeats[0].plan, beats: resolvedBeats, captions: captionChunks(words) };
+    const spec = { id: scene.id, start: round(start), duration: round(duration), voiceAt: round(voiceAt), voiceEnd: round(voiceEnd), title: sceneText(scene, "title") || sceneText(scene, "headline"), image: scene.imageAssetId ?? null, plan: resolvedBeats[0].plan, beats: resolvedBeats, captions: captionChunks(words) };
     start += duration;
     return spec;
   });

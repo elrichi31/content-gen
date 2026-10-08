@@ -1,4 +1,5 @@
 import { CANVAS_TEMPLATE_CATALOG, canvasSceneBeatSchema, canvasScenePlanSchema, pruneBeats, sceneWords, storedBeats, type CanvasSceneBeat, type CanvasTemplate } from "@content-gen/domain/canvas";
+import { addUsage } from "@content-gen/domain/cost";
 import { videoDocumentSchema, type VideoDocument } from "@content-gen/domain/video";
 import { generateOpenAiJson, OpenAiError } from "./openai.ts";
 import { VideoGenerationError } from "./video-generation.ts";
@@ -31,15 +32,33 @@ PLANTILLAS (campos exactos):
 
 REGLAS
 - Varias animaciones por escena: si la narración dura más de unos 7 s y encadena ideas, usa 2 o 3 animaciones seguidas, una por idea y en el orden de la voz, que cuenten una progresión (no la misma idea dos veces). Desde la segunda, cada una lleva "from": frase literal de 1 a 3 palabras con la que empieza su idea; sus cues van después de esa frase. Escenas cortas o de una sola idea: una animación.
-- Elige la plantilla que DEMUESTRE lo que dice la narración, no la que la decore. Varía: no repitas la misma plantilla en escenas seguidas salvo que la narración lo pida, y usa al menos 4 plantillas distintas en un video de 6 escenas o más (title solo como último recurso).
+- Recorre TODO el catálogo para cada idea antes de elegir y quédate con la plantilla que mejor la DEMUESTRE, no la que la decore: fechas o años → timeline; pasos o fases → steps; acciones, señales o recomendaciones → list; una cifra → stat; dos cifras → compare; serie de cifras → chart; etapas que se reducen → funnel; algo que viaja o satura → flow; cosas conectadas o que se propagan → network; comandos o registros → terminal; antes y después → split; lugares → map; una frase clave o cita → quote.
+- Varía: no repitas la misma plantilla en escenas seguidas salvo que la narración lo pida, y usa tantas plantillas distintas como permitan las ideas (al menos 5 en un video de 5 escenas o más).
+- title es el último recurso: solo si la escena no tiene ninguna fecha, cifra, lista, proceso, comparación ni relación que mostrar. Cerrar con outro está bien.
 - Cada "cue" es una palabra o frase de 1 a 3 palabras copiada LITERALMENTE de la narración de ESA escena (mismas palabras, mismo orden). Es el instante en que se dispara la animación. Ponlos en el orden en que se dicen.
-- Cifras (compare, stat, chart, funnel) y fechas (timeline) solo si la narración las dice o se deducen sin duda de ella. Nunca inventes datos; si no hay cifras, usa otra plantilla.
-- Si la escena tiene IMAGEN, la plantilla se dibuja encima de la foto: prefiere las de pocos elementos (hook, stat, list, steps, timeline, title) y deja que la foto cuente el contexto.
+- DATOS DE LA ESCENA (fechas, titulares, listas, cifras, comandos) son material para rellenar las plantillas: úsalos. Cifras (compare, stat, chart, funnel) y fechas (timeline) solo si están en la narración o en esos datos; nunca las inventes.
+- Si la escena tiene IMAGEN, la foto va de fondo con un velo oscuro y cualquier plantilla se lee encima: la foto no es motivo para elegir una plantilla más pobre.
 - Etiquetas cortas (1 a 3 palabras), en el idioma de la narración, sin emojis. "label" de flow máx 28 caracteres.
 - Devuelve SOLO JSON: { "scenes": [{ "sceneId": "...", "beats": [{ ...plan }, { ...plan, "from": "..." }] }] } con una entrada por escena, en orden.`;
 
 const text = (value: unknown) => (typeof value === "string" ? value.trim() : "");
 const narrationSeconds = (scene: VideoDocument["scenes"][number], fps: number) => sceneWords(scene, fps).at(-1)?.e ?? scene.durationFrames / fps;
+// Campos de la escena que ya van aparte o no son contenido.
+const NOT_DATA = new Set(["title", "voiceover", "visual", "imagePrompt", "canvas", "wordTimings", "audioDurationSeconds", "animationHtml", "animationSource"]);
+
+/**
+ * El resto del contenido de la escena (las de standard/timeline traen año, titular, indicadores,
+ * acciones, comandos…): sin esto la IA no sabe que hay fechas o listas que animar.
+ */
+function sceneData(content: Record<string, unknown>) {
+  const lines = Object.entries(content).flatMap(([key, value]) => {
+    if (NOT_DATA.has(key)) return [];
+    const shown = Array.isArray(value) ? value.filter((item) => typeof item === "string" && item.trim()).join(" | ") : typeof value === "string" || typeof value === "number" ? String(value).trim() : "";
+    return shown ? [`- ${key}: ${shown.slice(0, 400)}`] : [];
+  });
+  return lines.length ? `DATOS DE LA ESCENA:\n${lines.join("\n")}` : "";
+}
+
 /** Lo guardado en `content.canvas`: un plan suelto o una lista de animaciones (ver `storedBeats`). */
 type StoredPlan = ReturnType<typeof storedBeats>;
 
@@ -64,6 +83,7 @@ export function buildCanvasPlanPrompt(document: VideoDocument, feedback?: string
     `TÍTULO: ${text(scene.content.title)}`,
     `NARRACIÓN (${narrationSeconds(scene, document.fps).toFixed(1)} s): ${text(scene.content.voiceover)}`,
     text(scene.content.visual) ? `IDEA VISUAL: ${text(scene.content.visual)}` : "",
+    sceneData(scene.content),
     scene.imageAssetId ? `IMAGEN: sí${text(scene.content.imagePrompt) ? ` (${text(scene.content.imagePrompt)})` : ""}` : "",
     scene.content.canvas ? `PLAN ACTUAL: ${JSON.stringify(scene.content.canvas)}` : "",
   ].filter(Boolean).join("\n"));
@@ -95,6 +115,24 @@ export function replaceCanvasPlans(document: VideoDocument, plans: Record<string
   return videoDocumentSchema.parse({ ...document, scenes: document.scenes.map((scene) => (plans[scene.id] ? { ...scene, content: { ...scene.content, canvas: plans[scene.id] } } : scene)) });
 }
 
+/**
+ * Lo que le falta de variedad a un plan, en frases para devolvérselas a la IA: escenas que (salvo la
+ * última) solo muestran el título y pocas plantillas distintas. Vacío si está bien.
+ */
+export function planVarietyIssues(document: VideoDocument, plans: Record<string, StoredPlan>) {
+  const templates = document.scenes.map((scene) => {
+    const stored = (plans[scene.id] ?? scene.content.canvas) as { template?: string } | { template?: string }[] | undefined;
+    return (Array.isArray(stored) ? stored : stored ? [stored] : []).map((beat) => beat.template ?? "title");
+  });
+  const issues: string[] = [];
+  const titled = document.scenes.flatMap((scene, index) => (index < document.scenes.length - 1 && templates[index].every((template) => template === "title") ? [index + 1] : []));
+  if (titled.length) issues.push(`Las escenas ${titled.join(", ")} solo muestran el título: dales una animación que demuestre su idea con sus datos.`);
+  const distinct = new Set(templates.flat().filter((template) => template !== "title" && template !== "outro"));
+  const target = Math.min(5, document.scenes.length - 1);
+  if (distinct.size < target) issues.push(`Solo usaste ${distinct.size} plantillas distintas (${[...distinct].join(", ") || "ninguna"}); usa al menos ${target}, eligiendo para cada idea la que mejor la demuestre.`);
+  return issues;
+}
+
 export async function generateCanvasPlan(document: VideoDocument, feedback?: string, request: typeof fetch = fetch, focus?: CanvasPlanFocus) {
   if (focus && !document.scenes.some((scene) => scene.id === focus.sceneId)) throw new VideoGenerationError("La escena seleccionada no existe.", 404);
   try {
@@ -106,11 +144,21 @@ export async function generateCanvasPlan(document: VideoDocument, feedback?: str
       const scene = document.scenes.find((item) => item.id === focus.sceneId)!;
       const beats = entryBeats(entry, scene, document.fps);
       if (!beats || beats[0].template !== focus.template) throw new VideoGenerationError("La IA no devolvió un plan válido con esa animación. Intenta de nuevo.", 422);
-      return { ...result, plans: { [focus.sceneId]: storedBeats(beats) }, skipped: [] as string[] };
+      return { ...result, plans: { [focus.sceneId]: storedBeats(beats) }, skipped: [] as string[], reviewed: false };
     }
-    const { plans, skipped } = normalizeCanvasPlans(result.value, document);
-    if (!Object.keys(plans).length) throw new VideoGenerationError("La IA no devolvió ningún plan válido para las escenas.", 422);
-    return { ...result, plans, skipped };
+    const first = normalizeCanvasPlans(result.value, document);
+    // Una revisión: si el plan se quedó corto de variedad, se le devuelven los problemas concretos y se
+    // queda la versión con menos problemas. No se repite más: cada vuelta es otra llamada que se paga.
+    const issues = planVarietyIssues(document, first.plans);
+    if (issues.length && Object.keys(first.plans).length) {
+      const review = await generateOpenAiJson({ system: CANVAS_PLAN_SYSTEM_PROMPT, prompt: buildCanvasPlanPrompt(document, [feedback?.trim(), `REVISIÓN DE TU PLAN ANTERIOR: ${issues.join(" ")}\nPLAN ANTERIOR: ${JSON.stringify(first.plans)}`].filter(Boolean).join("\n")), purpose: "explainer", timeoutMs: 180_000, request }).catch(() => null);
+      const second = review ? normalizeCanvasPlans(review.value, document) : null;
+      const usage = review ? addUsage(result.usage, review.usage) : result.usage;
+      if (second && Object.keys(second.plans).length >= Object.keys(first.plans).length && planVarietyIssues(document, second.plans).length < issues.length) return { ...result, usage, ...second, reviewed: true };
+      return { ...result, usage, ...first, reviewed: Boolean(review) };
+    }
+    if (!Object.keys(first.plans).length) throw new VideoGenerationError("La IA no devolvió ningún plan válido para las escenas.", 422);
+    return { ...result, ...first, reviewed: false };
   } catch (error) {
     if (error instanceof VideoGenerationError) throw error;
     if (error instanceof OpenAiError) throw new VideoGenerationError(error.message, error.status);
