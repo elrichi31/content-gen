@@ -10,7 +10,9 @@ const finalKey = /^media\/assets\/[a-f0-9]{64}\.mp4$/;
 const backupName = /^[a-f0-9]{64}\.mp4$/;
 /** Pieza (o marca) a la que pertenece un archivo, con su campaña para ubicarla. */
 export type StorageProject = { id: string; title: string; type: string; campaign: string | null };
-export type StorageFileRow = StorageEntry & { deletable: boolean; reason: string; exportCount: number; pieceTitles: string[]; projects: StorageProject[] };
+/** Dirección para previsualizar el archivo; solo existe cuando es un asset que la app sabe servir. */
+export type StoragePreview = { url: string; mimeType: string };
+export type StorageFileRow = StorageEntry & { deletable: boolean; reason: string; exportCount: number; pieceTitles: string[]; projects: StorageProject[]; preview?: StoragePreview | null };
 type Selection = { key: string; version: string };
 export class StorageDeleteError extends Error {
   status: number;
@@ -118,7 +120,8 @@ async function readCatalog(root: string, db: Database) {
     const inUse = [...ids].some(id => used.has(id));
     const deletable = finalKey.test(entry.key) && entry.links === 1 && !inUse && aliases.every(asset => asset.mimeType === "video/mp4") && exports.every(item => item.format === "mp4");
     const projects = [...new Set([...ids].flatMap(id => [...(usedBy.get(id) ?? [])]))].map(id => projectOf.get(id)).filter((project): project is StorageProject => Boolean(project));
-    return { ...entry, name: aliases[0]?.filename ?? entry.name, deletable, exportCount: exports.length, pieceTitles: [...new Set([...titles, ...projects.map(project => project.title)])], projects, reason: inUse ? "Lo utiliza un proyecto o una marca" : entry.links !== 1 ? "Archivo compartido mediante enlaces" : deletable ? exports.length ? "Video final · se puede volver a renderizar" : "MP4 sin exportación" : entry.kind === "renders" ? "Temporal del worker · limpieza automática" : "Archivo fuente protegido" };
+    const preview = aliases[0] ? { url: `/api/assets/${aliases[0].id}`, mimeType: aliases[0].mimeType } : null;
+    return { ...entry, name: aliases[0]?.filename ?? entry.name, deletable, preview, exportCount: exports.length, pieceTitles: [...new Set([...titles, ...projects.map(project => project.title)])], projects, reason: inUse ? "Lo utiliza un proyecto o una marca" : entry.links !== 1 ? "Archivo compartido mediante enlaces" : deletable ? exports.length ? "Video final · se puede volver a renderizar" : "MP4 sin exportación" : entry.kind === "renders" ? "Temporal del worker · limpieza automática" : "Archivo fuente protegido" };
   }).sort((a, b) => b.allocatedBytes - a.allocatedBytes || a.key.localeCompare(b.key));
   delete usage.entries;
   return { usage, files };

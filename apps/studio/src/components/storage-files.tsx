@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { FolderOpen, Trash2, X } from "lucide-react";
+import { ExternalLink, FileText, FolderOpen, Lock, Music, Play, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Notice } from "@/components/ui/notice";
@@ -46,6 +46,35 @@ function StorageProjects({ groups, active, busy, onSelect }: { groups: StorageGr
   </section>;
 }
 
+/** Miniatura de la fila: las imágenes se ven directamente; videos y audios muestran su icono y se abren al tocarlos. */
+function StorageThumb({ file, onOpen }: { file: StorageFileRow; onOpen: () => void }) {
+  const mime = file.preview?.mimeType ?? "";
+  const box = "flex size-11 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-muted/40 text-muted-foreground";
+  if (!file.preview) return <span className={box} title="Sin vista previa"><FileText className="size-4" aria-hidden="true" /></span>;
+  return <button type="button" onClick={onOpen} aria-label={`Ver ${file.name}`} className={`${box} transition hover:border-primary/60 hover:text-foreground`}>
+    {mime.startsWith("image/") ? <img src={file.preview.url} alt="" loading="lazy" className="size-full object-cover" />
+      : mime.startsWith("video/") ? <Play className="size-4" aria-hidden="true" />
+      : mime.startsWith("audio/") ? <Music className="size-4" aria-hidden="true" />
+      : <FileText className="size-4" aria-hidden="true" />}
+  </button>;
+}
+
+function StoragePreviewSheet({ file, onClose }: { file: StorageFileRow | null; onClose: () => void }) {
+  const preview = file?.preview; const mime = preview?.mimeType ?? "";
+  return <Sheet open={Boolean(preview)} onOpenChange={open => { if (!open) onClose(); }}>
+    <SheetContent className="overflow-y-auto" contentClassName="w-full sm:max-w-xl">
+      <SheetHeader><SheetTitle className="break-all">{file?.name}</SheetTitle><SheetDescription>{file ? `${bytes(file.sizeBytes)} · ${file.reason}` : ""}</SheetDescription></SheetHeader>
+      {preview ? <div className="space-y-3 px-4">
+        {mime.startsWith("image/") ? <img src={preview.url} alt={file?.name ?? ""} className="max-h-[70vh] w-full rounded-lg border border-border object-contain" />
+          : mime.startsWith("video/") ? <video key={preview.url} src={preview.url} controls preload="metadata" className="max-h-[70vh] w-full rounded-lg border border-border bg-black" />
+          : mime.startsWith("audio/") ? <audio key={preview.url} src={preview.url} controls preload="metadata" className="w-full" />
+          : <p className="text-[13px] text-muted-foreground">Este tipo de archivo no se puede previsualizar aquí.</p>}
+        <a href={preview.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-[13px] text-primary hover:underline"><ExternalLink className="size-3.5" aria-hidden="true" />Abrir en otra pestaña</a>
+      </div> : null}
+    </SheetContent>
+  </Sheet>;
+}
+
 export function StorageSelectionSummary({ files }: { files: StorageFileRow[] }) {
   const summary = summarizeSelection(files);
   return <div className="space-y-2 text-[13px]">
@@ -66,6 +95,7 @@ export function StorageFiles({ initial }: { initial: FilePage }) {
   const [confirming, setConfirming] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [previewing, setPreviewing] = useState<StorageFileRow | null>(null);
   const files = [...selected.values()];
   const summary = summarizeSelection(files);
   const selectable = data.files.filter(file => file.deletable);
@@ -130,17 +160,19 @@ export function StorageFiles({ initial }: { initial: FilePage }) {
     {summary.count > 0 ? <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-muted/30 px-4 py-3"><p className="text-[13px] tabular-nums">{summary.count} seleccionado{summary.count === 1 ? "" : "s"} · Liberaría aprox. <span className="font-semibold">{bytes(summary.estimatedBytes)}</span></p><div className="flex gap-2"><Button variant="ghost" disabled={busy} onClick={() => setSelected(new Map())}>Limpiar selección</Button><Button variant="destructive" disabled={busy} onClick={() => { setError(""); setConfirming(true); }}><Trash2 className="size-4" aria-hidden="true" />Borrar selección</Button></div></div> : null}
     {error ? <p role="alert" className="mb-3 text-[13px] text-destructive">{error}</p> : null}
     <Notice notice={message ? { tone: "success", message } : null} onDismiss={() => setMessage("")} />
-    <div className="overflow-x-auto rounded-xl border border-border" aria-busy={busy}>
+    <p className="mb-2 text-xs text-muted-foreground">{selectable.length ? `Solo se pueden borrar los videos finales: ${selectable.length} de ${data.files.length} en esta página. El resto está protegido (candado).` : "Ningún archivo de esta página se puede borrar: solo los videos finales se pueden eliminar. Prueba el filtro «Se pueden borrar»."}</p>
+    <div className="max-h-[65vh] overflow-auto rounded-xl border border-border" aria-busy={busy}>
       <table className="w-full text-[13px]">
         <caption className="sr-only">Archivos físicos, tamaños y disponibilidad para borrar</caption>
-        <thead className="border-b border-border bg-muted/40 text-muted-foreground"><tr><th scope="col" className="w-10 px-3 py-3"><input type="checkbox" aria-label="Seleccionar esta página" checked={allPage} disabled={busy || !selectable.length} onChange={togglePage} className="size-4 accent-primary" /></th><th scope="col" className="px-3 py-3 text-left font-medium">Archivo</th><th scope="col" className="whitespace-nowrap px-3 py-3 text-right font-medium">Tamaño</th><th scope="col" className="whitespace-nowrap px-3 py-3 text-right font-medium">En disco</th></tr></thead>
+        <thead className="sticky top-0 z-10 bg-card text-muted-foreground shadow-[inset_0_-1px_0_var(--border)]"><tr><th scope="col" className="w-10 px-3 py-3"><input type="checkbox" aria-label="Seleccionar esta página" title={selectable.length ? `Seleccionar los ${selectable.length} videos borrables de esta página` : "No hay archivos borrables en esta página"} checked={allPage} disabled={busy || !selectable.length} onChange={togglePage} className="size-4 accent-primary disabled:cursor-not-allowed disabled:opacity-30" /></th><th scope="col" className="w-14 px-1 py-3"><span className="sr-only">Vista previa</span></th><th scope="col" className="px-3 py-3 text-left font-medium">Archivo</th><th scope="col" className="whitespace-nowrap px-3 py-3 text-right font-medium">Tamaño</th><th scope="col" className="whitespace-nowrap px-3 py-3 text-right font-medium">En disco</th></tr></thead>
         <tbody className="divide-y divide-border">
-          {data.files.map(file => <tr key={file.key} className={selected.has(file.key) ? "bg-primary/5" : ""}><td className="px-3 py-3"><input type="checkbox" aria-label={`Seleccionar ${file.name}`} checked={selected.has(file.key)} disabled={busy || !file.deletable || selected.size >= 100 && !selected.has(file.key)} onChange={() => toggle(file)} className="size-4 accent-primary" /></td><th scope="row" className="max-w-80 px-3 py-3 text-left font-normal"><span className="block break-all font-medium">{file.name}</span><span className="mt-0.5 block text-xs text-muted-foreground">{file.projects?.length ? `${file.projects.map(project => `${TYPE_LABEL[project.type] ?? project.type}: ${project.title}`).join(", ")} · ` : file.pieceTitles.length ? `${file.pieceTitles.join(", ")} · ` : ""}{file.reason}{file.exportCount > 1 ? ` · ${file.exportCount} exportaciones comparten este archivo` : ""}</span></th><td className="whitespace-nowrap px-3 py-3 text-right tabular-nums text-muted-foreground">{bytes(file.sizeBytes)}</td><td className="whitespace-nowrap px-3 py-3 text-right tabular-nums">{bytes(file.allocatedBytes)}</td></tr>)}
-          {!data.files.length ? <tr><td colSpan={4} className="px-4 py-8 text-center text-muted-foreground">No hay archivos para este filtro.</td></tr> : null}
+          {data.files.map(file => <tr key={file.key} className={selected.has(file.key) ? "bg-primary/5" : ""}><td className="px-3 py-3">{file.deletable ? <input type="checkbox" aria-label={`Seleccionar ${file.name}`} checked={selected.has(file.key)} disabled={busy || selected.size >= 100 && !selected.has(file.key)} onChange={() => toggle(file)} className="size-4 accent-primary" /> : <Lock className="size-3.5 text-muted-foreground/60" aria-label={`Protegido: ${file.reason}`} />}</td><td className="px-1 py-2"><StorageThumb file={file} onOpen={() => setPreviewing(file)} /></td><th scope="row" className="max-w-80 px-3 py-3 text-left font-normal"><span className="block break-all font-medium">{file.name}</span><span className="mt-0.5 block text-xs text-muted-foreground">{file.projects?.length ? `${file.projects.map(project => `${TYPE_LABEL[project.type] ?? project.type}: ${project.title}`).join(", ")} · ` : file.pieceTitles.length ? `${file.pieceTitles.join(", ")} · ` : ""}{file.reason}{file.exportCount > 1 ? ` · ${file.exportCount} exportaciones comparten este archivo` : ""}</span></th><td className="whitespace-nowrap px-3 py-3 text-right tabular-nums text-muted-foreground">{bytes(file.sizeBytes)}</td><td className="whitespace-nowrap px-3 py-3 text-right tabular-nums">{bytes(file.allocatedBytes)}</td></tr>)}
+          {!data.files.length ? <tr><td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">No hay archivos para este filtro.</td></tr> : null}
         </tbody>
       </table>
     </div>
     <div className="mt-3 flex flex-wrap items-center justify-between gap-2"><p className="text-xs text-muted-foreground">Máximo 100 por selección. Los archivos fuente y los temporales activos están protegidos.</p><div className="flex items-center gap-2"><Button size="sm" variant="outline" disabled={busy || data.page === 0} onClick={() => void load(data.page - 1)}>Anterior</Button><span className="text-xs tabular-nums text-muted-foreground">{data.page + 1} / {data.pages}</span><Button size="sm" variant="outline" disabled={busy || data.page + 1 >= data.pages} onClick={() => void load(data.page + 1)}>Siguiente</Button></div></div>
+    <StoragePreviewSheet file={previewing} onClose={() => setPreviewing(null)} />
     <Sheet open={confirming} onOpenChange={open => { if (!busy) setConfirming(open); }}>
       <SheetContent className="overflow-y-auto" contentClassName="w-full sm:max-w-md">
         <SheetHeader><SheetTitle>Borrar videos finales</SheetTitle><SheetDescription>El borrado es definitivo. Para descargar estos videos otra vez tendrás que renderizarlos.</SheetDescription></SheetHeader>
