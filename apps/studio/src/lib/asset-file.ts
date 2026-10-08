@@ -29,3 +29,15 @@ export function resolveAssetPath(mediaRoot: string, storageKey: string) {
   if (!storageKeyPattern.test(storageKey) || !path.startsWith(`${root}${sep}`)) throw new Error("Ruta de asset inválida.");
   return path;
 }
+
+/**
+ * Cabecera `Range` de un solo tramo («bytes=0-», «bytes=100-199», «bytes=-500») → bytes inclusivos.
+ * `null` = sin Range o con varios tramos (se responde el archivo entero); `"invalid"` = fuera del archivo (416).
+ */
+export function parseByteRange(header: string | null, size: number): { start: number; end: number } | "invalid" | null {
+  const match = header?.trim().match(/^bytes=(\d*)-(\d*)$/);
+  if (!match || (!match[1] && !match[2])) return null;
+  const start = match[1] ? Number(match[1]) : Math.max(0, size - Number(match[2]));
+  const end = match[1] && match[2] ? Math.min(Number(match[2]), size - 1) : size - 1;
+  return start <= end && start < size ? { start, end } : "invalid";
+}

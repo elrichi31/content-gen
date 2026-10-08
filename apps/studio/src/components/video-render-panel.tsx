@@ -84,7 +84,6 @@ export function VideoRenderPanel({ contentItemId, unsavedChanges, hyperframesOnl
 
       {done ? (
         <div className="flex flex-col items-center gap-3 sm:flex-row sm:items-end">
-          {/* ponytail: /api/assets no responde a Range, así que adelantar el video puede no funcionar; agregar Range si molesta. */}
           <video key={job.outputAssetId} src={`/api/assets/${job.outputAssetId}`} controls playsInline preload="metadata" className="aspect-[9/16] w-full max-w-[220px] rounded-lg border border-border bg-black" />
           <div className="flex w-full flex-col gap-2 sm:w-auto">
             <p className="text-sm font-semibold text-foreground">Tu video está listo</p>
