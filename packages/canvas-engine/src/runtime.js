@@ -586,6 +586,343 @@ export function canvasRuntime(spec, options) {
     });
   };
 
+  // Línea de tiempo horizontal: la cámara avanza de hito en hito al nombrarlos.
+  T.timeline = (ctx, plan, scene, t) => {
+    const n = plan.events.length;
+    const gap = 470, lineY = 930, anchor = CX - 110;
+    // `focus` es el hito centrado (fraccionario mientras la cámara viaja al siguiente).
+    let focus = 0;
+    plan.events.forEach((event, i) => { if (i > 0) focus += E.inOutCubic(P(t, event.at - 0.4, event.at + 0.2)); });
+    const xOf = (i) => anchor + (i - focus) * gap;
+    const intro = E.outExpo(P(t, scene.start + 0.1, scene.start + 0.9));
+    const from = xOf(0) - 260, to = xOf(n - 1) + 900;
+    ctx.lineCap = "round";
+    ctx.strokeStyle = C.dim;
+    ctx.lineWidth = 6;
+    ctx.beginPath(); ctx.moveTo(from, lineY); ctx.lineTo(lerp(from, to, intro), lineY); ctx.stroke();
+    // Riel encendido hasta el último hito dicho, que avanza con la cámara.
+    let reach = -1;
+    plan.events.forEach((event, i) => { reach = Math.max(reach, i - 1 + E.outCubic(P(t, event.at - 0.25, event.at + 0.15))); });
+    if (reach > -1) {
+      ctx.strokeStyle = ACC;
+      ctx.beginPath(); ctx.moveTo(from, lineY); ctx.lineTo(xOf(Math.max(0, reach)), lineY); ctx.stroke();
+    }
+    // Marcas menores entre hitos: dan sensación de recorrido cuando la cámara se mueve.
+    ctx.fillStyle = "rgba(255,255,255,0.18)";
+    for (let i = -1; i < n + 2; i++) for (let m = 1; m < 5; m++) {
+      const x = xOf(i) + (m / 5) * gap;
+      if (x > from && x < lerp(from, to, intro)) ctx.fillRect(x - 2, lineY - 12, 4, 24);
+    }
+    plan.events.forEach((event, i) => {
+      const x = xOf(i);
+      if (x < -400 || x > W + 400) return;
+      const k = t - event.at;
+      const on = k >= 0;
+      const near = clamp(1 - Math.abs(i - focus) * 0.55, 0.35, 1);
+      const appear = E.outCubic(P(t, scene.start + 0.3 + i * 0.1, scene.start + 0.8 + i * 0.1));
+      // Punto del hito: anillo apagado que se llena al decirlo, con onda.
+      const s = on ? 1 + 0.4 * Math.exp(-k * 5) * Math.cos(k * 18) : appear;
+      ctx.save();
+      ctx.translate(x, lineY);
+      ctx.scale(s, s);
+      ctx.fillStyle = on ? ACC : C.ink;
+      ctx.strokeStyle = on ? ACC : C.dim;
+      ctx.lineWidth = 6;
+      ctx.beginPath(); ctx.arc(0, 0, 24, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.restore();
+      if (on && k < 0.7) {
+        const ring = k / 0.7;
+        ctx.strokeStyle = alpha(ACC, 0.6 * (1 - ring));
+        ctx.lineWidth = 4;
+        ctx.beginPath(); ctx.arc(x, lineY, 24 + 70 * E.outCubic(ring), 0, Math.PI * 2); ctx.stroke();
+      }
+      // Fecha encima (se ve tenue antes de decirse: anticipa lo que viene) y texto debajo.
+      const date = fit(ctx, event.date, 900, 420, 1, 120, 60);
+      const pop = on ? E.outBack(clamp(k / 0.35), 2) : 0;
+      ctx.save();
+      ctx.globalAlpha = appear * (on ? near : 0.22);
+      ctx.translate(x, lineY - 70);
+      ctx.scale(lerp(0.85, 1, on ? pop : 1), lerp(0.85, 1, on ? pop : 1));
+      text(ctx, date.lines[0], 0, 0, 900, date.size, on ? ACC : C.white, "center");
+      ctx.restore();
+      ctx.fillStyle = on ? alpha(ACC, near) : C.dim;
+      ctx.fillRect(x - 3, lineY - 56, 6, 26 * appear);
+      const label = fit(ctx, event.label, 700, 400, 3, 52, 34);
+      ctx.save();
+      ctx.globalAlpha = near;
+      label.lines.forEach((line, li) => maskedLine(ctx, line, x, lineY + 100 + li * label.size * 1.12, 700, label.size, C.white, "center", on ? P(k, li * 0.07, li * 0.07 + 0.6) : 0));
+      ctx.restore();
+    });
+  };
+
+  // Antes / después: pantalla partida; el «después» entra al decir el cue y el «antes» se apaga.
+  T.split = (ctx, plan, scene, t) => {
+    const gapX = 28;
+    const colW = (X1 - X0 - gapX) / 2;
+    // Alto de la tarjeta según su contenido (la más alta manda) y centrada en el escenario.
+    const heights = [plan.before, plan.after].map((side) => {
+      const head = fit(ctx, side.label.toUpperCase(), 900, colW - 50, 2, 46, 28);
+      return 150 + (head.lines.length - 1) * head.size * 1.08 + side.items.reduce((sum, item) => { const body = fit(ctx, item, 700, colW - 130, 3, 44, 30); return sum + body.lines.length * body.size * 1.12 + 44; }, 0) + 30;
+    });
+    const cardH = Math.max(420, ...heights);
+    const top = Math.max(STAGE_TOP + 20, (STAGE_TOP + STAGE_BOTTOM) / 2 - cardH / 2), bottom = top + cardH;
+    const sides = [[plan.before, X0, scene.start + 0.25, false], [plan.after, X0 + colW + gapX, plan.at, true]];
+    const dimBefore = 1 - 0.5 * E.outCubic(P(t, plan.at + 0.2, plan.at + 0.8));
+    sides.forEach(([side, x, at, good]) => {
+      const k = t - at;
+      if (k < 0) return;
+      const open = E.outExpo(clamp(k / 0.7));
+      ctx.save();
+      ctx.globalAlpha = good ? 1 : dimBefore;
+      // La tarjeta se despliega desde arriba.
+      ctx.beginPath(); ctx.rect(x - 10, top - 10, colW + 20, (bottom - top + 20) * open); ctx.clip();
+      ctx.fillStyle = good ? alpha(ACC, 0.14) : "rgba(255,255,255,0.05)";
+      ctx.strokeStyle = good ? ACC : C.dim;
+      ctx.lineWidth = good ? 5 : 3;
+      roundRect(ctx, x, top, colW, bottom - top, 28);
+      ctx.fill(); ctx.stroke();
+      const head = fit(ctx, side.label.toUpperCase(), 900, colW - 50, 2, 46, 28);
+      head.lines.forEach((line, li) => text(ctx, line, x + colW / 2, top + 76 + li * head.size * 1.08, 900, head.size, good ? ACC : "rgba(255,255,255,0.7)", "center"));
+      const headBottom = top + 76 + (head.lines.length - 1) * head.size * 1.08 + 34;
+      ctx.fillStyle = good ? ACC : C.dim;
+      ctx.fillRect(x + 40, headBottom, colW - 80, 3);
+      let y = headBottom + 70;
+      side.items.forEach((item, i) => {
+        const ki = k - 0.35 - i * 0.18;
+        const body = fit(ctx, item, 700, colW - 130, 3, 44, 30);
+        const s = spring(ki, 20, 8);
+        if (ki > 0) {
+          ctx.save();
+          ctx.translate(x + 50, y - body.size * 0.36);
+          ctx.scale(s, s);
+          ctx.lineCap = "round"; ctx.lineJoin = "round";
+          if (good) {
+            ctx.fillStyle = ACC; ctx.beginPath(); ctx.arc(0, 0, 24, 0, Math.PI * 2); ctx.fill();
+            ctx.strokeStyle = C.ink; ctx.lineWidth = 6; checkPath(ctx, 0, 0, 24, P(ki, 0.1, 0.4));
+          } else {
+            ctx.strokeStyle = "rgba(255,255,255,0.55)"; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(0, 0, 24, 0, Math.PI * 2); ctx.stroke();
+            ctx.lineWidth = 6; crossPath(ctx, 0, 0, 24, P(ki, 0.1, 0.4));
+          }
+          ctx.restore();
+          const slide = E.outExpo(clamp(ki / 0.5));
+          ctx.save();
+          ctx.globalAlpha *= slide;
+          body.lines.forEach((line, li) => text(ctx, line, x + 92 - (1 - slide) * 24, y + li * body.size * 1.12, 700, body.size, good ? C.white : "rgba(255,255,255,0.75)"));
+          ctx.restore();
+        }
+        y += body.lines.length * body.size * 1.12 + 44;
+      });
+      ctx.restore();
+    });
+    // Flecha entre las dos mitades al entrar el «después».
+    const k = t - plan.at;
+    if (k > 0) {
+      const s = spring(k - 0.15, 18, 7);
+      ctx.save();
+      ctx.translate(CX, (top + bottom) / 2);
+      ctx.scale(s, s);
+      ctx.fillStyle = ACC;
+      ctx.beginPath(); ctx.arc(0, 0, 42, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = C.ink; ctx.lineWidth = 8; ctx.lineCap = "round"; ctx.lineJoin = "round";
+      ctx.beginPath(); ctx.moveTo(-16, 0); ctx.lineTo(16, 0); ctx.moveTo(4, -13); ctx.lineTo(17, 0); ctx.lineTo(4, 13); ctx.stroke();
+      ctx.restore();
+    }
+  };
+
+  // Gráfica: una línea que se traza o barras que crecen, con el valor encima y el máximo resaltado.
+  T.chart = (ctx, plan, scene, t) => {
+    const left = X0 + 10, right = X1 - 10, top = 700, base = 1230;
+    const n = plan.points.length;
+    const values = plan.points.map((point) => point.value);
+    const max = Math.max(...values) || 1;
+    const peak = values.indexOf(max);
+    const slot = (right - left) / n;
+    const xOf = (i) => left + slot * (i + 0.5);
+    const yOf = (value) => base - (value / (max * 1.08)) * (base - top);
+    // Rejilla: tres líneas tenues que se dibujan al entrar.
+    const grid = E.outExpo(P(t, scene.start + 0.15, scene.start + 0.9));
+    for (let g = 1; g <= 3; g++) {
+      const y = base - (base - top) * g / 3;
+      ctx.fillStyle = "rgba(255,255,255,0.09)";
+      for (let x = left; x < lerp(left, right, grid); x += 28) ctx.fillRect(x, y - 1.5, 14, 3);
+    }
+    ctx.fillStyle = "rgba(255,255,255,0.35)";
+    ctx.fillRect(left, base - 2, (right - left) * grid, 4);
+    if (plan.unit) {
+      ctx.save();
+      ctx.globalAlpha = grid;
+      ctx.letterSpacing = "4px";
+      text(ctx, plan.unit.toUpperCase(), left, top - 50, 700, 32, ACC);
+      ctx.restore();
+    }
+    // El trazo (o las barras) acompaña a la narración: llega al último valor poco antes de que acabe la voz.
+    const drawEnd = clamp(scene.voiceEnd - 0.4, plan.at + 0.5 + 0.35 * n, plan.at + 6);
+    const reachAt = (i) => plan.at + (drawEnd - plan.at) * i / (n - 1);
+    const valueLabel = (i, value, final, x, y, highlight) => {
+      const label = fit(ctx, compactNumber(value, final), 900, slot + 30, 1, highlight ? 56 : 40, 24);
+      text(ctx, label.lines[0], x, y, 900, label.size, highlight ? ACC : "rgba(255,255,255,0.85)", "center");
+    };
+    if (plan.kind === "bar") {
+      const barW = Math.min(150, slot * 0.62);
+      plan.points.forEach((point, i) => {
+        const at = reachAt(i);
+        const grow = E.outExpo(P(t, at, at + 1));
+        const h = Math.max(4, base - yOf(point.value)) * grow;
+        ctx.fillStyle = i === peak ? ACC : "rgba(255,255,255,0.82)";
+        roundRect(ctx, xOf(i) - barW / 2, base - h, barW, h, 14);
+        ctx.fill();
+        if (t >= at) {
+          ctx.save();
+          ctx.globalAlpha = clamp((t - at) / 0.2);
+          valueLabel(i, point.value * grow, point.value, xOf(i), base - h - 22, i === peak);
+          ctx.restore();
+        }
+      });
+    } else {
+      // Avance del trazo en «puntos recorridos» (0 a n-1): cada tramo con su easing, así se posa en cada valor.
+      const u = (n - 1) * P(t, plan.at, drawEnd);
+      const head = Math.min(n - 1, Math.floor(u) + E.inOutCubic(u - Math.floor(u)));
+      const pts = plan.points.map((point, i) => [xOf(i), yOf(point.value)]);
+      const along = (u) => { const i = Math.min(n - 2, Math.floor(u)), f = u - i; return [lerp(pts[i][0], pts[i + 1][0], f), lerp(pts[i][1], pts[i + 1][1], f)]; };
+      if (t >= plan.at) {
+        const [hx, hy] = along(head);
+        const path = () => { ctx.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i <= Math.floor(head); i++) ctx.lineTo(pts[i][0], pts[i][1]); ctx.lineTo(hx, hy); };
+        // Área bajo la línea.
+        const area = ctx.createLinearGradient(0, top, 0, base);
+        area.addColorStop(0, alpha(ACC, 0.32));
+        area.addColorStop(1, alpha(ACC, 0));
+        ctx.fillStyle = area;
+        ctx.beginPath(); path(); ctx.lineTo(hx, base); ctx.lineTo(pts[0][0], base); ctx.closePath(); ctx.fill();
+        ctx.strokeStyle = ACC;
+        ctx.lineWidth = 9;
+        ctx.lineCap = "round"; ctx.lineJoin = "round";
+        ctx.beginPath(); path(); ctx.stroke();
+        plan.points.forEach((point, i) => {
+          const k = (t - reachAt(i)) / 0.25;
+          if (k < 0) return;
+          const s = spring(k * 0.25, 20, 8);
+          ctx.fillStyle = i === peak ? ACC : C.white;
+          ctx.beginPath(); ctx.arc(pts[i][0], pts[i][1], 13 * s, 0, Math.PI * 2); ctx.fill();
+          ctx.save();
+          ctx.globalAlpha = clamp(k);
+          valueLabel(i, point.value, point.value, pts[i][0], pts[i][1] - 36, i === peak);
+          ctx.restore();
+        });
+        // Cabeza del trazo con halo mientras dibuja.
+        if (head < n - 1) {
+          const glow = ctx.createRadialGradient(hx, hy, 0, hx, hy, 60);
+          glow.addColorStop(0, alpha(ACC2, 0.7));
+          glow.addColorStop(1, alpha(ACC2, 0));
+          ctx.fillStyle = glow;
+          ctx.beginPath(); ctx.arc(hx, hy, 60, 0, Math.PI * 2); ctx.fill();
+        }
+      }
+    }
+    plan.points.forEach((point, i) => {
+      const label = fit(ctx, point.label, 700, slot - 8, 1, 36, 22);
+      ctx.save();
+      ctx.globalAlpha = E.outCubic(P(t, scene.start + 0.3 + i * 0.05, scene.start + 0.7 + i * 0.05));
+      text(ctx, label.lines[0], xOf(i), base + 56, 700, label.size, i === peak ? ACC : "rgba(255,255,255,0.7)", "center");
+      ctx.restore();
+    });
+  };
+
+  // Red de nodos: se encienden y se conectan al nombrarlos, desde un centro o en cadena.
+  T.network = (ctx, plan, scene, t) => {
+    const n = plan.nodes.length;
+    const cy = 950, rx = 320, ry = 280;
+    const hub = plan.shape === "hub";
+    // Con número par se gira medio paso para que ningún nodo quede pegado al título o a los subtítulos.
+    const turn = n % 2 ? 0 : Math.PI / n;
+    const pos = plan.nodes.map((_, i) => {
+      const a = -Math.PI / 2 + turn + (i / n) * Math.PI * 2;
+      return [CX + Math.cos(a) * rx, cy + Math.sin(a) * ry];
+    });
+    const intro = E.outCubic(P(t, scene.start + 0.1, scene.start + 0.8));
+    // Malla de fondo: puntos tenues que derivan despacio, solo textura.
+    ctx.save();
+    ctx.globalAlpha = intro * 0.5;
+    const mesh = Array.from({ length: 22 }, (_, i) => [X0 + hash(i, 11) * (X1 - X0) + Math.sin(t * 0.4 + i) * 14, 600 + hash(i, 12) * 700 + Math.cos(t * 0.33 + i * 1.3) * 14]);
+    ctx.strokeStyle = "rgba(255,255,255,0.08)";
+    ctx.lineWidth = 2;
+    mesh.forEach(([x, y], i) => mesh.forEach(([x2, y2], j) => { if (j > i && Math.hypot(x2 - x, y2 - y) < 230) { ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x2, y2); ctx.stroke(); } }));
+    ctx.fillStyle = "rgba(255,255,255,0.22)";
+    mesh.forEach(([x, y]) => { ctx.beginPath(); ctx.arc(x, y, 4, 0, Math.PI * 2); ctx.fill(); });
+    ctx.restore();
+    // Cada conexión va de su origen (el centro o el nodo anterior) al nodo, y se traza justo antes del cue.
+    const origin = (i) => (hub ? [CX, cy] : i > 0 ? pos[i - 1] : null);
+    const draw = (i) => E.inOutCubic(P(t, plan.nodes[i].at - 0.35, plan.nodes[i].at));
+    ctx.lineCap = "round";
+    plan.nodes.forEach((node, i) => {
+      const o = origin(i);
+      const d = draw(i);
+      if (!o || d <= 0) return;
+      const [x, y] = pos[i];
+      ctx.strokeStyle = alpha(ACC, 0.75);
+      ctx.lineWidth = 5;
+      ctx.beginPath(); ctx.moveTo(o[0], o[1]); ctx.lineTo(lerp(o[0], x, d), lerp(o[1], y, d)); ctx.stroke();
+      // Pulsos que viajan por la conexión ya hecha: posición = fórmula de t, sin simular.
+      if (d >= 1) for (let p = 0; p < 2; p++) {
+        const u = ((t - node.at) * 0.7 + p * 0.5 + hash(i, 5)) % 1;
+        ctx.fillStyle = ACC2;
+        ctx.beginPath(); ctx.arc(lerp(o[0], x, u), lerp(o[1], y, u), 7, 0, Math.PI * 2); ctx.fill();
+      }
+    });
+    if (hub) {
+      const s = spring(t - scene.start - 0.2, 16, 8);
+      const label = plan.center ? fit(ctx, plan.center.toUpperCase(), 900, 300, 1, 44, 26) : null;
+      const w = label ? measure(ctx, label.lines[0], 900, label.size) + 70 : 120;
+      const pulse = 0.5 + 0.5 * Math.sin(t * 3);
+      ctx.save();
+      ctx.translate(CX, cy);
+      ctx.scale(s, s);
+      ctx.strokeStyle = alpha(ACC, 0.2 + 0.2 * pulse);
+      ctx.lineWidth = 4;
+      roundRect(ctx, -w / 2 - 14, -60 - 14, w + 28, 120 + 28, 74);
+      ctx.stroke();
+      ctx.fillStyle = ACC;
+      roundRect(ctx, -w / 2, -60, w, 120, 60);
+      ctx.fill();
+      if (label) text(ctx, label.lines[0], 0, 3, 900, label.size, C.ink, "center", "middle");
+      ctx.restore();
+    }
+    plan.nodes.forEach((node, i) => {
+      const k = t - node.at;
+      const [x, y] = pos[i];
+      // Antes de nombrarse el nodo es un anillo tenue: se intuye la red que va a formarse.
+      if (k < 0) {
+        ctx.strokeStyle = alpha("#ffffff", 0.18 * intro);
+        ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.arc(x, y, 30, 0, Math.PI * 2); ctx.stroke();
+        return;
+      }
+      const s = spring(k, 20, 8);
+      if (k < 0.6) {
+        const ring = k / 0.6;
+        ctx.strokeStyle = alpha(ACC, 0.6 * (1 - ring));
+        ctx.lineWidth = 4;
+        ctx.beginPath(); ctx.arc(x, y, 34 + 70 * E.outCubic(ring), 0, Math.PI * 2); ctx.stroke();
+      }
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.scale(s, s);
+      ctx.fillStyle = C.ink;
+      ctx.strokeStyle = ACC;
+      ctx.lineWidth = 7;
+      ctx.beginPath(); ctx.arc(0, 0, 34, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = ACC;
+      ctx.beginPath(); ctx.arc(0, 0, 14, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+      const label = fit(ctx, node.label, 700, 300, 2, 44, 28);
+      const above = y < cy - 20;
+      const first = above ? y - 62 - (label.lines.length - 1) * label.size * 1.08 : y + 34 + 28 + label.size * 0.8;
+      ctx.save();
+      ctx.globalAlpha = E.outCubic(clamp(k / 0.4));
+      label.lines.forEach((line, li) => text(ctx, line, x, first + li * label.size * 1.08, 700, label.size, C.white, "center"));
+      ctx.restore();
+    });
+  };
+
   // Cierre: la frase final palabra a palabra y una llamada a la acción.
   T.outro = (ctx, plan, scene, t) => {
     const { size, lines } = fit(ctx, plan.line, 900, X1 - X0, 4, 124, 64);

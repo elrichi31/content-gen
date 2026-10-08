@@ -71,7 +71,7 @@ export function findCue(words: readonly WordTiming[], phrase: string, after = 0)
 const cue = z.string().trim().min(1).max(60);
 const label = z.string().trim().min(1).max(28);
 
-export const CANVAS_TEMPLATES = ["hook", "flow", "steps", "compare", "stat", "list", "outro", "title"] as const;
+export const CANVAS_TEMPLATES = ["hook", "flow", "steps", "compare", "stat", "list", "timeline", "split", "chart", "network", "outro", "title"] as const;
 export type CanvasTemplate = (typeof CANVAS_TEMPLATES)[number];
 
 export const canvasScenePlanSchema = z.discriminatedUnion("template", [
@@ -100,6 +100,30 @@ export const canvasScenePlanSchema = z.discriminatedUnion("template", [
   z.object({ template: z.literal("stat"), value: z.number().min(0).max(1e12), decimals: z.number().int().min(0).max(2).default(0), unit: z.string().trim().max(8).optional(), label: z.string().trim().min(1).max(40), cue: cue.optional() }),
   // Lista con marcas que aparecen al nombrar cada punto.
   z.object({ template: z.literal("list"), icon: z.enum(["check", "cross", "dot"]).default("check"), items: z.array(z.object({ text: z.string().trim().min(1).max(40), cue: cue.optional() })).min(2).max(4) }),
+  // Línea de tiempo horizontal: la cámara avanza de fecha en fecha al nombrarlas.
+  z.object({ template: z.literal("timeline"), events: z.array(z.object({ date: z.string().trim().min(1).max(12), label: z.string().trim().min(1).max(40), cue: cue.optional() })).min(2).max(5) }),
+  // Antes / después en pantalla partida: el «después» entra al decir el cue.
+  z.object({
+    template: z.literal("split"),
+    before: z.object({ label: z.string().trim().min(1).max(20), items: z.array(z.string().trim().min(1).max(30)).min(1).max(3) }),
+    after: z.object({ label: z.string().trim().min(1).max(20), items: z.array(z.string().trim().min(1).max(30)).min(1).max(3) }),
+    cue: cue.optional(),
+  }),
+  // Gráfica de línea o de barras que se dibuja.
+  z.object({
+    template: z.literal("chart"),
+    kind: z.enum(["line", "bar"]).default("bar"),
+    points: z.array(z.object({ label: z.string().trim().min(1).max(10), value: z.number().min(0).max(1e12) })).min(3).max(8),
+    unit: z.string().trim().max(8).optional(),
+    cue: cue.optional(),
+  }),
+  // Red de nodos que se conectan: desde un centro (hub) o uno tras otro (chain).
+  z.object({
+    template: z.literal("network"),
+    shape: z.enum(["hub", "chain"]).default("hub"),
+    center: z.string().trim().min(1).max(18).optional(),
+    nodes: z.array(z.object({ label: z.string().trim().min(1).max(18), cue: cue.optional() })).min(2).max(6),
+  }),
   // Cierre.
   z.object({ template: z.literal("outro"), line: z.string().trim().min(1).max(40), cta: z.string().trim().max(40).optional() }),
   // Respaldo: el título de la escena en grande. Lo usa el motor si no hay plan.
@@ -127,7 +151,9 @@ export function pruneCues(plan: CanvasScenePlan, words: readonly WordTiming[]): 
     case "flow": return { ...plan, cues: { surge: keep(plan.cues.surge), shield: keep(plan.cues.shield), outcome: keep(plan.cues.outcome) } };
     case "steps": return { ...plan, items: plan.items.map((item) => ({ ...item, cue: keep(item.cue) })) };
     case "list": return { ...plan, items: plan.items.map((item) => ({ ...item, cue: keep(item.cue) })) };
-    case "compare": case "stat": return { ...plan, cue: keep(plan.cue) };
+    case "timeline": return { ...plan, events: plan.events.map((event) => ({ ...event, cue: keep(event.cue) })) };
+    case "network": return { ...plan, nodes: plan.nodes.map((node) => ({ ...node, cue: keep(node.cue) })) };
+    case "compare": case "stat": case "split": case "chart": return { ...plan, cue: keep(plan.cue) };
     default: return plan;
   }
 }
@@ -144,6 +170,10 @@ export type ResolvedPlan =
   | { template: "compare"; left: { label: string; value: number; unit: string }; right: { label: string; value: number; unit: string }; at: number }
   | { template: "stat"; value: number; decimals: number; unit: string; label: string; at: number }
   | { template: "list"; icon: "check" | "cross" | "dot"; items: { text: string; at: number }[] }
+  | { template: "timeline"; events: { date: string; label: string; at: number }[] }
+  | { template: "split"; before: { label: string; items: string[] }; after: { label: string; items: string[] }; at: number }
+  | { template: "chart"; kind: "line" | "bar"; points: { label: string; value: number }[]; unit: string; at: number }
+  | { template: "network"; shape: "hub" | "chain"; center: string | null; nodes: { label: string; at: number }[] }
   | { template: "outro"; line: string; cta: string; at: number }
   | { template: "title"; at: number };
 
@@ -205,6 +235,10 @@ export function buildCanvasSpec(document: VideoDocument): CanvasSpec {
       case "compare": resolved = { template: "compare", left: { ...plan.left, unit: plan.left.unit ?? "" }, right: { ...plan.right, unit: plan.right.unit ?? "" }, at: at(plan.cue, 0.15) }; break;
       case "stat": resolved = { template: "stat", value: plan.value, decimals: plan.decimals, unit: plan.unit ?? "", label: plan.label, at: at(plan.cue, 0.1) }; break;
       case "list": resolved = { template: "list", icon: plan.icon, items: plan.items.map((item, i) => ({ text: item.text, at: at(item.cue, spread(plan.items.length, i)) })) }; break;
+      case "timeline": resolved = { template: "timeline", events: plan.events.map((event, i) => ({ date: event.date, label: event.label, at: at(event.cue, spread(plan.events.length, i)) })) }; break;
+      case "split": resolved = { template: "split", before: plan.before, after: plan.after, at: at(plan.cue, 0.45) }; break;
+      case "chart": resolved = { template: "chart", kind: plan.kind, points: plan.points, unit: plan.unit ?? "", at: at(plan.cue, 0.1) }; break;
+      case "network": resolved = { template: "network", shape: plan.shape, center: plan.center ?? null, nodes: plan.nodes.map((node, i) => ({ label: node.label, at: at(node.cue, spread(plan.nodes.length, i, 0.08, 0.75)) })) }; break;
       case "outro": resolved = { template: "outro", line: plan.line, cta: plan.cta ?? "", at: round(voiceAt) }; break;
       default: resolved = { template: "title", at: round(voiceAt) };
     }
@@ -264,6 +298,26 @@ export const CANVAS_TEMPLATE_CATALOG: CanvasTemplateInfo[] = [
     template: "list", name: "Lista", description: "Puntos que aparecen con su marca (check, cruz o punto) cuando se nombran.",
     useFor: "Recomendaciones (check), errores o mitos (cruz), enumeraciones (punto).", fields: ["icono: check, cross o dot", "2 a 4 puntos (máx. 40 letras)", "cue de cada punto"],
     example: { title: "Checklist", voiceover: "Revisa tres cosas: que tengas un CDN, límites de peticiones y alertas de tráfico.", plan: { template: "list", icon: "check", items: [{ text: "Usa un CDN", cue: "CDN" }, { text: "Límites de peticiones", cue: "límites" }, { text: "Alertas de tráfico", cue: "alertas" }] } },
+  },
+  {
+    template: "timeline", name: "Línea de tiempo", description: "Una línea horizontal por la que la cámara avanza: cada fecha se enciende y muestra su hito justo cuando se nombra.",
+    useFor: "Historia, evolución de algo, cronologías.", fields: ["2 a 5 hitos: fecha (máx. 12 letras) y texto (máx. 40)", "cue de cada hito"],
+    example: { title: "La historia de los DDoS", voiceover: "En mil novecientos noventa y seis cayó el primer proveedor. En dos mil dieciséis Mirai usó cámaras. Y en dos mil veinte ya se medían en terabits.", plan: { template: "timeline", events: [{ date: "1996", label: "Cae el primer proveedor", cue: "noventa" }, { date: "2016", label: "Mirai usa cámaras", cue: "dieciséis" }, { date: "2020", label: "Ataques de terabits", cue: "veinte" }] } },
+  },
+  {
+    template: "split", name: "Antes / después", description: "Pantalla partida: primero el «antes» con cruces y, al decir el cue, entra el «después» con checks y el antes se apaga.",
+    useFor: "Sin y con algo, error contra solución, antes y después de un cambio.", fields: ["antes y después: etiqueta (máx. 20) y 1 a 3 puntos (máx. 30)", "cue del después"],
+    example: { title: "Sin protección y con ella", voiceover: "Sin protección, el sitio se cae y pierdes clientes. Con un CDN, el tráfico se reparte y todo sigue en pie.", plan: { template: "split", before: { label: "Sin protección", items: ["El sitio se cae", "Pierdes clientes"] }, after: { label: "Con CDN", items: ["Tráfico repartido", "Todo sigue en pie"] }, cue: "CDN" } },
+  },
+  {
+    template: "chart", name: "Gráfica", description: "Una gráfica de línea que se traza de izquierda a derecha o barras que crecen una tras otra, con su valor encima y el máximo resaltado.",
+    useFor: "Tendencias y series de 3 a 8 valores que la narración dice.", fields: ["tipo: line o bar", "3 a 8 puntos: etiqueta (máx. 10) y valor", "unidad (opcional)", "cue"],
+    example: { title: "Así crece una cuenta", voiceover: "En enero tenías cien seguidores, en febrero trescientos, en marzo ochocientos y en abril dos mil.", plan: { template: "chart", kind: "line", points: [{ label: "Ene", value: 100 }, { label: "Feb", value: 300 }, { label: "Mar", value: 800 }, { label: "Abr", value: 2000 }], cue: "enero" } },
+  },
+  {
+    template: "network", name: "Red de nodos", description: "Nodos que se encienden y se conectan al nombrarlos, desde un centro (hub) o uno tras otro (chain), con pulsos viajando por las conexiones.",
+    useFor: "Botnets, contagios, redes, IA, cómo se propaga o se conecta algo.", fields: ["forma: hub o chain", "centro (opcional, para hub)", "2 a 6 nodos (máx. 18 letras)", "cue de cada nodo"],
+    example: { title: "Cómo se arma una botnet", voiceover: "Todo empieza en un servidor de control. Infecta una cámara, luego un router, después una impresora y al final miles de dispositivos.", plan: { template: "network", shape: "hub", center: "Control", nodes: [{ label: "Cámara", cue: "cámara" }, { label: "Router", cue: "router" }, { label: "Impresora", cue: "impresora" }, { label: "Miles más", cue: "miles" }] } },
   },
   {
     template: "outro", name: "Cierre", description: "La frase final entra línea a línea y aparece una llamada a la acción en una pastilla.",

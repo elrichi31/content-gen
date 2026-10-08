@@ -77,6 +77,8 @@ for (const item of CANVAS_TEMPLATE_CATALOG) {
   const cues = [
     ..."words" in plan ? plan.words.map((word) => word.cue) : [],
     ..."items" in plan ? plan.items.map((entry) => entry.cue) : [],
+    ..."events" in plan ? plan.events.map((entry) => entry.cue) : [],
+    ..."nodes" in plan ? plan.nodes.map((entry) => entry.cue) : [],
     ..."cues" in plan ? Object.values(plan.cues) : [],
     "cue" in plan ? plan.cue : undefined,
   ].filter((value): value is string => Boolean(value));
@@ -87,3 +89,25 @@ for (const item of CANVAS_TEMPLATE_CATALOG) {
   assert.ok(sample.duration > 3 && sample.scenes[0].captions.length > 0);
 }
 console.log("canvas catálogo ok");
+
+// Plantillas nuevas: los cues caen en su palabra; sin cue, el momento se reparte en la narración.
+{
+  const timeline = sampleCanvasSpec("timeline").scenes[0];
+  assert.equal(timeline.plan.template, "timeline");
+  if (timeline.plan.template === "timeline") {
+    const ats = timeline.plan.events.map((event) => event.at);
+    assert.deepEqual([...ats].sort((a, b) => a - b), ats, "los hitos van en el orden en que se dicen");
+    assert.ok(ats[0] > timeline.voiceAt && ats[2] < timeline.voiceEnd);
+  }
+  const network = pruneCues(canvasScenePlanSchema.parse({ template: "network", nodes: [{ label: "Servidor", cue: "servidor" }, { label: "Otro", cue: "inventado" }] }), words);
+  assert.ok(network.template === "network" && network.shape === "hub" && network.nodes[0].cue === "servidor" && network.nodes[1].cue === undefined, "network: por defecto hub y se quitan los cues que no se dicen");
+  const split = pruneCues(canvasScenePlanSchema.parse({ template: "split", before: { label: "Antes", items: ["Lento"] }, after: { label: "Después", items: ["Rápido"] }, cue: "nunca" }), words);
+  assert.ok(split.template === "split" && split.cue === undefined);
+  const chart = canvasScenePlanSchema.parse({ template: "chart", points: [{ label: "A", value: 1 }, { label: "B", value: 2 }, { label: "C", value: 3 }] });
+  assert.ok(chart.template === "chart" && chart.kind === "bar", "chart: barras por defecto");
+  assert.equal(canvasScenePlanSchema.safeParse({ template: "chart", points: [{ label: "A", value: 1 }, { label: "B", value: 2 }] }).success, false, "chart pide al menos 3 puntos");
+  assert.equal(canvasScenePlanSchema.safeParse({ template: "timeline", events: [{ date: "1990", label: "Uno" }] }).success, false, "timeline pide al menos 2 hitos");
+  const fallback = buildCanvasSpec(videoDocumentSchema.parse({ ...document, scenes: [{ ...document.scenes[0], content: { ...document.scenes[0].content, canvas: { template: "split", before: { label: "Antes", items: ["Lento"] }, after: { label: "Después", items: ["Rápido"] } } } }] })).scenes[0];
+  assert.ok(fallback.plan.template === "split" && fallback.plan.at > fallback.voiceAt && fallback.plan.at < fallback.voiceEnd, "split sin cue: el después entra a mitad de la narración");
+}
+console.log("canvas plantillas nuevas ok");
