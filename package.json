@@ -31,6 +31,7 @@
     "test:carousel": "node --experimental-strip-types packages/domain/src/carousel.test.ts",
     "test:ad": "node --experimental-strip-types packages/domain/src/ad.test.ts",
     "test:video": "node --experimental-strip-types packages/domain/src/video.test.ts",
+    "test:canvas": "node --experimental-strip-types packages/domain/src/canvas.test.ts",
     "test:content-assets": "node --experimental-strip-types apps/studio/src/lib/content-assets.test.ts",
     "test:asset-storage": "node --experimental-strip-types apps/studio/src/lib/asset-storage.test.ts",
     "test:legacy-import": "node --experimental-strip-types scripts/legacy-import.test.mjs",

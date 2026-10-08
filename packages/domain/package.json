@@ -8,6 +8,7 @@
     "./carousel": "./src/carousel.ts",
     "./ad": "./src/ad.ts",
     "./video": "./src/video.ts",
+    "./canvas": "./src/canvas.ts",
     "./audio": "./src/audio.ts",
     "./analytics": "./src/analytics.ts",
     "./schedule": "./src/schedule.ts",

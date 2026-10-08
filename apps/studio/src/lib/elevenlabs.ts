@@ -1,3 +1,4 @@
+import { wordsFromAlignment, type WordTiming } from "@content-gen/domain/canvas";
 import { speechUsage } from "@content-gen/domain/cost";
 import { z } from "zod";
 import { normalizeTextForTts, supportsContextText, voiceSettingsFor } from "./tts-text.ts";
@@ -29,6 +30,17 @@ export async function createElevenLabsSpeech({ voiceId, text, modelId = "eleven_
     ...(previousText?.trim() ? { previous_text: normalizeTextForTts(previousText).slice(-1000) } : {}),
     ...(nextText?.trim() ? { next_text: normalizeTextForTts(nextText).slice(0, 1000) } : {}),
   } : {};
-  const response = await request(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}?output_format=mp3_44100_128`, { method: "POST", headers: { "xi-api-key": key(), "Content-Type": "application/json", Accept: "audio/mpeg" }, signal: AbortSignal.timeout(120_000), body: JSON.stringify({ text: spoken, model_id: modelId, language_code: "es", voice_settings: voiceSettingsFor(modelId), ...context }) });
-  if (!response.ok) throw providerError(response.status); const bytes = Buffer.from(await response.arrayBuffer()); if (!bytes.length) throw new ElevenLabsError("ElevenLabs devolvió audio vacío.", 502); return { bytes, mimeType: "audio/mpeg", filename: "elevenlabs-voice.mp3", modelId, usage: speechUsage(spoken.length) };
+  // `/with-timestamps` devuelve el mismo MP3 (en base64) más el tiempo de cada carácter, al mismo precio.
+  // Con eso el motor Canvas dispara cada animación y cada subtítulo justo cuando se dice la palabra.
+  const response = await request(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}/with-timestamps?output_format=mp3_44100_128`, { method: "POST", headers: { "xi-api-key": key(), "Content-Type": "application/json", Accept: "application/json" }, signal: AbortSignal.timeout(120_000), body: JSON.stringify({ text: spoken, model_id: modelId, language_code: "es", voice_settings: voiceSettingsFor(modelId), ...context }) });
+  if (!response.ok) throw providerError(response.status);
+  const body = timestampedSchema.safeParse(await response.json().catch(() => null)); if (!body.success) throw new ElevenLabsError("ElevenLabs devolvió una respuesta inesperada.", 502);
+  const bytes = Buffer.from(body.data.audio_base64, "base64"); if (!bytes.length) throw new ElevenLabsError("ElevenLabs devolvió audio vacío.", 502);
+  const words: WordTiming[] = body.data.alignment ? wordsFromAlignment(body.data.alignment) : [];
+  return { bytes, mimeType: "audio/mpeg", filename: "elevenlabs-voice.mp3", modelId, usage: speechUsage(spoken.length), words };
 }
+
+const timestampedSchema = z.object({
+  audio_base64: z.string(),
+  alignment: z.object({ characters: z.array(z.string()), character_start_times_seconds: z.array(z.number()), character_end_times_seconds: z.array(z.number()) }).nullable().optional(),
+});
