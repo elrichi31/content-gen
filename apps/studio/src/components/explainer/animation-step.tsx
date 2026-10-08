@@ -7,6 +7,7 @@ import Link from "next/link";
 import { buildCanvasSpec, CANVAS_TEMPLATE_CATALOG, type CanvasTemplate } from "@content-gen/domain/canvas";
 import type { VideoDocument } from "@content-gen/domain/video";
 import { AiProgress } from "@/components/ai-progress";
+import { useCanvasVoices } from "@/components/explainer/use-canvas-voices";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -25,7 +26,6 @@ export function ExplainerAnimationStep({ contentItemId, revision, document, onPe
   const spec = useMemo(() => buildCanvasSpec(document), [document]);
   const html = useMemo(() => buildCanvasHtml(spec, { live: true, scale: 0.5 }), [spec]);
   const frame = useRef<HTMLIFrameElement>(null);
-  const voices = useRef<Map<string, HTMLAudioElement>>(new Map());
   const [ready, setReady] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [time, setTime] = useState(0);
@@ -39,13 +39,7 @@ export function ExplainerAnimationStep({ contentItemId, revision, document, onPe
 
   const send = useCallback((t: number) => frame.current?.contentWindow?.postMessage({ type: "canvas-engine:time", t }, "*"), []);
 
-  // Una voz por escena con audio; solo se rehacen si cambian los audios, no con cada edición.
-  const audioKey = JSON.stringify(document.scenes.flatMap((scene) => (scene.audioAssetId ? [[scene.id, scene.audioAssetId]] : [])));
-  useEffect(() => {
-    const map = new Map((JSON.parse(audioKey) as [string, string][]).map(([sceneId, assetId]) => [sceneId, new Audio(`/api/assets/${assetId}`)]));
-    voices.current = map;
-    return () => map.forEach((audio) => audio.pause());
-  }, [audioKey]);
+  const { step, stop } = useCanvasVoices(spec, document);
 
   // Fotos de las escenas: el iframe aislado no puede pedirlas con la sesión, así que se descargan aquí
   // (una vez por asset) y se le pasan ya decodificadas como ImageBitmap.
@@ -74,41 +68,28 @@ export function ExplainerAnimationStep({ contentItemId, revision, document, onPe
     return () => window.removeEventListener("message", onMessage);
   }, [html, send, sendImages]);
 
-  /** Pone cada voz donde toca en `t`: suena si su escena está hablando, si no, en pausa. */
-  const syncVoices = useCallback((t: number, play: boolean) => {
-    spec.scenes.forEach((scene) => {
-      const audio = voices.current.get(scene.id);
-      if (!audio) return;
-      const local = t - scene.voiceAt;
-      const inside = local >= 0 && (Number.isNaN(audio.duration) || local < audio.duration);
-      if (!play || !inside) { if (!audio.paused) audio.pause(); return; }
-      if (audio.paused) { audio.currentTime = local; void audio.play().catch(() => undefined); }
-      else if (Math.abs(audio.currentTime - local) > 0.25) audio.currentTime = local;
-    });
-  }, [spec]);
-
   useEffect(() => {
-    if (!playing) { syncVoices(position.current, false); return; }
-    const startedAt = performance.now() - position.current * 1000;
+    if (!playing) { stop(); return; }
+    let last = performance.now();
     let handle = 0;
-    const tick = () => {
-      const t = Math.min(spec.duration, (performance.now() - startedAt) / 1000);
+    const tick = (now: number) => {
+      const t = Math.min(spec.duration, step(position.current, Math.max(0, now - last) / 1000));
+      last = now;
       position.current = t;
       setTime(t);
       send(t);
-      syncVoices(t, true);
       if (t >= spec.duration) { setPlaying(false); return; }
       handle = requestAnimationFrame(tick);
     };
     handle = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(handle);
-  }, [playing, spec, send, syncVoices]);
+  }, [playing, spec, send, step, stop]);
 
+  // Mientras reproduce, el siguiente frame recoloca la voz en el nuevo punto.
   function seek(t: number) {
     position.current = t;
     setTime(t);
     send(t);
-    if (!playing) syncVoices(t, false);
   }
 
   function toggle() {
@@ -276,6 +257,8 @@ export function ExplainerAnimationStep({ contentItemId, revision, document, onPe
                         {CANVAS_TEMPLATE_CATALOG.map((item) => <option key={item.template} value={item.template}>{item.name}</option>)}
                       </select>
                     )}
+                    {/* La IA puede encadenar 2 o 3 animaciones en una escena larga; el selector cambia la primera. */}
+                    {scene.beats.length > 1 ? <span className="text-[11px] text-muted-foreground">→ {scene.beats.slice(1).map((beat) => CANVAS_TEMPLATE_CATALOG.find((item) => item.template === beat.plan.template)?.name ?? beat.plan.template).join(" → ")}</span> : null}
                   </div>
                 </li>
               );
