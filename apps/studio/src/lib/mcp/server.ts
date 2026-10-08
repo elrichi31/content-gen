@@ -43,6 +43,7 @@ import * as posts from "@/app/api/schedule/posts/route";
 import * as ruleItem from "@/app/api/schedule/rules/[id]/route";
 import * as rules from "@/app/api/schedule/rules/route";
 import * as videoCaption from "@/app/api/videos/[id]/caption/route";
+import * as canvasPlan from "@/app/api/videos/[id]/canvas-plan/route";
 import * as sceneAnimation from "@/app/api/videos/[id]/scenes/[sceneId]/animation/route";
 import * as sceneAudio from "@/app/api/videos/[id]/scenes/[sceneId]/audio/route";
 import * as sceneImage from "@/app/api/videos/[id]/scenes/[sceneId]/image/route";
@@ -381,7 +382,7 @@ export function createStudioMcpServer({ origin, scopes = ["studio:read", "studio
     return { contentItemId: saved.id, title: document.title, scenes: document.scenes.map((scene) => scene.id), abrir: args.templateId === "explainer" ? `/explainer?id=${saved.id}` : `/video?id=${saved.id}` };
   });
   tool("generar_video_completo", {
-    description: "Genera un video de principio a fin: guion, imágenes (standard/timeline) o animaciones (explainer), narración si se pasa voiceId, caption y render automático. Guarda un borrador y devuelve contentItemId y renderJob; el MP4 aún no está listo: consultar listar_renders hasta completed y abrir el outputAssetId con ver_asset. Si falla, devuelve el borrador y failedStep para continuar con las herramientas por escena, sin volver a crear ni gastar todo. Puede tardar varios minutos. No publica." + spendNote,
+    description: "Genera un video de principio a fin: guion, imágenes (standard/timeline) o animaciones (explainer), narración si se pasa voiceId, caption y render automático con el motor elegido (engine). Con engine=canvas no genera imágenes ni animaciones HTML: genera el plan de Canvas y renderiza a 60 fps. Guarda un borrador y devuelve contentItemId y renderJob; el MP4 aún no está listo: consultar listar_renders hasta completed y abrir el outputAssetId con ver_asset. Si falla, devuelve el borrador y failedStep para continuar con las herramientas por escena, sin volver a crear ni gastar todo. Puede tardar varios minutos. No publica." + spendNote,
     input: {
       campaignId, topic: z.string().trim().min(3).max(240),
       templateId: z.enum(["standard", "timeline", "explainer"]).default("standard"),
@@ -392,10 +393,11 @@ export function createStudioMcpServer({ origin, scopes = ["studio:read", "studio
       imageSource: z.enum(["none", "unsplash", "openai"]).default("unsplash").describe("Para standard/timeline; explainer siempre genera animaciones"),
       voiceId: z.string().min(8).max(64).optional().describe("Voz de listar_voces; si se omite, video sin narración"),
       modelId: z.string().min(3).max(80).default("eleven_multilingual_v2"),
+      engine: z.enum(["remotion", "hyperframes", "canvas"]).optional().describe("Motor de render. Por defecto Remotion (standard/timeline) o HyperFrames (explainer); canvas = plantillas animadas a 60 fps sincronizadas con la voz"),
     },
     spends: true,
-  }, async ({ imageSource, voiceId, modelId, ...args }) => {
-    const result = await runVideoPipeline({ topic: args.topic, imageSource, voiceId, modelId }, {
+  }, async ({ imageSource, voiceId, modelId, engine, ...args }) => {
+    const result = await runVideoPipeline({ topic: args.topic, imageSource, voiceId, modelId, engine }, {
       create: async () => {
         const generated = await call(videoGenerate.POST, { method: "POST", body: args }) as { document: unknown };
         const document = videoDocumentSchema.parse(generated.document);
@@ -410,15 +412,16 @@ export function createStudioMcpServer({ origin, scopes = ["studio:read", "studio
       voiceover: (item, revision) => call(voiceoverScript.POST, { method: "POST", params: { id: item }, body: { action: "generate", revision } }),
       audio: (item, sceneId, voiceId, modelId, revision) => call(sceneAudio.POST, { method: "POST", params: { id: item, sceneId }, body: { voiceId, modelId, revision } }),
       caption: (item, revision) => call(videoCaption.POST, { method: "POST", params: { id: item }, body: { action: "generate", revision } }),
-      render: async (item) => {
-        const job = await call(renderJobs.POST, { method: "POST", body: { contentItemId: item } }) as { id: string; status: string };
+      canvasPlan: (item) => call(canvasPlan.POST, { method: "POST", params: { id: item }, body: {} }),
+      render: async (item, chosen) => {
+        const job = await call(renderJobs.POST, { method: "POST", body: { contentItemId: item, ...(chosen === "hyperframes" || chosen === "canvas" ? { engine: chosen } : {}) } }) as { id: string; status: string };
         const jobs = await call(renderJobs.GET, { query: { contentItemId: item } }) as { id: string; status: string }[];
         const saved = jobs.find((candidate) => candidate.id === job.id);
         if (!saved) throw new ToolError(`No se pudo verificar el render ${job.id}. Consulta listar_renders antes de reintentarlo.`);
         return saved;
       },
     });
-    return { ...result, abrir: args.templateId === "explainer" ? `/explainer?id=${result.contentItemId}` : `/video?id=${result.contentItemId}`, narracion: Boolean(voiceId) };
+    return { ...result, abrir: args.templateId === "explainer" ? `/explainer?id=${result.contentItemId}` : `/video?id=${result.contentItemId}`, narracion: Boolean(voiceId), motor: engine ?? (args.templateId === "explainer" ? "hyperframes" : "remotion") };
   });
   const withRevision = async (contentItemId: string) => {
     const current = await getContent(contentItemId);
@@ -435,6 +438,11 @@ export function createStudioMcpServer({ origin, scopes = ["studio:read", "studio
     input: { contentItemId: id("el video"), sceneId: id("la escena"), feedback: z.string().max(2000).optional() },
     spends: true,
   }, ({ contentItemId, sceneId, feedback }) => call(sceneAnimation.POST, { method: "POST", params: { id: contentItemId, sceneId }, body: feedback ? { feedback } : {} }));
+  tool("generar_plan_canvas", {
+    description: "Genera (o corrige con feedback) el plan del motor Canvas de todas las escenas de un video: plantilla animada, datos y momentos anclados a palabras de la narración. Hazlo antes de renderizar_video con engine=canvas; sin plan, Canvas solo muestra el título de cada escena." + spendNote,
+    input: { contentItemId: id("el video"), feedback: z.string().max(2000).optional() },
+    spends: true,
+  }, ({ contentItemId, feedback }) => call(canvasPlan.POST, { method: "POST", params: { id: contentItemId }, body: feedback ? { feedback } : {} }));
   tool("generar_guion_voz", { description: "Escribe el texto del narrador de cada escena de un video guardado." + spendNote, input: { contentItemId: id("el video") }, spends: true },
     async ({ contentItemId }) => call(voiceoverScript.POST, { method: "POST", params: { id: contentItemId }, body: { action: "generate", revision: await withRevision(contentItemId) } }));
   tool("listar_voces", { description: "Voces de ElevenLabs disponibles para la narración.", input: {}, readOnly: true }, () => call(voices.GET));
@@ -446,7 +454,7 @@ export function createStudioMcpServer({ origin, scopes = ["studio:read", "studio
   tool("generar_caption_video", { description: "Escribe el caption y hashtags de un video guardado." + spendNote, input: { contentItemId: id("el video") }, spends: true },
     async ({ contentItemId }) => call(videoCaption.POST, { method: "POST", params: { id: contentItemId }, body: { action: "generate", revision: await withRevision(contentItemId) } }));
   tool("renderizar_video", {
-    description: "Encola el render del video (Remotion, o HyperFrames para los educativos; Canvas a 60 fps con las plantillas animadas). Devuelve el trabajo; consulta su avance con listar_renders.",
+    description: "Encola el render del video con el motor elegido: remotion (por defecto en standard/timeline), hyperframes (por defecto en los educativos) o canvas (plantillas animadas a 60 fps; antes usa generar_plan_canvas). Devuelve el trabajo; consulta su avance con listar_renders.",
     input: { contentItemId: id("el video"), engine: z.enum(["remotion", "hyperframes", "canvas"]).optional() },
   }, ({ contentItemId, engine }) => call(renderJobs.POST, { method: "POST", body: { contentItemId, ...(engine === "hyperframes" || engine === "canvas" ? { engine } : {}) } }));
   tool("listar_renders", { description: "Trabajos de render con estado, progreso y el asset de salida cuando terminan.", input: { contentItemId: z.string().optional() }, readOnly: true },

@@ -13,7 +13,8 @@ function fixture(templateId = "standard") {
     voiceover: async (_id, rev) => { assert.equal(rev, revision); events.push("voiceover"); revision++; },
     audio: async (_id, scene, voiceId, modelId, rev) => { assert.equal(rev, revision); assert.equal(voiceId, "voice-123"); assert.equal(modelId, "eleven_multilingual_v2"); events.push(`audio:${scene}`); revision++; },
     caption: async (_id, rev) => { assert.equal(rev, revision); events.push("caption"); revision++; },
-    render: async () => { events.push("render"); return { id: "render-1", status: "queued" }; },
+    canvasPlan: async () => { events.push("canvas-plan"); revision++; },
+    render: async (_id, engine) => { events.push(engine ? `render:${engine}` : "render"); return { id: "render-1", status: "queued" }; },
   };
   return { events, deps };
 }
@@ -51,6 +52,17 @@ assert.ok(!failed.events.includes("render"));
 const noImages = fixture("timeline");
 await runVideoPipeline({ topic: "Historia del mundo", imageSource: "none" }, noImages.deps);
 assert.deepEqual(noImages.events.filter(e => !e.startsWith("read:")), ["create", "caption", "render"]);
+
+// Con Canvas no se gastan imágenes ni animaciones HTML: el plan se genera tras la voz y el render va por Canvas.
+const canvasExplainer = fixture("explainer");
+await runVideoPipeline({ topic: "Una explicación", imageSource: "openai", voiceId: "voice-123", modelId: "eleven_multilingual_v2", engine: "canvas" }, canvasExplainer.deps);
+assert.deepEqual(canvasExplainer.events.filter(e => !e.startsWith("read:")), ["create", "voiceover", "audio:intro", "audio:close", "canvas-plan", "caption", "render:canvas"]);
+const canvasStandard = fixture();
+await runVideoPipeline({ topic: "Ciudad futura", imageSource: "unsplash", engine: "canvas" }, canvasStandard.deps);
+assert.deepEqual(canvasStandard.events.filter(e => !e.startsWith("read:")), ["create", "canvas-plan", "caption", "render:canvas"]);
+const hyper = fixture("explainer");
+await runVideoPipeline({ topic: "Una explicación", imageSource: "none", engine: "hyperframes" }, hyper.deps);
+assert.deepEqual(hyper.events.filter(e => !e.startsWith("read:")), ["create", "animation:intro", "animation:close", "caption", "render:hyperframes"]);
 
 const unsaved = fixture();
 unsaved.deps.create = async () => { throw new Error("Campaña inválida"); };

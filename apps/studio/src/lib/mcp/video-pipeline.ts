@@ -13,9 +13,11 @@ export type VideoPipelineDependencies = {
   voiceover: (id: string, revision: number) => Promise<unknown>;
   audio: (id: string, sceneId: string, voiceId: string, modelId: string, revision: number) => Promise<unknown>;
   caption: (id: string, revision: number) => Promise<unknown>;
-  render: (id: string) => Promise<RenderJob>;
+  canvasPlan: (id: string) => Promise<unknown>;
+  render: (id: string, engine?: RenderEngine) => Promise<RenderJob>;
 };
-type PipelineInput = { topic: string; imageSource: "none" | "openai" | "unsplash"; voiceId?: string; modelId?: string };
+export type RenderEngine = "remotion" | "hyperframes" | "canvas";
+type PipelineInput = { topic: string; imageSource: "none" | "openai" | "unsplash"; voiceId?: string; modelId?: string; engine?: RenderEngine };
 type PipelineResult = {
   status: "queued" | "incomplete";
   contentItemId: string;
@@ -49,7 +51,9 @@ export async function runVideoPipeline(input: PipelineInput, deps: VideoPipeline
       await deps.voiceover(contentItemId, (await read()).revision);
       completedSteps.push(step);
     }
-    for (const scene of current.document.scenes) {
+    // Canvas no usa imágenes ni las animaciones HTML: dibuja su propio plan, que se genera al final.
+    const canvas = input.engine === "canvas";
+    for (const scene of canvas ? [] : current.document.scenes) {
       if (current.document.templateId === "explainer") {
         step = `animation:${scene.id}`;
         await deps.animation(contentItemId, scene.id);
@@ -68,13 +72,19 @@ export async function runVideoPipeline(input: PipelineInput, deps: VideoPipeline
         completedSteps.push(step);
       }
     }
+    // Después de la voz: así los cues del plan se comprueban contra los tiempos reales por palabra.
+    if (canvas) {
+      step = "canvas-plan";
+      await deps.canvasPlan(contentItemId);
+      completedSteps.push(step);
+    }
     step = "caption";
     await deps.caption(contentItemId, (await read()).revision);
     completedSteps.push(step);
     step = "verify";
     await read();
     step = "render";
-    const renderJob = await deps.render(contentItemId);
+    const renderJob = await deps.render(contentItemId, input.engine);
     completedSteps.push(step);
     return { status: "queued", contentItemId, title, completedSteps, renderJob };
   } catch (error) {
