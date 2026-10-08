@@ -32,8 +32,10 @@ assert.deepEqual(explainerPalette("#FF0000"), ["#ff0000", "#ff8c8c"]);
 assert.equal(explainerPalette("rojo")[0], "#22d3ee");
 const branded = normalizeExplainerScript({ displayTitle: "x", scenes: document.scenes.map((scene) => scene.content) }, { ...input, primaryColor: "#2563eb" });
 assert.ok(branded.scenes.every((scene) => scene.accent?.[0] === "#2563eb"));
-assert.equal(explainerSceneCount(45), 6);
-assert.equal(explainerSceneCount(15), 4);
+assert.equal(explainerSceneCount(45), 4);
+assert.equal(explainerSceneCount(60), 5, "un minuto ya no son 9 escenas de 5 s");
+assert.equal(explainerSceneCount(15), 3);
+assert.equal(explainerSceneCount(180), 6);
 
 const animated = replaceSceneAnimation(document, "scene-2", { animationHtml: "<div></div>", animationSource: { css: "", html: "<div></div>" } });
 assert.equal(animated.scenes[1].content.animationHtml, "<div></div>");

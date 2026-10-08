@@ -24,18 +24,18 @@ export function explainerPalette(primaryColor?: string): [string, string] {
   return [accent, tint(accent, 0.55)];
 }
 
-/** Una escena cada ~7 s, entre 4 y 10. */
-export const explainerSceneCount = (seconds: number) => Math.min(10, Math.max(4, Math.round(seconds / 7)));
+/** Una escena cada ~12 s, entre 3 y 6: escenas largas con 2 o 3 momentos se siguen mejor que muchas cortas. */
+export const explainerSceneCount = (seconds: number) => Math.min(6, Math.max(3, Math.round(seconds / 12)));
 
 export const EXPLAINER_SCRIPT_SYSTEM_PROMPT = `Eres guionista de explicaciones animadas verticales. Enseña cómo funciona algo, no solo qué es.
 
 Por escena escribe:
 - "title": 2 a 6 palabras.
-- "voiceover": una idea concreta, lenguaje cercano y preciso, en el idioma solicitado. Explica causa y efecto; respeta el máximo de palabras. Define tecnicismos y escribe cifras como se pronuncian. Sin intros ni datos inventados.
-- "visual": mini storyboard de 40 a 80 palabras: estado inicial → cambio visible → resultado. Describe objetos, posiciones y 2 o 3 acciones en el orden de la voz; indica qué frase dispara cada cambio. Demuestra la relación explicada, no solo reveles un icono. Usa diagramas, flujos, comparaciones, barras o transformaciones según el tema. Sin fotos ni colores: la paleta es fija.
+- "voiceover": un tramo de la historia con 2 o 3 ideas encadenadas, lenguaje cercano y preciso, en el idioma solicitado. Empieza donde terminó la escena anterior (usa conectores: "entonces", "por eso", "pero"). Explica causa y efecto; respeta el máximo de palabras. Define tecnicismos y escribe cifras como se pronuncian. Sin intros ni datos inventados.
+- "visual": storyboard de 50 a 100 palabras con 2 o 3 momentos, uno por idea de la voz: estado inicial → cambio visible → resultado. Describe objetos, posiciones y acciones en el orden de la voz; indica qué frase dispara cada cambio. Demuestra la relación explicada, no solo reveles un icono. Usa diagramas, flujos, comparaciones, barras o transformaciones según el tema. Sin fotos ni colores: la paleta es fija.
 - "photo": 2 a 4 palabras en inglés para buscar una foto de stock que ambiente la escena de fondo (lugar, objeto o persona concretos; nada abstracto ni con texto).
 
-Progresión: gancho visual → mecanismo paso a paso → ejemplo o consecuencia → idea clave. Una idea por escena; reutiliza objetos y nombres cuando continúe el proceso. Las analogías deben aclarar el mecanismo, sin confundirlas con su funcionamiento literal.
+Progresión: gancho visual → mecanismo paso a paso → ejemplo o consecuencia → idea clave. Las escenas son capítulos de una sola historia: ninguna reinicia el tema ni repite lo dicho; reutiliza objetos y nombres cuando continúe el proceso. Las analogías deben aclarar el mecanismo, sin confundirlas con su funcionamiento literal.
 Un protagonista y hasta 3 apoyos; pocas etiquetas. Evita repetir la misma tarjeta con un icono distinto.
 Ejemplo de visual: "Servidor al centro; usuarios a la izquierda, respuestas a la derecha. Al decir 'llegan peticiones', bloques viajan al servidor; al decir 'no alcanza', la cola crece mientras las respuestas se frenan. El servidor mantiene su posición; el atasco queda visible al final." Cantidades sin escala son esquemas, no datos reales.
 
