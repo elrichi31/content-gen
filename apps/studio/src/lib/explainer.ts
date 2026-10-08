@@ -1,4 +1,4 @@
-import { SIL_FRAMES, VIDEO_DEFAULTS, videoDocumentSchema, WORDS_PER_SECOND, type VideoDocument, type VideoScene } from "@content-gen/domain/video";
+import { sceneLeadFrames, sceneTimelineFrames, VIDEO_DEFAULTS, videoDocumentSchema, WORDS_PER_SECOND, type VideoDocument, type VideoScene } from "@content-gen/domain/video";
 import { z } from "zod";
 import { generateOpenAiJson, OpenAiError } from "./openai.ts";
 import { buildContextBlock, buildDateHeader } from "./video-script-prompt.ts";
@@ -27,31 +27,18 @@ export function explainerPalette(primaryColor?: string): [string, string] {
 /** Una escena cada ~7 s, entre 4 y 10. */
 export const explainerSceneCount = (seconds: number) => Math.min(10, Math.max(4, Math.round(seconds / 7)));
 
-export const EXPLAINER_SCRIPT_SYSTEM_PROMPT = `Eres guionista de videos educativos cortos y verticales (TikTok, Reels, Shorts) que explican como funcionan las cosas: tecnologia, ciberseguridad, ciencia, redes, economia.
+export const EXPLAINER_SCRIPT_SYSTEM_PROMPT = `Eres guionista de explicaciones animadas verticales. Enseña cómo funciona algo, no solo qué es.
 
-El video es 100% animado (motion graphics con formas, diagramas, iconos y texto en movimiento), sin fotos. Por cada escena escribes:
-- "title": el texto corto en pantalla (2 a 6 palabras), no una frase larga.
-- "voiceover": lo que dice el narrador. Es el que explica: claro, concreto y con ritmo. Voz documental, espanol neutro, cercano pero serio.
-- "visual": la animacion que acompana a la narracion, como un diagrama simple que se entiende de un vistazo y sin sonido. UN elemento protagonista (un servidor, un candado, una barra, un contador...) y como mucho dos de apoyo, con una sola accion clara (algo llega, se llena, se rompe, se conecta, se bloquea). Menos es mas: nada decorativo, solo lo que ayuda a entender. No menciones colores: el video usa una sola paleta fija.
+Por escena escribe:
+- "title": 2 a 6 palabras.
+- "voiceover": una idea concreta, lenguaje cercano y preciso, en el idioma solicitado. Explica causa y efecto; respeta el máximo de palabras. Define tecnicismos y escribe cifras como se pronuncian. Sin intros ni datos inventados.
+- "visual": mini storyboard de 40 a 80 palabras: estado inicial → cambio visible → resultado. Describe objetos, posiciones y 2 o 3 acciones en el orden de la voz; indica qué frase dispara cada cambio. Demuestra la relación explicada, no solo reveles un icono. Usa diagramas, flujos, comparaciones, barras o transformaciones según el tema. Sin fotos ni colores: la paleta es fija.
 
-ESTRUCTURA
-- Escena 1: gancho. Una pregunta o una situacion que genere curiosidad sobre el tema.
-- Escenas del medio: la explicacion paso a paso, de lo simple a lo complejo. Una idea por escena, cada una apoyada en la anterior. Usa analogias cotidianas cuando ayuden.
-- Penultima: consecuencia o ejemplo real.
-- Ultima: cierre memorable (como defenderse, la idea clave o una pregunta para comentar).
+Progresión: gancho visual → mecanismo paso a paso → ejemplo o consecuencia → idea clave. Una idea por escena; reutiliza objetos y nombres cuando continúe el proceso. Las analogías deben aclarar el mecanismo, sin confundirlas con su funcionamiento literal.
+Un protagonista y hasta 3 apoyos; pocas etiquetas. Evita repetir la misma tarjeta con un icono distinto.
+Ejemplo de visual: "Servidor al centro; usuarios a la izquierda, respuestas a la derecha. Al decir 'llegan peticiones', bloques viajan al servidor; al decir 'no alcanza', la cola crece mientras las respuestas se frenan. El servidor mantiene su posición; el atasco queda visible al final." Cantidades sin escala son esquemas, no datos reales.
 
-REGLAS DE NARRACION
-- Respeta el limite de palabras por escena que te indican.
-- Escribe cifras y siglas como se pronuncian ("mil peticiones por segundo", "de de o ese" solo si hace falta; mejor "ataque de denegacion de servicio distribuido, o DDoS" la primera vez).
-- Sin "en este video", "hoy vamos a hablar de" ni intros de presentador.
-- NO inventes cifras ni estadisticas. Si no tienes un dato real, explica la idea sin numero.
-
-Devuelve SOLO JSON con esta forma:
-{
-  "displayTitle": "...",
-  "slug": "tema-en-kebab-case",
-  "scenes": [ { "title": "...", "voiceover": "...", "visual": "..." } ]
-}`;
+Devuelve SOLO JSON: { "displayTitle": "...", "slug": "tema-en-kebab-case", "scenes": [{ "title": "...", "voiceover": "...", "visual": "..." }] }`;
 
 export function buildExplainerScriptPrompt(input: VideoGenerationInput & { brandName?: string }) {
   const scenes = explainerSceneCount(input.targetDurationSeconds);
@@ -110,39 +97,34 @@ export async function generateExplainerScriptRun(input: z.input<typeof videoGene
 
 /* ---------------------------------- Animación por escena ---------------------------------- */
 
-export const sceneSeconds = (document: VideoDocument, scene: VideoScene) => (scene.durationFrames + SIL_FRAMES) / document.fps;
+export const sceneSeconds = (document: VideoDocument, scene: VideoScene) => {
+  const index = document.scenes.findIndex((item) => item.id === scene.id);
+  if (index < 0) throw new VideoGenerationError("La escena seleccionada no existe.", 404);
+  return sceneTimelineFrames(document.scenes, index) / document.fps;
+};
 
-export const EXPLAINER_ANIMATION_SYSTEM_PROMPT = `Eres un motion designer que anima escenas de videos educativos verticales escribiendo HTML, CSS y SVG. Tu escena se renderiza a video frame a frame con HyperFrames (Chrome headless).
+export const EXPLAINER_ANIMATION_SYSTEM_PROMPT = `Eres diseñador de explicaciones animadas. Produce HTML/CSS/SVG para demostrar el mecanismo narrado, no una diapositiva con entradas.
 
-LIENZO
-- Tu HTML se inserta dentro de un contenedor de 1080x1920 px (vertical), con position: relative, overflow: hidden y fondo oscuro #07080d. Posiciona todo dentro de ese contenedor (usa position: absolute con px, o flex/grid).
-- Zona segura: deja libres los 200 px de arriba y los 300 px de abajo (ahí va la interfaz de TikTok). El contenido importante va entre y=200 y y=1620.
-- Tipografía: font-family Inter, "Segoe UI", Arial, sans-serif. Etiquetas de mínimo 40 px para que se lean en un móvil. Poco texto en pantalla: la narración ya explica.
+DIDÁCTICA
+- Una idea: estado inicial → cambio visible → resultado. Haz visible qué causa qué: recorrido, acumulación, bloqueo, transferencia, comparación o transformación. Un icono que aparece no explica el mecanismo.
+- Planifica internamente 2 o 3 acciones ligadas a frases de la voz. Título y diagrama aparecen juntos al inicio; dedica el tiempo a explicar, no a presentarlos. Un foco móvil a la vez; conserva objetos, posiciones y etiquetas para seguir el cambio.
+- Ajusta delays al INICIO DE VOZ y reparte acciones según las frases y la duración disponible. Es sincronía aproximada, no hay marcas de palabra. Termina la acción al menos 0.6 s antes del final y deja visible el resultado.
+- Elige la representación adecuada al tema; evita la tarjeta con icono genérica. Flechas conectan objetos y muestran dirección. Etiquetas de 1 a 3 palabras junto a su objeto, nunca párrafos ni toda la narración.
+- Un protagonista y hasta 3 apoyos; reutiliza formas para flujos. Nada decorativo: sin partículas, glow, grillas, marcos ni degradados. Sin rebotes, giros o bucles sin significado. Un flujo en bucle solo si representa un proceso continuo.
 
-ANIMACIÓN (reglas del render, obligatorias)
-- SOLO CSS: @keyframes + animation. Nada de JavaScript, <script>, ni eventos.
-- El tiempo empieza en 0 cuando empieza la escena. Coreografía los momentos con animation-delay para acompañar la narración en orden.
-- Usa animation-fill-mode: both (o forwards) para que nada parpadee antes de entrar ni desaparezca al terminar.
-- Todo lo que entra debe haber entrado antes de la duración de la escena menos 0.5 s.
-- Anima transform y opacity preferentemente (también stroke-dashoffset para dibujar líneas SVG, width/height para barras).
-- Nada externo: sin imágenes, sin url(), sin fuentes web, sin emojis (dibuja los iconos con SVG o formas CSS).
-- No estilices html, body ni :root. Usa clases propias y descriptivas.
+LIENZO Y ESTILO
+- Contenedor relativo 1080x1920 px, overflow hidden, fondo #07080d. Contenido importante x=90..990, y=200..1620; diagrama y=600..1500. No solapes objetos, flechas y etiquetas.
+- Título top 260px, left 90px, max-width 900px, 84px/1.05, peso 800, blanco. Fuente Inter, "Segoe UI", Arial, sans-serif; etiquetas mínimo 40px.
+- Solo COLOR PRINCIPAL, COLOR CLARO, blanco #ffffff y gris #3a3f4b sobre el fondo. Diferencia estados con forma, intensidad y texto, no colores nuevos.
+- SVG de línea, stroke 6px, extremos redondeados; tarjetas solo si representan un objeto, radio 24px. Entradas breves (0.3–0.5 s), cubic-bezier(.2,.8,.2,1); movimientos de proceso legibles, no instantáneos.
 
-MENOS ES MÁS (lo más importante)
-- La escena explica UNA idea con UN elemento protagonista, grande y centrado (ocupa buena parte del ancho). Como mucho 2 o 3 elementos de apoyo. En total, no más de 4 o 5 cosas en pantalla.
-- Que se entienda de un vistazo, como un diagrama de pizarra: el espectador debe captar la idea aunque no oiga la narración.
-- Como mucho 3 momentos de animación, en orden y separados: 1) entra el título, 2) entra el protagonista, 3) ocurre la acción clave (algo llega, se llena, se rompe, se conecta, se bloquea). Después, quietud o un solo movimiento suave en bucle que refuerce la idea (por ejemplo, flechas que siguen llegando).
-- Prohibido lo decorativo: nada de grillas, partículas, estrellas, brillos, glow, líneas de escaneo, viñetas, marcos, fondos degradados ni elementos que solo "adornan".
-- Etiquetas solo si aclaran algo, de 1 a 3 palabras. El único texto largo es el título.
+RENDER OBLIGATORIO
+- Solo CSS @keyframes + animation; sin JavaScript, eventos ni recursos externos (imágenes, url(), fuentes web, emojis). Tiempo local desde 0 por escena; usa animation-delay y fill-mode: both en todos los elementos animados.
+- Prefiere transform/opacity; stroke-dashoffset para recorridos SVG. Para nodos SVG usa transform-box: fill-box y transform-origin: center; coloca y anima en wrappers distintos para conservar la posición base.
+- Clases propias; no estilices html, body ni :root. CSS compartido y SVG simples; sin comentarios, paths excesivos ni reglas duplicadas. En correcciones conserva lo válido y aplica solo lo pedido.
+- Revisa internamente legibilidad, causa/efecto, solapamientos y estado final. No devuelvas el plan ni la revisión.
 
-SISTEMA VISUAL (igual en todas las escenas del video, para que se vea como una sola pieza)
-- Paleta cerrada: fondo #07080d; COLOR PRINCIPAL para lo importante; COLOR CLARO (el mismo tono, más claro) para lo secundario; blanco #ffffff para textos; gris #3a3f4b para elementos inactivos o de fondo. NINGÚN otro color, ni rojo, ni verde, ni morado. Para "peligro" o "mal" usa el color principal más intenso, tamaño o movimiento, no un color nuevo.
-- Título: arriba a la izquierda, top 260px, left 90px, ancho máximo 900px, 84px, peso 800, blanco, line-height 1.05. Entra con un fundido y un desplazamiento de 30px hacia arriba en 0.6 s.
-- Iconos: dibujados con SVG de línea (stroke 6px, stroke-linecap round, sin relleno o con relleno muy tenue), esquinas redondeadas de 24px en tarjetas. Mismo estilo en todos.
-- Movimiento: entradas de 0.5 a 0.7 s con cubic-bezier(.2,.8,.2,1). Nada rebota ni gira sin motivo.
-- El protagonista va en la zona central (entre y=600 y y=1500).
-
-Devuelve SOLO JSON: { "css": "...", "html": "..." }. "html" es el fragmento de HTML (sin <html>, <head>, <body> ni <style>); "css" es la hoja de estilos de ese fragmento.`;
+Devuelve SOLO JSON: { "css": "...", "html": "..." }. HTML fragmento, sin html/head/body/style; CSS separado.`;
 
 export function buildExplainerAnimationPrompt(document: VideoDocument, scene: VideoScene, feedback?: string) {
   const index = document.scenes.findIndex((item) => item.id === scene.id);
@@ -153,7 +135,8 @@ export function buildExplainerAnimationPrompt(document: VideoDocument, scene: Vi
   const previous = source ? JSON.stringify({ css: source.css ?? "", html: source.html ?? "" }) : "";
   return `VIDEO: ${document.title}
 ESCENA ${index + 1} DE ${document.scenes.length}
-DURACIÓN: ${sceneSeconds(document, scene).toFixed(1)} segundos
+DURACIÓN: ${sceneSeconds(document, scene).toFixed(2)} segundos
+INICIO DE VOZ: ${(sceneLeadFrames(index) / document.fps).toFixed(2)} s
 TÍTULO EN PANTALLA: ${text("title")}
 NARRACIÓN (lo que se oye mientras se ve tu animación): ${text("voiceover")}
 ANIMACIÓN PEDIDA: ${text("visual")}

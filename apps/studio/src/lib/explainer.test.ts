@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { explainerPalette, explainerSceneCount, normalizeExplainerScript, replaceSceneAnimation, scopeAnimation } from "./explainer.ts";
+import { buildExplainerAnimationPrompt, EXPLAINER_ANIMATION_SYSTEM_PROMPT, EXPLAINER_SCRIPT_SYSTEM_PROMPT, explainerPalette, explainerSceneCount, normalizeExplainerScript, replaceSceneAnimation, sceneSeconds, scopeAnimation } from "./explainer.ts";
+import { sceneLeadFrames, sceneTimelineFrames } from "@content-gen/domain/video";
 import { videoGenerationInputSchema } from "./video-generation.ts";
 
 // Aislamiento: reglas anidadas bajo la clase de la escena y keyframes renombrados solo en `animation`.
@@ -33,4 +34,21 @@ assert.equal(explainerSceneCount(15), 4);
 const animated = replaceSceneAnimation(document, "scene-2", { animationHtml: "<div></div>", animationSource: { css: "", html: "<div></div>" } });
 assert.equal(animated.scenes[1].content.animationHtml, "<div></div>");
 assert.equal(animated.scenes[0].content.animationHtml, undefined);
+// El prompt debe usar el mismo reloj que el render, incluida entrada y cierre.
+for (const index of [0, 1, document.scenes.length - 1]) {
+  const scene = document.scenes[index];
+  assert.equal(sceneSeconds(document, scene), sceneTimelineFrames(document.scenes, index) / document.fps, "duración del prompt = duración real del clip");
+  const prompt = buildExplainerAnimationPrompt(document, scene);
+  assert.ok(prompt.includes(`INICIO DE VOZ: ${(sceneLeadFrames(index) / document.fps).toFixed(2)} s`));
+}
+// Contrato editorial: explicar cambios observables, no solo presentar iconos; instrucciones compactas.
+assert.match(EXPLAINER_SCRIPT_SYSTEM_PROMPT, /estado inicial.*cambio.*resultado/i);
+assert.match(EXPLAINER_ANIMATION_SYSTEM_PROMPT, /estado inicial.*cambio.*resultado/i);
+assert.ok(EXPLAINER_ANIMATION_SYSTEM_PROMPT.length <= 3800, "presupuesto de caracteres del prompt de animación");
+assert.ok(EXPLAINER_SCRIPT_SYSTEM_PROMPT.length <= 2200, "presupuesto de caracteres del prompt de guion");
+// El HTML anterior se envía únicamente para una corrección explícita, nunca para regenerar.
+assert.ok(!buildExplainerAnimationPrompt(animated, animated.scenes[1]).includes("VERSIÓN ANTERIOR"));
+const correction = buildExplainerAnimationPrompt(animated, animated.scenes[1], "Mostrar la cola creciendo");
+assert.ok(correction.includes("Mostrar la cola creciendo") && correction.includes("VERSIÓN ANTERIOR"));
+assert.ok(correction.includes(JSON.stringify(animated.scenes[1].content.animationSource)));
 console.log("explainer ok");
