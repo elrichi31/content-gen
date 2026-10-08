@@ -1231,12 +1231,31 @@ export function canvasRuntime(spec, options) {
     ctx.fillRect(-MARGIN, -MARGIN, W + 2 * MARGIN, H + 2 * MARGIN);
   }
 
+  /* ------------------------------------------------------------- animaciones dentro de la escena */
+  // Una escena larga encadena 2 o 3 animaciones (`beats`). Cada plantilla ve su tramo como si fuera la
+  // escena (sus entradas y finales se miden desde ahí); el cambio es una cortina sin franjas que sube
+  // sobre la misma foto y el mismo título.
+  const BEAT_WIPE = 0.55;
+  const beatsOf = (scene) => scene.beats || [{ start: scene.start, end: scene.start + scene.duration, plan: scene.plan }];
+  function drawBeat(ctx, scene, beat, t) {
+    const view = { ...scene, start: beat.start, duration: beat.end - beat.start, voiceEnd: Math.min(scene.voiceEnd, beat.end) };
+    (T[beat.plan.template] || T.title)(ctx, beat.plan, view, t);
+  }
+
   function sceneContent(ctx, index, t, offset = 0) {
     const scene = spec.scenes[index];
     sceneImage(ctx, scene, t);
     if (offset) ctx.translate(0, offset);
-    if (!FULLSCREEN.has(scene.plan.template)) header(ctx, scene, index, t);
-    (T[scene.plan.template] || T.title)(ctx, scene.plan, scene, t);
+    const beats = beatsOf(scene);
+    let k = 0;
+    beats.forEach((beat, i) => { if (t >= beat.start) k = i; });
+    const p = k ? (t - beats[k].start) / BEAT_WIPE : 1;
+    // El título de la escena sigue mientras alguna de las dos animaciones visibles lo use.
+    if (!FULLSCREEN.has(beats[k].plan.template) || (p < 1 && !FULLSCREEN.has(beats[k - 1].plan.template))) header(ctx, scene, index, t);
+    if (p >= 1) { drawBeat(ctx, scene, beats[k], t); return; }
+    const y = wipeEdge(p);
+    ctx.save(); clipBelow(ctx, y, false); ctx.clip(); drawBeat(ctx, scene, beats[k - 1], t); ctx.restore();
+    ctx.save(); clipBelow(ctx, y, true); ctx.clip(); ctx.translate(0, (1 - E.outExpo(p)) * 90); drawBeat(ctx, scene, beats[k], t); ctx.restore();
   }
 
   /* ------------------------------------------------------------- transición entre escenas */
@@ -1254,9 +1273,9 @@ export function canvasRuntime(spec, options) {
   /** Temblor de cámara determinista: lo disparan los golpes del gancho. */
   function cameraShake(t) {
     let x = 0, y = 0;
-    for (const scene of spec.scenes) {
-      if (scene.plan.template !== "hook") continue;
-      scene.plan.words.forEach((word, i) => {
+    for (const plan of spec.scenes.flatMap((scene) => beatsOf(scene).map((beat) => beat.plan))) {
+      if (plan.template !== "hook") continue;
+      plan.words.forEach((word, i) => {
         const k = t - word.at;
         if (k < 0 || k > 0.4) return;
         const amp = 16 * Math.exp(-k / 0.07);

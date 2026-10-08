@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import type { CanvasScenePlan } from "@content-gen/domain/canvas";
 import { videoDocumentSchema } from "@content-gen/domain/video";
 import { buildCanvasPlanPrompt, CANVAS_PLAN_SYSTEM_PROMPT, generateCanvasPlan, normalizeCanvasPlans, replaceCanvasPlans } from "./canvas-plan.ts";
 
@@ -17,11 +18,11 @@ const document = videoDocumentSchema.parse({
 const prompt = buildCanvasPlanPrompt(document);
 assert.match(prompt, /ESCENA 1 \(sceneId: scene-1\) — primera/);
 assert.match(prompt, /ESCENA 3 \(sceneId: scene-3\) — última/);
-assert.match(prompt, /NARRACIÓN: Miles de bots envían tráfico y el servidor se cae\./);
+assert.match(prompt, /NARRACIÓN \(\d+\.\d s\): Miles de bots envían tráfico y el servidor se cae\./, "con su duración, para decidir cuántas animaciones caben");
 assert.ok(!prompt.includes("CAMBIOS PEDIDOS"), "sin feedback no pide cambios");
 assert.ok(!prompt.includes("IMAGEN:"), "sin fotos no se mencionan");
 const withImage = videoDocumentSchema.parse({ ...document, scenes: document.scenes.map((scene, i) => (i === 1 ? { ...scene, imageAssetId: "11111111-1111-4111-8111-111111111111", content: { ...scene.content, imagePrompt: "servidores en llamas" } } : scene)) });
-assert.match(buildCanvasPlanPrompt(withImage), /NARRACIÓN: Miles de bots[^\n]*\nIDEA VISUAL: bots contra servidor\nIMAGEN: sí \(servidores en llamas\)/, "la IA sabe qué escenas llevan foto");
+assert.match(buildCanvasPlanPrompt(withImage), /NARRACIÓN \([^)]*\): Miles de bots[^\n]*\nIDEA VISUAL: bots contra servidor\nIMAGEN: sí \(servidores en llamas\)/, "la IA sabe qué escenas llevan foto");
 assert.match(buildCanvasPlanPrompt(document, "más paquetes"), /CAMBIOS PEDIDOS: más paquetes/);
 assert.match(CANVAS_PLAN_SYSTEM_PROMPT, /LITERALMENTE/, "pide cues copiados de la narración");
 
@@ -34,10 +35,13 @@ const answer = {
   ],
 };
 const { plans, skipped } = normalizeCanvasPlans(answer, document);
+// Con una animación por escena se guarda el plan suelto.
+const single = (plan: unknown) => plan as CanvasScenePlan;
 assert.deepEqual(Object.keys(plans).sort(), ["scene-1", "scene-2"]);
 assert.deepEqual(skipped, ["scene-3"]);
-assert.equal(plans["scene-1"].template, "hook");
-assert.deepEqual(plans["scene-2"].template === "flow" && plans["scene-2"].cues, { surge: "tráfico", shield: undefined, outcome: undefined }, "«colapsa» no se dice: se quita");
+assert.equal(single(plans["scene-1"]).template, "hook");
+const flow = single(plans["scene-2"]);
+assert.deepEqual(flow.template === "flow" && flow.cues, { surge: "tráfico", shield: undefined, outcome: undefined }, "«colapsa» no se dice: se quita");
 assert.deepEqual(normalizeCanvasPlans({ scenes: [{ template: "title" }, { template: "title" }, { template: "outro", line: "Fin" }] }, document).plans["scene-3"], { template: "outro", line: "Fin" }, "sin sceneId se usa la posición");
 assert.deepEqual(normalizeCanvasPlans("basura", document).plans, {});
 
@@ -56,7 +60,24 @@ assert.match(buildCanvasPlanPrompt(document, undefined, { sceneId: "scene-2", te
 const stepsAnswer = { scenes: [{ sceneId: "scene-2", template: "steps", items: [{ label: "Bots", cue: "bots" }, { label: "Caída", cue: "cae" }] }, { sceneId: "scene-1", template: "title" }] };
 const focused = await generateCanvasPlan(document, undefined, async () => new Response(JSON.stringify({ output_text: JSON.stringify(stepsAnswer) })), { sceneId: "scene-2", template: "steps" });
 assert.deepEqual(Object.keys(focused.plans), ["scene-2"], "las demás escenas no se tocan aunque la IA las devuelva");
-assert.equal(focused.plans["scene-2"].template, "steps");
+assert.equal(single(focused.plans["scene-2"]).template, "steps");
 await assert.rejects(generateCanvasPlan(document, undefined, async () => new Response(JSON.stringify({ output_text: JSON.stringify(answer) })), { sceneId: "scene-2", template: "steps" }), /esa animación/);
 await assert.rejects(generateCanvasPlan(document, undefined, async () => new Response("{}"), { sceneId: "nope", template: "steps" }), /no existe/);
+
+// Varias animaciones por escena: se quedan las válidas (hasta 3), con sus frases de entrada si se dicen.
+const beatsAnswer = { scenes: [{ sceneId: "scene-2", beats: [
+  { template: "network", nodes: [{ label: "Bots", cue: "bots" }, { label: "Más bots" }] },
+  { template: "nope" },
+  { template: "stat", value: 1, label: "Servidor caído", from: "el servidor", cue: "cae" },
+  { template: "title", from: "inventado" },
+  { template: "title" },
+] }] };
+const beatPlans = normalizeCanvasPlans(beatsAnswer, document).plans["scene-2"] as { template: string; from?: string }[];
+assert.deepEqual(beatPlans.map((beat) => beat.template), ["network", "stat", "title"], "la inválida se salta y no pasan de 3");
+assert.equal(beatPlans[1].from, "el servidor");
+assert.equal(beatPlans[2].from, undefined, "una frase de entrada que no se dice se quita");
+assert.deepEqual(normalizeCanvasPlans({ scenes: [{ sceneId: "scene-1", beats: [{ template: "title" }] }] }, document).plans["scene-1"], { template: "title" }, "una sola animación se guarda como plan suelto");
+assert.match(CANVAS_PLAN_SYSTEM_PROMPT, /"from"/);
+const focusBeats = await generateCanvasPlan(document, undefined, async () => new Response(JSON.stringify({ output_text: JSON.stringify({ scenes: [{ sceneId: "scene-2", beats: [{ template: "steps", items: [{ label: "A" }, { label: "B" }] }, { template: "title", from: "servidor" }] }] }) })), { sceneId: "scene-2", template: "steps" });
+assert.ok(Array.isArray(focusBeats.plans["scene-2"]), "al cambiar la animación principal puede seguir con otras");
 console.log("canvas plan ok");

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { buildCanvasSpec, CANVAS_TEMPLATE_CATALOG, CANVAS_TEMPLATES, captionChunks, canvasScenePlanSchema, estimateWordTimings, findCue, pruneCues, sampleCanvasSpec, wordsFromAlignment } from "./canvas.ts";
+import { buildCanvasSpec, CANVAS_TEMPLATE_CATALOG, CANVAS_TEMPLATES, canvasSceneBeatsSchema, captionChunks, canvasScenePlanSchema, estimateWordTimings, findCue, pruneBeats, pruneCues, sampleCanvasSpec, storedBeats, wordsFromAlignment } from "./canvas.ts";
 import { videoDocumentSchema } from "./video.ts";
 
 // Alineación por carácter de ElevenLabs → palabras con su inicio y fin.
@@ -128,3 +128,39 @@ console.log("canvas plantillas nuevas ok");
   assert.ok(quote.plan.template === "quote" && quote.plan.text.toLowerCase().includes(quote.plan.highlight), "el resaltado sale de la frase");
 }
 console.log("canvas terminal/embudo/cita/mapa ok");
+
+// Escenas largas con varias animaciones: cada una entra con su frase y sus momentos caen en su tramo.
+{
+  const voiceover = "Primero llegan los mensajes. Luego tu equipo se satura. Al final el cliente se va con otro.";
+  const timings = estimateWordTimings(voiceover, 9);
+  const beats = [
+    { template: "list", icon: "dot", items: [{ text: "Mensajes", cue: "mensajes" }, { text: "Sin respuesta" }] },
+    { template: "stat", value: 14, unit: "h", label: "de espera", from: "tu equipo" },
+    { template: "hook", words: [{ text: "SE VA", cue: "va" }], from: "Al final" },
+  ];
+  assert.ok(canvasSceneBeatsSchema.safeParse(beats).success);
+  assert.ok(!canvasSceneBeatsSchema.safeParse([...beats, beats[0]]).success, "máximo 3 animaciones por escena");
+  const scene = (canvas: unknown) => ({ id: "scene-1", kind: "explainer", durationFrames: 270, content: { title: "La bandeja", voiceover, wordTimings: timings, canvas } });
+  const long = buildCanvasSpec(videoDocumentSchema.parse({ ...document, scenes: [scene(beats)] })).scenes[0];
+  const at = (phrase: string) => long.voiceAt + findCue(timings, phrase)!;
+  assert.deepEqual(long.beats.map((beat) => beat.plan.template), ["list", "stat", "hook"]);
+  assert.equal(long.plan.template, "list", "`plan` sigue siendo la primera animación");
+  assert.equal(long.beats[0].start, long.start, "la primera entra con la escena");
+  assert.ok(Math.abs(long.beats[1].start - (at("tu equipo") - 0.15)) < 0.01, "la segunda entra justo antes de su frase");
+  assert.ok(Math.abs(long.beats[2].start - (at("Al final") - 0.15)) < 0.01);
+  assert.equal(long.beats[0].end, long.beats[1].start, "sin huecos entre animaciones");
+  assert.equal(long.beats[2].end, Math.round((long.start + long.duration) * 1000) / 1000, "la última dura hasta el final de la escena");
+  const list = long.beats[0].plan;
+  assert.ok(list.template === "list" && list.items[1].at < long.beats[1].start, "un momento sin cue cae dentro de su propio tramo");
+  const hook = long.beats[2].plan;
+  assert.ok(hook.template === "hook" && hook.words[0].at === Math.round(at("va") * 1000) / 1000);
+  // Sin frase de entrada (o una que no se dice) se reparten parejo; nunca se pisan.
+  const even = buildCanvasSpec(videoDocumentSchema.parse({ ...document, scenes: [scene([beats[0], { ...beats[1], from: undefined }, { ...beats[2], from: "inventado" }])] })).scenes[0];
+  assert.ok(even.beats[1].start > even.beats[0].start + 1 && even.beats[2].start > even.beats[1].start + 1);
+  // Al guardar se quitan frases que no se dicen; una sola animación se guarda como plan suelto.
+  const pruned = pruneBeats(canvasSceneBeatsSchema.parse([beats[0], { ...beats[1], from: "inventado" }]), timings);
+  assert.equal(pruned[1].from, undefined);
+  assert.deepEqual(storedBeats([{ ...beats[1] } as never]), { template: "stat", value: 14, unit: "h", label: "de espera" });
+  assert.ok(Array.isArray(storedBeats(pruned)));
+}
+console.log("canvas varias animaciones ok");

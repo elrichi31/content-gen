@@ -160,6 +160,29 @@ export function scenePlan(scene: VideoScene, index: number, count: number): Canv
 }
 
 /**
+ * Una escena larga encadena 2 o 3 animaciones. `from` es la frase literal de la narración con la que
+ * entra cada una; la primera entra con la escena. En `scene.content.canvas` va un plan suelto (una
+ * animación, el formato de siempre) o una lista de 1 a 3.
+ */
+export const canvasSceneBeatSchema = canvasScenePlanSchema.and(z.object({ from: cue.optional() }));
+export const canvasSceneBeatsSchema = z.array(canvasSceneBeatSchema).min(1).max(3);
+export type CanvasSceneBeat = z.infer<typeof canvasSceneBeatSchema>;
+
+/** Animaciones guardadas en la escena, o la de respaldo. */
+export function sceneBeats(scene: VideoScene, index: number, count: number): CanvasSceneBeat[] {
+  const many = canvasSceneBeatsSchema.safeParse(scene.content.canvas);
+  return many.success ? many.data : [scenePlan(scene, index, count)];
+}
+
+/** Lo que se guarda en `content.canvas`: una animación sola como plan suelto, varias como lista. */
+export function storedBeats(beats: CanvasSceneBeat[]): CanvasScenePlan | CanvasSceneBeat[] {
+  if (beats.length > 1) return beats;
+  const plan = { ...beats[0] };
+  delete plan.from;
+  return plan;
+}
+
+/**
  * Quita los cues que no se dicen en la narración (la IA a veces parafrasea o cambia una palabra).
  * Sin cue, `buildCanvasSpec` reparte ese momento a lo largo de la escena: mejor eso que un cue
  * que nunca dispara y deja la animación a medias.
@@ -179,6 +202,11 @@ export function pruneCues(plan: CanvasScenePlan, words: readonly WordTiming[]): 
     case "compare": case "stat": case "split": case "chart": case "quote": return { ...plan, cue: keep(plan.cue) };
     default: return plan;
   }
+}
+
+/** `pruneCues` en cada animación, también su frase de entrada. */
+export function pruneBeats(beats: readonly CanvasSceneBeat[], words: readonly WordTiming[]): CanvasSceneBeat[] {
+  return beats.map((beat) => ({ ...pruneCues(beat, words), from: beat.from && findCue(words, beat.from) !== null ? beat.from : undefined }));
 }
 
 const sceneText = (scene: VideoScene, key: string) => (typeof scene.content[key] === "string" ? (scene.content[key] as string).trim() : "");
@@ -205,7 +233,8 @@ export type ResolvedPlan =
   | { template: "title"; at: number };
 
 /** `image`: asset de la foto de fondo de la escena (videos con imágenes), o `null`. */
-export type CanvasSceneSpec = { id: string; start: number; duration: number; voiceAt: number; voiceEnd: number; title: string; image: string | null; plan: ResolvedPlan; captions: CaptionChunk[] };
+/** `beats`: animaciones de la escena en orden, cada una de `start` a `end`; `plan` es la primera. */
+export type CanvasSceneSpec = { id: string; start: number; duration: number; voiceAt: number; voiceEnd: number; title: string; image: string | null; plan: ResolvedPlan; beats: { start: number; end: number; plan: ResolvedPlan }[]; captions: CaptionChunk[] };
 export type CanvasSpec = { width: number; height: number; duration: number; palette: [string, string]; title: string; scenes: CanvasSceneSpec[] };
 
 /** Agrupa palabras en bloques cortos para subtítulos estilo TikTok: máx. 3 palabras o 20 letras, corta en puntuación. */
@@ -247,33 +276,44 @@ export function buildCanvasSpec(document: VideoDocument): CanvasSpec {
     const words = local.map((word) => ({ w: word.w, s: round(voiceAt + word.s), e: round(voiceAt + word.e) }));
     const voiceEnd = words.length ? words[words.length - 1].e : voiceAt + duration * 0.8;
     const span = Math.max(0.5, voiceEnd - voiceAt);
-    // Instante de la frase, o la fracción `fallback` de la narración si no se dice.
-    const at = (phrase: string | undefined, fallback: number, after = 0) => {
-      const found = phrase ? findCue(local, phrase, after) : null;
-      return round(found === null ? voiceAt + span * fallback : voiceAt + found);
-    };
     const spread = (count: number, i: number, from = 0.05, to = 0.75) => from + (count > 1 ? (to - from) * i / (count - 1) : 0);
-    const plan = scenePlan(scene, index, document.scenes.length);
-    let resolved: ResolvedPlan;
-    switch (plan.template) {
-      case "hook": resolved = { template: "hook", words: plan.words.map((word, i) => ({ text: word.text, at: at(word.cue, spread(plan.words.length, i, 0, 0.6)) })) }; break;
-      case "flow": resolved = { template: "flow", sources: plan.sources, target: plan.target, shield: plan.shield ?? null, rate: plan.rate, outcome: plan.outcome, surgeAt: at(plan.cues.surge, 0.3), shieldAt: at(plan.cues.shield, 0.55), outcomeAt: at(plan.cues.outcome, 0.65) }; break;
-      case "steps": resolved = { template: "steps", items: plan.items.map((item, i) => ({ label: item.label, at: at(item.cue, spread(plan.items.length, i)) })) }; break;
-      case "compare": resolved = { template: "compare", left: { ...plan.left, unit: plan.left.unit ?? "" }, right: { ...plan.right, unit: plan.right.unit ?? "" }, at: at(plan.cue, 0.15) }; break;
-      case "stat": resolved = { template: "stat", value: plan.value, decimals: plan.decimals, unit: plan.unit ?? "", label: plan.label, at: at(plan.cue, 0.1) }; break;
-      case "list": resolved = { template: "list", icon: plan.icon, items: plan.items.map((item, i) => ({ text: item.text, at: at(item.cue, spread(plan.items.length, i)) })) }; break;
-      case "timeline": resolved = { template: "timeline", events: plan.events.map((event, i) => ({ date: event.date, label: event.label, at: at(event.cue, spread(plan.events.length, i)) })) }; break;
-      case "split": resolved = { template: "split", before: plan.before, after: plan.after, at: at(plan.cue, 0.45) }; break;
-      case "chart": resolved = { template: "chart", kind: plan.kind, points: plan.points, unit: plan.unit ?? "", at: at(plan.cue, 0.1) }; break;
-      case "network": resolved = { template: "network", shape: plan.shape, center: plan.center ?? null, nodes: plan.nodes.map((node, i) => ({ label: node.label, at: at(node.cue, spread(plan.nodes.length, i, 0.08, 0.75)) })) }; break;
-      case "terminal": resolved = { template: "terminal", title: plan.title ?? "", lines: plan.lines.map((line, i) => ({ text: line.text, output: line.output, at: at(line.cue, spread(plan.lines.length, i)) })) }; break;
-      case "funnel": resolved = { template: "funnel", unit: plan.unit ?? "", stages: plan.stages.map((stage, i) => ({ label: stage.label, value: stage.value ?? null, at: at(stage.cue, spread(plan.stages.length, i)) })) }; break;
-      case "quote": resolved = { template: "quote", text: plan.text, author: plan.author ?? "", highlight: plan.highlight ?? "", at: at(plan.cue, 0.05) }; break;
-      case "map": resolved = { template: "map", connect: plan.connect, points: plan.points.map((point, i) => ({ label: point.label, lat: point.lat, lon: point.lon, at: at(point.cue, spread(plan.points.length, i, 0.1, 0.75)) })) }; break;
-      case "outro": resolved = { template: "outro", line: plan.line, cta: plan.cta ?? "", at: round(voiceAt) }; break;
-      default: resolved = { template: "title", at: round(voiceAt) };
-    }
-    const spec = { id: scene.id, start: round(start), duration: round(duration), voiceAt: round(voiceAt), voiceEnd: round(voiceEnd), title: sceneText(scene, "title"), image: scene.imageAssetId ?? null, plan: resolved, captions: captionChunks(words) };
+    const beats = sceneBeats(scene, index, document.scenes.length);
+    // Dónde entra cada animación: su frase `from`, o un reparto parejo de la narración. Siempre en orden y con aire.
+    const starts: number[] = [];
+    beats.forEach((beat, k) => {
+      if (!k) { starts.push(voiceAt); return; }
+      const found = beat.from ? findCue(local, beat.from, starts[k - 1] - voiceAt + 0.5) : null;
+      starts.push(round(Math.min(start + duration - 0.5, Math.max(starts[k - 1] + 1, found === null ? voiceAt + span * k / beats.length : voiceAt + found - 0.15))));
+    });
+    const resolvedBeats = beats.map((plan, k) => {
+      const from = starts[k], to = starts[k + 1] ?? voiceEnd;
+      // Instante de la frase (buscada desde que entra esta animación), o la fracción `fallback` de su tramo si no se dice.
+      const at = (phrase: string | undefined, fallback: number) => {
+        const found = phrase ? findCue(local, phrase, k ? Math.max(0, from - voiceAt - 0.3) : 0) : null;
+        return round(found === null ? from + Math.max(0.5, to - from) * fallback : voiceAt + found);
+      };
+      let resolved: ResolvedPlan;
+      switch (plan.template) {
+        case "hook": resolved = { template: "hook", words: plan.words.map((word, i) => ({ text: word.text, at: at(word.cue, spread(plan.words.length, i, 0, 0.6)) })) }; break;
+        case "flow": resolved = { template: "flow", sources: plan.sources, target: plan.target, shield: plan.shield ?? null, rate: plan.rate, outcome: plan.outcome, surgeAt: at(plan.cues.surge, 0.3), shieldAt: at(plan.cues.shield, 0.55), outcomeAt: at(plan.cues.outcome, 0.65) }; break;
+        case "steps": resolved = { template: "steps", items: plan.items.map((item, i) => ({ label: item.label, at: at(item.cue, spread(plan.items.length, i)) })) }; break;
+        case "compare": resolved = { template: "compare", left: { ...plan.left, unit: plan.left.unit ?? "" }, right: { ...plan.right, unit: plan.right.unit ?? "" }, at: at(plan.cue, 0.15) }; break;
+        case "stat": resolved = { template: "stat", value: plan.value, decimals: plan.decimals, unit: plan.unit ?? "", label: plan.label, at: at(plan.cue, 0.1) }; break;
+        case "list": resolved = { template: "list", icon: plan.icon, items: plan.items.map((item, i) => ({ text: item.text, at: at(item.cue, spread(plan.items.length, i)) })) }; break;
+        case "timeline": resolved = { template: "timeline", events: plan.events.map((event, i) => ({ date: event.date, label: event.label, at: at(event.cue, spread(plan.events.length, i)) })) }; break;
+        case "split": resolved = { template: "split", before: plan.before, after: plan.after, at: at(plan.cue, 0.45) }; break;
+        case "chart": resolved = { template: "chart", kind: plan.kind, points: plan.points, unit: plan.unit ?? "", at: at(plan.cue, 0.1) }; break;
+        case "network": resolved = { template: "network", shape: plan.shape, center: plan.center ?? null, nodes: plan.nodes.map((node, i) => ({ label: node.label, at: at(node.cue, spread(plan.nodes.length, i, 0.08, 0.75)) })) }; break;
+        case "terminal": resolved = { template: "terminal", title: plan.title ?? "", lines: plan.lines.map((line, i) => ({ text: line.text, output: line.output, at: at(line.cue, spread(plan.lines.length, i)) })) }; break;
+        case "funnel": resolved = { template: "funnel", unit: plan.unit ?? "", stages: plan.stages.map((stage, i) => ({ label: stage.label, value: stage.value ?? null, at: at(stage.cue, spread(plan.stages.length, i)) })) }; break;
+        case "quote": resolved = { template: "quote", text: plan.text, author: plan.author ?? "", highlight: plan.highlight ?? "", at: at(plan.cue, 0.05) }; break;
+        case "map": resolved = { template: "map", connect: plan.connect, points: plan.points.map((point, i) => ({ label: point.label, lat: point.lat, lon: point.lon, at: at(point.cue, spread(plan.points.length, i, 0.1, 0.75)) })) }; break;
+        case "outro": resolved = { template: "outro", line: plan.line, cta: plan.cta ?? "", at: round(from) }; break;
+        default: resolved = { template: "title", at: round(from) };
+      }
+      return { start: k ? from : round(start), end: round(starts[k + 1] ?? start + duration), plan: resolved };
+    });
+    const spec = { id: scene.id, start: round(start), duration: round(duration), voiceAt: round(voiceAt), voiceEnd: round(voiceEnd), title: sceneText(scene, "title"), image: scene.imageAssetId ?? null, plan: resolvedBeats[0].plan, beats: resolvedBeats, captions: captionChunks(words) };
     start += duration;
     return spec;
   });
