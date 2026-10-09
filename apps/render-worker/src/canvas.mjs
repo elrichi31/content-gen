@@ -24,7 +24,9 @@ const intFromEnv = (name, fallback, min, max) => {
 
 export const canvasSettings = () => ({
   fps: intFromEnv("CANVAS_FPS", 60, 24, 60),
-  subframes: intFromEnv("CANVAS_SUBFRAMES", 6, 1, 16),
+  // 4 muestras de motion blur: frente a 6, SSIM medio 0,9998 (peor 0,992, en la onda del gancho) y un
+  // ~30 % menos de dibujo por frame, que era el grueso del render.
+  subframes: intFromEnv("CANVAS_SUBFRAMES", 4, 1, 16),
   workers: intFromEnv("CANVAS_WORKERS", Math.max(1, Math.min(4, availableParallelism() - 1)), 1, 16),
 });
 
@@ -66,7 +68,9 @@ export const FRAME_FORMAT = { type: "image/jpeg", quality: 0.95, codec: "mjpeg" 
 export const segmentArguments = (fps, output) => [
   "-y", "-loglevel", "error", "-f", "image2pipe", "-framerate", String(fps), "-c:v", FRAME_FORMAT.codec, "-i", "-",
   "-vf", "scale=in_range=full:out_range=tv:in_color_matrix=bt601:out_color_matrix=bt709,format=yuv420p",
-  "-c:v", "libx264", "-preset", "medium", "-crf", "17", "-profile:v", "high",
+  // veryfast: x264 «medium» se comía ~1,5 s de CPU por segundo de video, peleándola con Chrome.
+  // CRF 16 compensa la eficiencia que se pierde; las redes recodifican igual.
+  "-c:v", "libx264", "-preset", process.env.CANVAS_X264_PRESET || "veryfast", "-crf", "16", "-profile:v", "high",
   "-x264-params", `keyint=${fps * 2}:min-keyint=${fps}`, "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709",
   "-r", String(fps), output,
 ];

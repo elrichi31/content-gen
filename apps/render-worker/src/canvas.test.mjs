@@ -22,7 +22,7 @@ assert.deepEqual(frameRanges(7, 1), [[0, 7]]);
 
 // Ajustes por variables de entorno, con límites.
 process.env.CANVAS_FPS = "500"; process.env.CANVAS_SUBFRAMES = "abc"; process.env.CANVAS_WORKERS = "2";
-assert.deepEqual(canvasSettings(), { fps: 60, subframes: 6, workers: 2 });
+assert.deepEqual(canvasSettings(), { fps: 60, subframes: 4, workers: 2 });
 delete process.env.CANVAS_FPS; delete process.env.CANVAS_SUBFRAMES; delete process.env.CANVAS_WORKERS;
 
 // Mezcla: cada voz entra en su `voiceAt` (adelay en ms) y el video se copia sin recodificar.
@@ -37,7 +37,7 @@ const silent = muxArguments({ concatList: "list.txt", voices: [], duration: 3, o
 assert.ok(silent.includes("anullsrc=channel_layout=stereo:sample_rate=48000") && !silent.includes("-filter_complex"), "sin voces lleva pista muda");
 // Cada tramo ya sale con la calidad final y en BT.709 de verdad (no solo etiquetado).
 const segment = segmentArguments(60, "seg0.mp4").join(" ");
-assert.match(segment, /-framerate 60 .*out_color_matrix=bt709.*-crf 17 .*keyint=120/);
+assert.match(segment, /-framerate 60 .*out_color_matrix=bt709.*-preset veryfast -crf 16 .*keyint=120/);
 
 // La página: fuentes embebidas, spec escapado y modo preview.
 const spec = {

@@ -1406,6 +1406,10 @@ export function canvasRuntime(spec, options) {
     return c;
   });
 
+  const inTransition = (t) => spec.scenes.some((scene, i) => i > 0 && t > scene.start - TRANSITION * 0.6 - SHUTTER && t < scene.start + TRANSITION * 0.4 + SHUTTER);
+  // Viñeta y grano son fijos: como ImageBitmap Chrome no copia el lienzo en cada drawImage (~5 % del frame).
+  let vignetteBitmap = null;
+  const grainBitmaps = [];
   function draw(t, frame) {
     t = clamp(t, 0, spec.duration);
     if (!sctx) {
@@ -1414,9 +1418,12 @@ export function canvasRuntime(spec, options) {
       out.globalCompositeOperation = "source-over";
       drawFrame(out, t);
     } else {
-      // Motion blur: media de `SUB` instantes dentro del obturador (alpha 1/(k+1) = media exacta).
-      for (let k = 0; k < SUB; k++) {
-        const ts = clamp(t + ((k + 0.5) / SUB - 0.5) * SHUTTER, 0, spec.duration);
+      // Motion blur: media de `samples` instantes dentro del obturador (alpha 1/(k+1) = media exacta).
+      // El barrido entre escenas es lo más rápido del video: ahí 4 muestras dejaban bandas escalonadas,
+      // así que lleva 8; el resto, 4. Las transiciones son ~0,5 s por escena: casi no suman tiempo.
+      const samples = inTransition(t) ? Math.max(SUB, 8) : SUB;
+      for (let k = 0; k < samples; k++) {
+        const ts = clamp(t + ((k + 0.5) / samples - 0.5) * SHUTTER, 0, spec.duration);
         sctx.setTransform(SCALE, 0, 0, SCALE, 0, 0);
         sctx.globalAlpha = 1;
         sctx.globalCompositeOperation = "source-over";
@@ -1430,10 +1437,10 @@ export function canvasRuntime(spec, options) {
     out.setTransform(1, 0, 0, 1, 0, 0);
     out.globalAlpha = 1;
     out.globalCompositeOperation = "source-over";
-    out.drawImage(vignette, 0, 0);
+    out.drawImage(vignetteBitmap ?? vignette, 0, 0);
     // Grano de película: 4 tiles sembrados y desplazados por frame, en `overlay` muy suave.
     const f = frame === undefined ? Math.round(t * FPS) : frame;
-    const R = rng(f + 1), tile = GRAIN[f % 4], ox = -Math.floor(R() * 256), oy = -Math.floor(R() * 256);
+    const R = rng(f + 1), tile = grainBitmaps[f % 4] ?? GRAIN[f % 4], ox = -Math.floor(R() * 256), oy = -Math.floor(R() * 256);
     out.globalCompositeOperation = "overlay";
     out.globalAlpha = 0.06;
     for (let y = oy; y < canvas.height; y += 256) for (let x = ox; x < canvas.width; x += 256) out.drawImage(tile, x, y);
@@ -1445,7 +1452,11 @@ export function canvasRuntime(spec, options) {
   return {
     duration: spec.duration,
     frames: Math.round(spec.duration * FPS),
-    ready: Promise.all(weights.map((w) => doc.fonts.load(font(w, 40), "Áa1"))).then(() => true),
+    ready: Promise.all([
+      ...weights.map((w) => doc.fonts.load(font(w, 40), "Áa1")),
+      doc.defaultView.createImageBitmap(vignette).then((bitmap) => { vignetteBitmap = bitmap; }),
+      ...GRAIN.map((tile, i) => doc.defaultView.createImageBitmap(tile).then((bitmap) => { grainBitmaps[i] = bitmap; })),
+    ]).then(() => true),
     draw,
     setImage(id, image) { images.set(id, image); photoCache.clear(); },
     renderFrame(frame, type = "image/png", quality) { draw(frame / FPS, frame); return canvas.toDataURL(type, quality); },
