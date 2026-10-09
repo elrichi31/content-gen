@@ -1298,13 +1298,21 @@ export function canvasRuntime(spec, options) {
     const chunk = chunks.find((item) => t >= item.s && t < item.e);
     if (!chunk) return;
     const words = chunk.words.map((word) => ({ ...word, label: word.w.toUpperCase() }));
-    const sentence = words.map((word) => word.label).join(" ");
-    const size = fit(ctx, sentence, 900, X1 - X0 - 40, 1, 78, 46).size;
-    const space = measure(ctx, " ", 900, size) * 1.1;
-    const boxes = [];
-    let x = 0;
-    for (const word of words) { const w = measure(ctx, word.label, 900, size); boxes.push({ x, w }); x += w + space; }
-    const total = x - space;
+    // Más pequeños (máx. 56 px) y con el hueco entre palabras mayor que el relleno de la pastilla:
+    // la pastilla de la palabra actual tapaba a sus vecinas y, con ella, la frase se salía de pantalla.
+    const layout = (size) => {
+      const pad = size * 0.22;
+      const space = measure(ctx, " ", 900, size) + pad * 2 + 6;
+      const boxes = [];
+      let x = 0;
+      for (const word of words) { const w = measure(ctx, word.label, 900, size); boxes.push({ x, w }); x += w + space; }
+      return { size, pad, boxes, total: x - space };
+    };
+    let fitted = layout(56);
+    // El rebote de entrada llega a ~1.06: se deja ese margen para que nunca toque los bordes.
+    const room = (X1 - X0) / 1.06;
+    if (fitted.total + fitted.pad * 2 > room) fitted = layout(Math.max(30, 56 * room / (fitted.total + fitted.pad * 2)));
+    const { size, pad, boxes, total } = fitted;
     const k = t - chunk.s;
     const pop = E.outBack(clamp(k / 0.2), 2.2);
     let current = 0;
@@ -1318,7 +1326,7 @@ export function canvasRuntime(spec, options) {
     const from = boxes[Math.max(0, current - 1)], to = boxes[current];
     const px = lerp(current ? from.x : to.x, to.x, slide), pw = lerp(current ? from.w : to.w, to.w, slide);
     ctx.fillStyle = ACC;
-    roundRect(ctx, -total / 2 + px - 18, -size * 0.62, pw + 36, size * 1.24, 18);
+    roundRect(ctx, -total / 2 + px - pad, -size * 0.6, pw + pad * 2, size * 1.2, size * 0.24);
     ctx.fill();
     ctx.font = font(900, size);
     ctx.textAlign = "left";
@@ -1328,7 +1336,7 @@ export function canvasRuntime(spec, options) {
       const bx = -total / 2 + boxes[i].x;
       if (i !== current) {
         ctx.strokeStyle = "rgba(0,0,0,0.6)";
-        ctx.lineWidth = 12;
+        ctx.lineWidth = size * 0.16;
         ctx.strokeText(word.label, bx, size * 0.04);
       }
       ctx.fillStyle = i === current ? C.ink : t >= word.s ? C.white : "rgba(255,255,255,0.6)";
