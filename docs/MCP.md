@@ -101,6 +101,20 @@ hasta 30 días (reusar uno ya canjeado revoca la conexión entera); solo se guar
 120 peticiones por minuto por conexión. Si falta la configuración, se rechaza el acceso: nunca
 queda abierto.
 
+## Video con tu propio guion (recomendado)
+
+`crear_video_desde_guion` deja que el agente escriba el guion y elija las animaciones; el Studio
+no reescribe nada. Recibe `campaignId`, `title` y 3 a 12 `scenes`, cada una con `title`,
+`voiceover` (lo que dice la voz), `beats` (1 a 3 planes con la forma de `example.plan` de
+`listar_animaciones`) y `photo` opcional (búsqueda en inglés para la foto de fondo). Opcionales:
+`caption` (texto y hashtags; si falta lo escribe el Studio), `imageSource`, `voiceId`, `modelId`.
+
+Al llamarla se comprueba el guion **sin gastar**: datos de cada animación válidos, cada elemento
+con un `cue` copiado literalmente de la narración de su escena, y no más de una animación por
+cada ~7 s de voz. Si algo falla devuelve la lista de qué corregir por escena y no encola nada.
+Si pasa, queda en la cola de aprobación y, aprobada, pone fotos, voz y caption y encola el render
+(sin llamadas de guion ni de plan a la IA del Studio).
+
 ## Generar un video completo
 
 `generar_video_completo` recibe `campaignId`, `topic` y opciones de plantilla, duración,

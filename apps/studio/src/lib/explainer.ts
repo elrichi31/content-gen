@@ -81,7 +81,8 @@ const wordCount = (text: string) => text.trim().split(/\s+/).filter(Boolean).len
  */
 export const speakable = (text: string) => text.replace(/\p{Lu}{5,}/gu, (word) => word[0] + word.slice(1).toLowerCase());
 
-export function normalizeExplainerScript(value: unknown, input: VideoGenerationInput & { primaryColor?: string }): VideoDocument {
+/** `rejected` recibe por qué se descartó cada animación (el MCP se lo devuelve al agente que escribió el guion). */
+export function normalizeExplainerScript(value: unknown, input: VideoGenerationInput & { primaryColor?: string }, rejected: string[] = []): VideoDocument {
   const parsed = scriptSchema.safeParse(value);
   if (!parsed.success) throw new VideoGenerationError("La IA no devolvió un guion educativo válido (título y escenas con narración y visual).", 422);
   const palette = explainerPalette(input.primaryColor);
@@ -105,7 +106,7 @@ export function normalizeExplainerScript(value: unknown, input: VideoGenerationI
   // Las animaciones elegidas con el guion quedan como plan Canvas; las inválidas se descartan y esa
   // escena se planifica después con generar_plan_canvas, como antes.
   return videoDocumentSchema.parse({ ...document, scenes: document.scenes.map((scene, index) => {
-    const beats = entryBeats({ beats: parsed.data.scenes[index].beats }, scene, document.fps);
+    const beats = entryBeats({ beats: parsed.data.scenes[index].beats }, scene, document.fps, rejected);
     return beats ? { ...scene, content: { ...scene.content, canvas: storedBeats(beats) } } : scene;
   }) });
 }

@@ -57,10 +57,12 @@ import { imagesToDocument } from "@/lib/carousel-automation-rules";
 import { drawAiCarousel, prepareAiCarousel } from "@/lib/carousel-pipeline";
 import { contentTitle } from "@/lib/content-title";
 import { downloadPublicFile } from "@/lib/carousel-remix";
+import { normalizeExplainerScript } from "@/lib/explainer";
 import { enqueueGeneration, getGenerationRequest, listGenerationRequests } from "@/lib/generation-queue";
-import { runVideoPipeline } from "./video-pipeline";
+import { videoGenerationInputSchema } from "@/lib/video-generation";
+import { runVideoPipeline, type VideoPipelineDependencies } from "./video-pipeline";
 import { CANVAS_TEMPLATE_CATALOG, CANVAS_TEMPLATES } from "@content-gen/domain/canvas";
-import { videoDocumentSchema } from "@content-gen/domain/video";
+import { videoDocumentSchema, WORDS_PER_SECOND } from "@content-gen/domain/video";
 
 /*
  * Servidor MCP del Studio. Cada herramienta llama en proceso a la misma ruta de API que usa la
@@ -156,7 +158,8 @@ function buildStudio({ origin, scopes, queued }: { origin: string; scopes: reado
   const getContent = (id: string) => call(contentItem.GET, { params: { id } }) as Promise<{ id: string; revision: number; campaignId: string; type: string; document: { data: Record<string, unknown> } }>;
 
   type Shape = Record<string, z.ZodType>;
-  function tool<S extends Shape>(name: string, options: { description: string; input: S; readOnly?: boolean; spends?: boolean; destructive?: boolean }, run: (args: z.infer<z.ZodObject<S>>, log: (message: string) => void) => Promise<unknown>) {
+  // `check`: validación que no gasta y corre antes de encolar, para que el agente corrija al momento.
+  function tool<S extends Shape>(name: string, options: { description: string; input: S; readOnly?: boolean; spends?: boolean; destructive?: boolean; check?: (args: z.infer<z.ZodObject<S>>) => unknown }, run: (args: z.infer<z.ZodObject<S>>, log: (message: string) => void) => Promise<unknown>) {
     if (!scopes.includes(options.readOnly ? "studio:read" : "studio:write")) return;
     runners.set(name, run as Runner);
     server.registerTool(name, {
@@ -165,6 +168,7 @@ function buildStudio({ origin, scopes, queued }: { origin: string; scopes: reado
       annotations: { readOnlyHint: Boolean(options.readOnly), destructiveHint: Boolean(options.destructive), openWorldHint: Boolean(options.spends) },
     }, (async (args: z.infer<z.ZodObject<S>>) => {
       try {
+        await options.check?.(args);
         const output = options.spends && queued ? await enqueue(name, args) : await run(args, () => {});
         if (!(output instanceof WithImage)) return { content: [{ type: "text" as const, text: JSON.stringify(output, null, 2) }] };
         return { content: [{ type: "text" as const, text: JSON.stringify(output.result, null, 2) }, { type: "image" as const, data: output.bytes.toString("base64"), mimeType: output.mimeType }] };
@@ -420,8 +424,31 @@ function buildStudio({ origin, scopes, queued }: { origin: string; scopes: reado
     const saved = await saveContent(args.campaignId, "video", document);
     return { contentItemId: saved.id, title: document.title, scenes: document.scenes.map((scene) => scene.id), abrir: args.templateId === "explainer" ? `/explainer?id=${saved.id}` : `/video?id=${saved.id}` };
   });
+  /** Pasos del pipeline de video sobre las mismas rutas que la pantalla; `caption` dado se guarda tal cual. */
+  const videoDeps = (log: (message: string) => void, create: () => Promise<string>, caption?: { text: string; hashtags: string[] }): VideoPipelineDependencies => ({
+    progress: (step) => log(`Paso: ${step}`),
+    create,
+    read: async (item) => {
+      const current = await getContent(item);
+      return { type: current.type, revision: current.revision, document: videoDocumentSchema.parse(current.document.data) };
+    },
+    image: (item, sceneId, prompt, source, revision) => call(sceneImage.POST, { method: "POST", params: { id: item, sceneId }, body: { prompt, source, revision } }),
+    animation: (item, sceneId) => call(sceneAnimation.POST, { method: "POST", params: { id: item, sceneId }, body: {} }),
+    voiceover: (item, revision) => call(voiceoverScript.POST, { method: "POST", params: { id: item }, body: { action: "generate", revision } }),
+    audio: (item, sceneId, voiceId, modelId, revision) => call(sceneAudio.POST, { method: "POST", params: { id: item, sceneId }, body: { voiceId, modelId, revision } }),
+    caption: (item, revision) => call(videoCaption.POST, { method: "POST", params: { id: item }, body: caption ? { action: "edit", revision, caption } : { action: "generate", revision } }),
+    canvasPlan: (item, onlyMissing) => call(canvasPlan.POST, { method: "POST", params: { id: item }, body: onlyMissing ? { onlyMissing } : {} }),
+    render: async (item, chosen) => {
+      const job = await call(renderJobs.POST, { method: "POST", body: { contentItemId: item, ...(chosen === "hyperframes" || chosen === "canvas" ? { engine: chosen } : {}) } }) as { id: string; status: string };
+      const jobs = await call(renderJobs.GET, { query: { contentItemId: item } }) as { id: string; status: string }[];
+      const saved = jobs.find((candidate) => candidate.id === job.id);
+      if (!saved) throw new ToolError(`No se pudo verificar el render ${job.id}. Consulta listar_renders antes de reintentarlo.`);
+      return saved;
+    },
+  });
+
   tool("generar_video_completo", {
-    description: "Genera un video de principio a fin: guion, imágenes, narración si se pasa voiceId, plan de animaciones, caption y render automático. Por defecto (engine=canvas) las imágenes (imageSource) van de fondo y la IA anima cada escena; la respuesta trae `animations` con las plantillas de cada escena. Guarda un borrador y devuelve contentItemId y renderJob; el MP4 aún no está listo: consultar listar_renders hasta completed y abrir el outputAssetId con ver_asset. Si falla, devuelve el borrador y failedStep para continuar con las herramientas por escena, sin volver a crear ni gastar todo. Puede tardar varios minutos. No publica." + spendNote,
+    description: "Si puedes escribir tú el guion, usa mejor crear_video_desde_guion (tú eliges narración y animaciones; sale mejor y más barato). Esta genera un video de principio a fin con la IA del Studio: guion, imágenes, narración si se pasa voiceId, plan de animaciones, caption y render automático. Por defecto (engine=canvas) las imágenes (imageSource) van de fondo y la IA anima cada escena; la respuesta trae `animations` con las plantillas de cada escena. Guarda un borrador y devuelve contentItemId y renderJob; el MP4 aún no está listo: consultar listar_renders hasta completed y abrir el outputAssetId con ver_asset. Si falla, devuelve el borrador y failedStep para continuar con las herramientas por escena, sin volver a crear ni gastar todo. Puede tardar varios minutos. No publica." + spendNote,
     input: {
       campaignId, topic: z.string().trim().min(3).max(240),
       templateId: z.enum(["standard", "timeline", "explainer"]).default("explainer").describe("explainer (por defecto): el guion se escribe a partir de las animaciones del motor Canvas, que salen ya elegidas. standard/timeline: guion con su estructura propia y las animaciones se eligen después"),
@@ -437,32 +464,61 @@ function buildStudio({ origin, scopes, queued }: { origin: string; scopes: reado
     },
     spends: true,
   }, async ({ imageSource, voiceId, modelId, engine, ...args }, log) => {
-    const result = await runVideoPipeline({ topic: args.topic, imageSource, voiceId, modelId, engine }, {
-      progress: (step) => log(`Paso: ${step}`),
-      create: async () => {
-        const generated = await call(videoGenerate.POST, { method: "POST", body: args }) as { document: unknown };
-        const document = videoDocumentSchema.parse(generated.document);
-        return (await saveContent(args.campaignId, "video", document)).id;
-      },
-      read: async (item) => {
-        const current = await getContent(item);
-        return { type: current.type, revision: current.revision, document: videoDocumentSchema.parse(current.document.data) };
-      },
-      image: (item, sceneId, prompt, source, revision) => call(sceneImage.POST, { method: "POST", params: { id: item, sceneId }, body: { prompt, source, revision } }),
-      animation: (item, sceneId) => call(sceneAnimation.POST, { method: "POST", params: { id: item, sceneId }, body: {} }),
-      voiceover: (item, revision) => call(voiceoverScript.POST, { method: "POST", params: { id: item }, body: { action: "generate", revision } }),
-      audio: (item, sceneId, voiceId, modelId, revision) => call(sceneAudio.POST, { method: "POST", params: { id: item, sceneId }, body: { voiceId, modelId, revision } }),
-      caption: (item, revision) => call(videoCaption.POST, { method: "POST", params: { id: item }, body: { action: "generate", revision } }),
-      canvasPlan: (item, onlyMissing) => call(canvasPlan.POST, { method: "POST", params: { id: item }, body: onlyMissing ? { onlyMissing } : {} }),
-      render: async (item, chosen) => {
-        const job = await call(renderJobs.POST, { method: "POST", body: { contentItemId: item, ...(chosen === "hyperframes" || chosen === "canvas" ? { engine: chosen } : {}) } }) as { id: string; status: string };
-        const jobs = await call(renderJobs.GET, { query: { contentItemId: item } }) as { id: string; status: string }[];
-        const saved = jobs.find((candidate) => candidate.id === job.id);
-        if (!saved) throw new ToolError(`No se pudo verificar el render ${job.id}. Consulta listar_renders antes de reintentarlo.`);
-        return saved;
-      },
-    });
+    const result = await runVideoPipeline({ topic: args.topic, imageSource, voiceId, modelId, engine }, videoDeps(log, async () => {
+      const generated = await call(videoGenerate.POST, { method: "POST", body: args }) as { document: unknown };
+      const document = videoDocumentSchema.parse(generated.document);
+      return (await saveContent(args.campaignId, "video", document)).id;
+    }));
     return { ...result, abrir: args.templateId === "explainer" ? `/explainer?id=${result.contentItemId}` : `/video?id=${result.contentItemId}`, narracion: Boolean(voiceId), motor: engine };
+  });
+  /*
+   * El agente escribe el guion y elige las animaciones; el Studio solo lo valida y lo produce (fotos,
+   * voz, caption, render). La IA del Studio escribía peor que el agente, que además ya trae el contexto,
+   * y así se ahorran las llamadas de guion y plan.
+   */
+  const scriptScene = z.object({
+    title: z.string().trim().min(1).max(120).describe("Título en pantalla, 2 a 6 palabras"),
+    voiceover: z.string().trim().min(1).max(1200).describe("Lo que dice la voz: frases completas y habladas, cifras escritas como se pronuncian, sin siglas raras ni MAYÚSCULAS. Contiene literalmente cada cue y cada from de sus animaciones"),
+    beats: z.array(z.record(z.string(), z.unknown())).min(1).max(3).describe("1 a 3 planes de listar_animaciones (campo `example.plan`), en el orden de la voz; desde el segundo, con \"from\": la frase literal donde empieza. Una por cada ~7 s de voz (unas 17 palabras)"),
+    photo: z.string().trim().max(120).optional().describe("2 a 4 palabras en inglés para buscar la foto de fondo"),
+  });
+  const scriptInput = {
+    campaignId, title: z.string().trim().min(3).max(180).describe("Título del video"),
+    scenes: z.array(scriptScene).min(3).max(12).describe("Escenas en orden: gancho (hook) → desarrollo → cierre (outro en la última)"),
+    language: z.string().min(2).max(40).default("es"),
+    caption: z.object({ text: z.string().trim().min(1).max(2200), hashtags: z.array(z.string().trim().min(1).max(80)).max(30).default([]) }).optional().describe("Caption y hashtags; si se omite, los escribe la IA del Studio"),
+    imageSource: z.enum(["none", "unsplash", "openai"]).default("unsplash").describe("Fotos de fondo de cada escena (usa `photo`)"),
+    voiceId: z.string().min(8).max(64).optional().describe("Voz de listar_voces; si se omite, video sin narración"),
+    modelId: z.string().min(3).max(80).default("eleven_multilingual_v2"),
+  };
+  type ScriptArgs = z.infer<z.ZodObject<typeof scriptInput>>;
+  /** Guion → documento del educativo con su plan Canvas; `rejected` dice qué animaciones no pasaron y por qué. */
+  const scriptDocument = (args: ScriptArgs, primaryColor?: string) => {
+    const words = args.scenes.reduce((sum, scene) => sum + scene.voiceover.split(/\s+/).filter(Boolean).length, 0);
+    const input = videoGenerationInputSchema.parse({ topic: args.title.slice(0, 240), language: args.language, targetDurationSeconds: Math.min(180, Math.max(15, Math.round(words / WORDS_PER_SECOND))) });
+    const rejected: string[] = [];
+    const document = normalizeExplainerScript({ displayTitle: args.title, scenes: args.scenes.map((scene) => ({ ...scene, visual: scene.title })) }, { ...input, primaryColor }, rejected);
+    return { document, rejected };
+  };
+  tool("crear_video_desde_guion", {
+    description: "Produce un video con el guion y las animaciones que escribes TÚ (motor Canvas): el Studio no reescribe nada, solo pone fotos de fondo, la voz si pasas voiceId, el caption y encola el render. Antes mira listar_animaciones: cada animación dice cuándo usarla (useFor) y cuándo no (avoid). Reglas que se comprueban al llamar, sin gastar: cada elemento de una animación (paso, punto, fecha, nodo, lugar, cifra) lleva un \"cue\" de 1 a 3 palabras copiadas literalmente de la narración de su escena, y caben tantas animaciones como ~7 s de voz. Si algo no pasa, devuelve qué corregir por escena y no encola nada. Devuelve contentItemId y renderJob vía ver_solicitud. No publica." + spendNote,
+    input: scriptInput,
+    spends: true,
+    check: (args) => {
+      const { document, rejected } = scriptDocument(args);
+      const missing = document.scenes.flatMap((scene, index) => (scene.content.canvas ? [] : [`Escena ${index + 1} (${scene.id}): se quedó sin ninguna animación válida.`]));
+      const problems = [...rejected, ...missing];
+      if (problems.length) throw new ToolError(`El guion no pasó la revisión; corrige y vuelve a llamar (no se encoló ni se gastó nada):\n- ${problems.join("\n- ")}`);
+    },
+  }, async ({ imageSource, voiceId, modelId, caption, ...rest }, log) => {
+    const args = { imageSource, voiceId, modelId, caption, ...rest };
+    const result = await runVideoPipeline({ topic: args.title, imageSource, voiceId, modelId, engine: "canvas" }, videoDeps(log, async () => {
+      // El color de la marca de la campaña, como en el guion que escribe el Studio.
+      const campaign = await call(campaignItem.GET, { params: { id: args.campaignId } }) as { brandKitId?: string | null };
+      const brand = campaign.brandKitId ? (await call(brands.GET) as { id: string; primaryColor?: string }[]).find((item) => item.id === campaign.brandKitId) : undefined;
+      return (await saveContent(args.campaignId, "video", scriptDocument(args, brand?.primaryColor).document)).id;
+    }, caption));
+    return { ...result, abrir: `/explainer?id=${result.contentItemId}`, narracion: Boolean(voiceId), motor: "canvas" };
   });
   const withRevision = async (contentItemId: string) => {
     const current = await getContent(contentItemId);
@@ -479,7 +535,7 @@ function buildStudio({ origin, scopes, queued }: { origin: string; scopes: reado
     input: { contentItemId: id("el video"), sceneId: id("la escena"), feedback: z.string().max(2000).optional() },
     spends: true,
   }, ({ contentItemId, sceneId, feedback }) => call(sceneAnimation.POST, { method: "POST", params: { id: contentItemId, sceneId }, body: feedback ? { feedback } : {} }));
-  tool("listar_animaciones", { description: "Biblioteca de animaciones del motor Canvas: cada plantilla con qué muestra, cuándo usarla, qué datos lleva y un ejemplo. Úsala para elegir la animación de una escena con generar_plan_canvas.", input: {}, readOnly: true },
+  tool("listar_animaciones", { description: "Biblioteca de animaciones del motor Canvas: cada plantilla con qué muestra, cuándo usarla, qué datos lleva y un ejemplo. Úsala para escribir el guion de crear_video_desde_guion (copia la forma de `example.plan`) o para elegir la animación de una escena con generar_plan_canvas.", input: {}, readOnly: true },
     async () => CANVAS_TEMPLATE_CATALOG.map(({ template, name, description, useFor, avoid, fields, example }) => ({ template, name, description, useFor, avoid, fields, example: { voiceover: example.voiceover, plan: example.plan } })));
   tool("generar_plan_canvas", {
     description: "Genera (o corrige con feedback) el plan del motor Canvas: 1 a 3 animaciones por escena (las escenas largas encadenan varias, una por idea), con sus datos y momentos anclados a palabras de la narración. Sin sceneId planifica todas las escenas; con sceneId y template cambia la animación principal de esa escena (ver listar_animaciones). Hazlo antes de renderizar_video con engine=canvas; sin plan, Canvas solo muestra el título de cada escena." + spendNote,

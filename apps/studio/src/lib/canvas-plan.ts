@@ -85,11 +85,18 @@ export function entryBeats(entry: unknown, scene: VideoDocument["scenes"][number
   const words = sceneWords(scene, fps);
   // Una animación por cada ~7 s de voz: tres en 10 s pasaban sin que se alcanzaran a leer.
   const room = Math.max(1, Math.min(3, Math.round(narrationSeconds(scene, fps) / 7)));
-  const beats = (Array.isArray(list)
-    ? list.flatMap((item) => { const parsed = canvasSceneBeatSchema.safeParse(item); return parsed.success ? [parsed.data] : []; })
-    : (() => { const parsed = canvasScenePlanSchema.safeParse(entry); return parsed.success ? [parsed.data] : []; })())
-    .filter((beat) => { const reason = strict ? beatMismatch(beat, words) : null; if (reason) rejected.push(`Escena ${scene.id}: descartada ${reason}.`); return !reason; })
-    .slice(0, room);
+  // Lo inválido también va a `rejected`: la revisión y el agente del MCP necesitan saber qué corregir.
+  const parse = (item: unknown, schema: typeof canvasSceneBeatSchema | typeof canvasScenePlanSchema) => {
+    const parsed = schema.safeParse(item);
+    if (parsed.success) return [parsed.data];
+    const issue = parsed.error.issues[0];
+    rejected.push(`Escena ${scene.id}: animación "${String((item as { template?: unknown })?.template ?? "?")}" con datos inválidos (${issue.path.join(".") || "plan"}: ${issue.message}).`);
+    return [];
+  };
+  const valid = (Array.isArray(list) ? list.flatMap((item) => parse(item, canvasSceneBeatSchema)) : entry ? parse(entry, canvasScenePlanSchema) : [])
+    .filter((beat) => { const reason = strict ? beatMismatch(beat, words) : null; if (reason) rejected.push(`Escena ${scene.id}: descartada ${reason}.`); return !reason; });
+  if (valid.length > room) rejected.push(`Escena ${scene.id}: sobran ${valid.length - room} animaciones para ~${Math.round(narrationSeconds(scene, fps))} s de voz (caben ${room}); se quedan las primeras.`);
+  const beats = valid.slice(0, room);
   return beats.length ? pruneBeats(beats, words) : null;
 }
 
