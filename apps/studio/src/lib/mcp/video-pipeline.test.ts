@@ -13,7 +13,7 @@ function fixture(templateId = "standard") {
     voiceover: async (_id, rev) => { assert.equal(rev, revision); events.push("voiceover"); revision++; },
     audio: async (_id, scene, voiceId, modelId, rev) => { assert.equal(rev, revision); assert.equal(voiceId, "voice-123"); assert.equal(modelId, "eleven_multilingual_v2"); events.push(`audio:${scene}`); revision++; },
     caption: async (_id, rev) => { assert.equal(rev, revision); events.push("caption"); revision++; },
-    canvasPlan: async () => { events.push("canvas-plan"); revision++; },
+    canvasPlan: async (_id, onlyMissing) => { events.push(onlyMissing ? "canvas-plan:faltantes" : "canvas-plan"); revision++; },
     render: async (_id, engine) => { events.push(engine ? `render:${engine}` : "render"); return { id: "render-1", status: "queued" }; },
   };
   return { events, deps };
@@ -82,6 +82,13 @@ scriptDoc.scenes[1].content = { voiceover: "Adiós.", canvas: { template: "outro
 const scripted = await runVideoPipeline({ topic: "Una explicación", imageSource: "none", voiceId: "voice-123", modelId: "eleven_multilingual_v2", engine: "canvas" }, fromScript.deps);
 assert.deepEqual(fromScript.events.filter(e => !e.startsWith("read:")), ["create", "audio:intro", "audio:close", "caption", "render:canvas"]);
 assert.deepEqual(scripted.animations, { intro: ["hook"], close: ["outro"] });
+// Si el guion dejó una escena sin animación (se descartó por no seguir la voz), se planifica solo esa.
+const halfPlanned = fixture("explainer");
+const halfDoc = (await halfPlanned.deps.read("video-1")).document;
+halfDoc.scenes[0].content = { voiceover: "Hola.", canvas: { template: "hook", words: [{ text: "Hola" }] } };
+halfDoc.scenes[1].content = { voiceover: "Adiós." };
+await runVideoPipeline({ topic: "Una explicación", imageSource: "none", engine: "canvas" }, halfPlanned.deps);
+assert.ok(halfPlanned.events.includes("canvas-plan:faltantes"));
 const hyper = fixture("explainer");
 await runVideoPipeline({ topic: "Una explicación", imageSource: "none", engine: "hyperframes" }, hyper.deps);
 assert.deepEqual(hyper.events.filter(e => !e.startsWith("read:")), ["create", "animation:intro", "animation:close", "caption", "render:hyperframes"]);

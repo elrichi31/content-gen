@@ -68,7 +68,6 @@ const animated2 = normalizeExplainerScript({ displayTitle: "DDoS", scenes: [
   { title: "Fin", voiceover: "Sígueme.", visual: "v", beats: [{ template: "nope" }] },
 ] }, input);
 assert.equal((animated2.scenes[0].content.canvas as { template: string }).template, "hook");
-assert.deepEqual((animated2.scenes[1].content.canvas as { template: string }[]).map((beat) => beat.template), ["steps", "stat"]);
-assert.equal((animated2.scenes[1].content.canvas as { from?: string }[])[1].from, undefined, "una frase de entrada que no se dice se quita");
+assert.equal((animated2.scenes[1].content.canvas as { template: string }).template, "steps", "la cifra que la voz no dice se descarta");
 assert.equal(animated2.scenes[2].content.canvas, undefined, "sin animación válida, la escena queda para planificar después");
 console.log("explainer ok");

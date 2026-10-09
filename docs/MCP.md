@@ -117,6 +117,12 @@ animación demuestra la idea y escribe la narración para ella (con sus cifras, 
 que la disparan), así que el plan sale con el guion y no se replanifica después. Con
 `standard`/`timeline` el guion conserva su estructura y las animaciones se eligen al final.
 
+Cada animación tiene en el catálogo cuándo usarla y cuándo **no** (`useFor` / `avoid` en
+`listar_animaciones`). Además, el Studio descarta solo las animaciones que no siguen la voz: si
+casi ninguno de sus momentos (pasos, puntos, fechas, nodos, lugares, cifras) se dice en la
+narración, se quita, se le explica a la IA por qué y se replanifica solo esa escena. Cuando eliges
+tú la plantilla de una escena (`generar_plan_canvas` con `template`) se respeta tal cual.
+
 Para narración, elige un `voiceId` con `listar_voces`; sin él se genera sin voz. `modelId`
 es opcional (por defecto `eleven_multilingual_v2`). Consume créditos de los proveedores.
 

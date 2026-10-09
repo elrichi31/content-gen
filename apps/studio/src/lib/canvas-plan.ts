@@ -1,5 +1,5 @@
-import { CANVAS_TEMPLATE_CATALOG, canvasSceneBeatSchema, canvasScenePlanSchema, pruneBeats, sceneWords, storedBeats, type CanvasSceneBeat, type CanvasTemplate } from "@content-gen/domain/canvas";
-import { addUsage } from "@content-gen/domain/cost";
+import { beatMismatch, CANVAS_TEMPLATE_CATALOG, canvasSceneBeatSchema, canvasScenePlanSchema, pruneBeats, sceneWords, storedBeats, type CanvasSceneBeat, type CanvasTemplate } from "@content-gen/domain/canvas";
+import { addUsage, emptyUsage } from "@content-gen/domain/cost";
 import { videoDocumentSchema, type VideoDocument } from "@content-gen/domain/video";
 import { generateOpenAiJson, OpenAiError } from "./openai.ts";
 import { VideoGenerationError } from "./video-generation.ts";
@@ -12,12 +12,12 @@ import { VideoGenerationError } from "./video-generation.ts";
 
 /**
  * Catálogo y criterio de elección, compartido por el plan y por el guion educativo (que se escribe a
- * partir de las animaciones). Prima que la animación demuestre la idea: forzar variedad metía
- * plantillas que no venían a cuento (flujos, redes o mapas donde no fluye, conecta ni hay lugares).
+ * partir de las animaciones). El SÍ / NO de cada plantilla sale del catálogo del dominio (la misma
+ * fuente que ve el agente en listar_animaciones): la IA usaba casi todas fuera de lugar.
  */
 export const CANVAS_TEMPLATE_GUIDE = `PLANTILLAS (campos exactos):
 - hook: palabras gigantes que golpean al decirse. { "template": "hook", "words": [{ "text": "1-14 letras", "cue": "..." }] } (1 a 4). Para el gancho de la primera escena.
-- flow: emisores → (escudo) → destino, con paquetes viajando. SOLO tráfico real de muchos emisores hacia un destino que aguanta, se satura o bloquea (peticiones a un servidor, ataques, colas de pedidos); nunca para procesos, ideas o relaciones (eso es steps, split o network). { "template": "flow", "sources": [{ "label": "...", "count": 1-60 }] (1 a 3), "target": "...", "shield": "..." (opcional: lo que filtra o protege), "rate": "calm"|"busy"|"flood", "outcome": "ok"|"overload"|"blocked", "cues": { "surge": "...", "shield": "...", "outcome": "..." } }. surge = cuando el tráfico se dispara; outcome = cuando se ve el resultado.
+- flow: emisores → (escudo) → destino, con paquetes viajando. { "template": "flow", "sources": [{ "label": "...", "count": 1-60 }] (1 a 3), "target": "...", "shield": "..." (opcional: lo que filtra o protege), "rate": "calm"|"busy"|"flood", "outcome": "ok"|"overload"|"blocked", "cues": { "surge": "...", "shield": "...", "outcome": "..." } }. surge = cuando el tráfico se dispara; outcome = cuando se ve el resultado.
 - steps: proceso en orden. { "template": "steps", "items": [{ "label": "máx 36", "cue": "..." }] } (2 a 4).
 - compare: dos magnitudes. { "template": "compare", "left": { "label": "...", "value": número, "unit": "máx 8" }, "right": { ... }, "cue": "..." }.
 - stat: una cifra que cuenta hasta su valor. { "template": "stat", "value": número, "decimals": 0-2, "unit": "máx 8", "label": "máx 40", "cue": "..." }.
@@ -33,11 +33,12 @@ export const CANVAS_TEMPLATE_GUIDE = `PLANTILLAS (campos exactos):
 - outro: cierre. { "template": "outro", "line": "máx 40", "cta": "máx 40 (opcional)" }. Para la última escena.
 - title: solo el título de la escena en grande. Úsalo solo si ninguna otra encaja.
 
-CÓMO ELEGIR
-- Elige la plantilla que DEMUESTRE la idea, no la que la decore: fechas o años → timeline; pasos o fases → steps; acciones, señales o recomendaciones → list; una cifra → stat; dos cifras → compare; serie de cifras → chart; etapas que se reducen → funnel; antes y después → split; una frase clave o cita → quote.
-- Las plantillas literales solo cuando el tema ES eso: flow si algo viaja de verdad hacia un destino (tráfico, paquetes, peticiones, dinero); network si hay cosas que de verdad se conectan o se propagan; terminal si hay comandos o registros reales; map si se nombran lugares reales. Nunca como metáfora.
-- Calidad antes que variedad: si una idea no encaja limpia en ninguna, usa menos animaciones o title. Una plantilla que obliga a inventar etiquetas, cifras o nodos es la plantilla equivocada.
-- No repitas la misma plantilla en escenas seguidas salvo que la narración lo pida. hook para el gancho de la primera escena; outro para cerrar la última.`;
+CÓMO ELEGIR (SÍ / NO de cada plantilla)
+${CANVAS_TEMPLATE_CATALOG.map(({ template, useFor, avoid }) => `- ${template}: SÍ ${useFor} NO ${avoid}`).join("\n")}
+
+LA PRUEBA
+- Cada elemento que muestra la animación (paso, punto, fecha, nodo, lugar, etapa, comando, cifra) tiene que DECIRSE en la narración, y su cue es esa palabra. Si tendrías que inventar elementos que la voz no dice, esa no es la animación. Las animaciones cuyos momentos casi no se dicen se descartan solas.
+- Calidad antes que variedad: si una idea no encaja limpia en ninguna, usa menos animaciones o title. No repitas la misma plantilla en escenas seguidas salvo que la narración lo pida.`;
 
 export const CANVAS_PLAN_SYSTEM_PROMPT = `Eres director de motion graphics para videos educativos verticales. Para cada escena eliges 1 a 3 plantillas animadas que se suceden y escribes sus datos. No dibujas: el motor anima las plantillas.
 
@@ -74,14 +75,18 @@ type StoredPlan = ReturnType<typeof storedBeats>;
 
 /**
  * Animaciones de una entrada de la IA: `beats` (se quedan las válidas, hasta 3) o un plan suelto.
- * Los cues y frases de entrada que no se dicen se quitan. `null` si no queda ninguna.
+ * Con `strict`, se descartan las que no siguen la narración (ver `beatMismatch`) y el motivo va a
+ * `rejected`. Los cues y frases de entrada que no se dicen se quitan. `null` si no queda ninguna.
  */
-export function entryBeats(entry: unknown, scene: VideoDocument["scenes"][number], fps: number): CanvasSceneBeat[] | null {
+export function entryBeats(entry: unknown, scene: VideoDocument["scenes"][number], fps: number, rejected: string[] = [], strict = true): CanvasSceneBeat[] | null {
   const list = (entry as { beats?: unknown })?.beats;
-  const beats = Array.isArray(list)
-    ? list.flatMap((item) => { const parsed = canvasSceneBeatSchema.safeParse(item); return parsed.success ? [parsed.data] : []; }).slice(0, 3)
-    : (() => { const parsed = canvasScenePlanSchema.safeParse(entry); return parsed.success ? [parsed.data] : []; })();
-  return beats.length ? pruneBeats(beats, sceneWords(scene, fps)) : null;
+  const words = sceneWords(scene, fps);
+  const beats = (Array.isArray(list)
+    ? list.flatMap((item) => { const parsed = canvasSceneBeatSchema.safeParse(item); return parsed.success ? [parsed.data] : []; })
+    : (() => { const parsed = canvasScenePlanSchema.safeParse(entry); return parsed.success ? [parsed.data] : []; })())
+    .filter((beat) => { const reason = strict ? beatMismatch(beat, words) : null; if (reason) rejected.push(`Escena ${scene.id}: descartada ${reason}.`); return !reason; })
+    .slice(0, 3);
+  return beats.length ? pruneBeats(beats, words) : null;
 }
 
 /** Cambiar la animación de una sola escena: la IA solo rellena los datos de la plantilla elegida. */
@@ -104,20 +109,21 @@ export function buildCanvasPlanPrompt(document: VideoDocument, feedback?: string
 
 /**
  * Respuesta de la IA → animaciones válidas por escena. Se busca cada escena por `sceneId` (o por posición si
- * no lo trae); un plan inválido se descarta (la escena queda con el respaldo del motor) y los cues
- * que no se dicen se quitan. `skipped` lista las escenas que quedaron sin plan.
+ * no lo trae); un plan inválido o que no sigue la narración se descarta (la escena queda con el respaldo
+ * del motor) y los cues que no se dicen se quitan. `skipped` lista las escenas sin plan y `rejected`, por qué.
  */
 export function normalizeCanvasPlans(value: unknown, document: VideoDocument) {
   const entries = Array.isArray((value as { scenes?: unknown })?.scenes) ? (value as { scenes: unknown[] }).scenes : [];
   const plans: Record<string, StoredPlan> = {};
   const skipped: string[] = [];
+  const rejected: string[] = [];
   document.scenes.forEach((scene, index) => {
     const entry = entries.find((item) => (item as { sceneId?: unknown })?.sceneId === scene.id) ?? entries[index];
-    const beats = entryBeats(entry, scene, document.fps);
+    const beats = entryBeats(entry, scene, document.fps, rejected);
     if (beats) plans[scene.id] = storedBeats(beats);
     else skipped.push(scene.id);
   });
-  return { plans, skipped };
+  return { plans, skipped, rejected };
 }
 
 /** Guarda los planes en sus escenas; las escenas sin plan nuevo conservan el que tenían. */
@@ -141,29 +147,38 @@ export function planVarietyIssues(document: VideoDocument, plans: Record<string,
   return issues;
 }
 
-export async function generateCanvasPlan(document: VideoDocument, feedback?: string, request: typeof fetch = fetch, focus?: CanvasPlanFocus) {
+export async function generateCanvasPlan(document: VideoDocument, feedback?: string, request: typeof fetch = fetch, focus?: CanvasPlanFocus, onlyMissing = false) {
   if (focus && !document.scenes.some((scene) => scene.id === focus.sceneId)) throw new VideoGenerationError("La escena seleccionada no existe.", 404);
+  const missing = onlyMissing && !focus ? document.scenes.filter((scene) => !scene.content.canvas).map((scene) => scene.id) : null;
+  if (missing && !missing.length) return { value: null, model: null, usage: emptyUsage(), sources: [], plans: {} as Record<string, StoredPlan>, skipped: [] as string[], rejected: [] as string[], reviewed: false };
+  // Solo las escenas sin plan: las demás van de contexto y su plan se conserva aunque la IA lo devuelva.
+  const pending = missing ? `\nSOLO FALTAN LAS ESCENAS ${missing.join(", ")}: devuelve únicamente esas; las demás ya tienen plan y no cambian.` : "";
+  const keepMissing = <T extends { plans: Record<string, StoredPlan> }>(plan: T): T => (missing ? { ...plan, plans: Object.fromEntries(Object.entries(plan.plans).filter(([id]) => missing.includes(id))) } : plan);
   try {
-    const result = await generateOpenAiJson({ system: CANVAS_PLAN_SYSTEM_PROMPT, prompt: buildCanvasPlanPrompt(document, feedback, focus), purpose: "explainer", timeoutMs: 180_000, request });
+    const result = await generateOpenAiJson({ system: CANVAS_PLAN_SYSTEM_PROMPT, prompt: buildCanvasPlanPrompt(document, feedback, focus) + pending, purpose: "explainer", timeoutMs: 180_000, request });
     if (focus) {
       // Solo cuenta la escena pedida, y solo si viene con la plantilla elegida: las demás no se tocan.
       const entries = Array.isArray((result.value as { scenes?: unknown })?.scenes) ? (result.value as { scenes: unknown[] }).scenes : [];
       const entry = entries.find((item) => (item as { sceneId?: unknown })?.sceneId === focus.sceneId) ?? (entries.length === 1 ? entries[0] : null);
       const scene = document.scenes.find((item) => item.id === focus.sceneId)!;
-      const beats = entryBeats(entry, scene, document.fps);
+      // La plantilla la eligió la persona: no se descarta por no seguir la narración.
+      const beats = entryBeats(entry, scene, document.fps, [], false);
       if (!beats || beats[0].template !== focus.template) throw new VideoGenerationError("La IA no devolvió un plan válido con esa animación. Intenta de nuevo.", 422);
-      return { ...result, plans: { [focus.sceneId]: storedBeats(beats) }, skipped: [] as string[], reviewed: false };
+      return { ...result, plans: { [focus.sceneId]: storedBeats(beats) }, skipped: [] as string[], rejected: [] as string[], reviewed: false };
     }
-    const first = normalizeCanvasPlans(result.value, document);
-    // Una revisión: si quedaron escenas solo con título, se le devuelven los problemas concretos y se
-    // queda la versión con menos problemas. No se repite más: cada vuelta es otra llamada que se paga.
-    const issues = planVarietyIssues(document, first.plans);
-    if (issues.length && Object.keys(first.plans).length) {
-      const review = await generateOpenAiJson({ system: CANVAS_PLAN_SYSTEM_PROMPT, prompt: buildCanvasPlanPrompt(document, [feedback?.trim(), `REVISIÓN DE TU PLAN ANTERIOR: ${issues.join(" ")}\nPLAN ANTERIOR: ${JSON.stringify(first.plans)}`].filter(Boolean).join("\n")), purpose: "explainer", timeoutMs: 180_000, request }).catch(() => null);
-      const second = review ? normalizeCanvasPlans(review.value, document) : null;
+    const first = keepMissing(normalizeCanvasPlans(result.value, document));
+    // Una revisión: si descartamos animaciones que no seguían la voz o quedaron escenas solo con título,
+    // se le devuelven los problemas concretos y se queda la versión con menos problemas. No se repite
+    // más: cada vuelta es otra llamada que se paga.
+    const problems = (plan: ReturnType<typeof normalizeCanvasPlans>) => [...plan.rejected, ...planVarietyIssues(document, plan.plans)];
+    const issues = problems(first);
+    if (issues.length && (Object.keys(first.plans).length || first.rejected.length)) {
+      const review = await generateOpenAiJson({ system: CANVAS_PLAN_SYSTEM_PROMPT, prompt: buildCanvasPlanPrompt(document, [feedback?.trim(), `REVISIÓN DE TU PLAN ANTERIOR: ${issues.join(" ")}\nPLAN ANTERIOR: ${JSON.stringify(first.plans)}`].filter(Boolean).join("\n")) + pending, purpose: "explainer", timeoutMs: 180_000, request }).catch(() => null);
+      const second = review ? keepMissing(normalizeCanvasPlans(review.value, document)) : null;
       const usage = review ? addUsage(result.usage, review.usage) : result.usage;
-      if (second && Object.keys(second.plans).length >= Object.keys(first.plans).length && planVarietyIssues(document, second.plans).length < issues.length) return { ...result, usage, ...second, reviewed: true };
-      return { ...result, usage, ...first, reviewed: Boolean(review) };
+      const best = second && Object.keys(second.plans).length >= Object.keys(first.plans).length && problems(second).length < issues.length ? second : first;
+      if (!Object.keys(best.plans).length) throw new VideoGenerationError("La IA no devolvió ningún plan que siga la narración.", 422);
+      return { ...result, usage, ...best, reviewed: Boolean(review) };
     }
     if (!Object.keys(first.plans).length) throw new VideoGenerationError("La IA no devolvió ningún plan válido para las escenas.", 422);
     return { ...result, ...first, reviewed: false };

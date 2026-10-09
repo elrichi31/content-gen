@@ -29,6 +29,7 @@ function TemplateCard({ info, palette }: { info: CanvasTemplateInfo; palette: [s
           </div>
           <p className="text-sm text-muted-foreground">{info.description}</p>
           <p className="text-sm"><span className="font-semibold text-foreground">Cuándo usarla: </span><span className="text-muted-foreground">{info.useFor}</span></p>
+          <p className="text-sm"><span className="font-semibold text-foreground">Cuándo no: </span><span className="text-muted-foreground">{info.avoid}</span></p>
           <div>
             <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Qué rellena la IA</p>
             <ul className="mt-1 list-disc space-y-0.5 pl-4 text-xs text-muted-foreground">

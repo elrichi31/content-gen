@@ -9,7 +9,8 @@ import { CANVAS_TEMPLATES } from "@content-gen/domain/canvas";
 import { videoDocumentSchema } from "@content-gen/domain/video";
 
 // `sceneId` + `template`: cambia la animación de una sola escena; sin ellos, se planifican todas.
-const inputSchema = z.object({ feedback: z.string().trim().max(2000).optional(), sceneId: z.string().min(1).optional(), template: z.enum(CANVAS_TEMPLATES).optional() })
+// `onlyMissing`: solo las escenas sin plan (p. ej. el guion educativo ya trae las suyas).
+const inputSchema = z.object({ feedback: z.string().trim().max(2000).optional(), sceneId: z.string().min(1).optional(), template: z.enum(CANVAS_TEMPLATES).optional(), onlyMissing: z.boolean().optional() })
   .refine((input) => Boolean(input.sceneId) === Boolean(input.template), { message: "sceneId y template van juntos." });
 
 type Row = { document_json: string; revision: number };
@@ -36,8 +37,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const startedAt = Date.now(); let run: Awaited<ReturnType<typeof beginGenerationRun>> | undefined;
   try {
     run = await beginGenerationRun({ contentItemId: id, operation: "video-canvas-plan", model: openAiModel("explainer") });
-    const { feedback, sceneId, template } = input.data;
-    const generated = await generateCanvasPlan(document, feedback, fetch, sceneId && template ? { sceneId, template } : undefined);
+    const { feedback, sceneId, template, onlyMissing } = input.data;
+    const generated = await generateCanvasPlan(document, feedback, fetch, sceneId && template ? { sceneId, template } : undefined, onlyMissing);
     for (let attempt = 0; attempt < 5; attempt++) {
       const latest = await load(id);
       const latestDocument = latest ? videoDocument(latest) : null;

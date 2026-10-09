@@ -13,7 +13,8 @@ export type VideoPipelineDependencies = {
   voiceover: (id: string, revision: number) => Promise<unknown>;
   audio: (id: string, sceneId: string, voiceId: string, modelId: string, revision: number) => Promise<unknown>;
   caption: (id: string, revision: number) => Promise<unknown>;
-  canvasPlan: (id: string) => Promise<unknown>;
+  /** `onlyMissing`: planifica solo las escenas sin animación y deja las que ya trae el guion. */
+  canvasPlan: (id: string, onlyMissing?: boolean) => Promise<unknown>;
   render: (id: string, engine?: RenderEngine) => Promise<RenderJob>;
   /** Avisa de cada paso al empezarlo, para que la cola muestre qué se está generando. */
   progress?: (step: string) => void;
@@ -87,11 +88,12 @@ export async function runVideoPipeline(input: PipelineInput, deps: VideoPipeline
     let animations: Record<string, string[]> | undefined;
     if (canvas) {
       // El educativo trae el plan del guion (la narración se escribió para esas animaciones): replanificar
-      // gastaba otra llamada y podía cambiar lo elegido. Solo se planifica si falta o la voz se reescribió.
-      const planned = !rewritesNarration && current.document.scenes.every((scene) => scene.content.canvas);
-      if (!planned) {
+      // gastaba otra llamada y podía cambiar lo elegido. Si la voz se reescribió se planifica todo; si
+      // no, solo las escenas que se quedaron sin animación (las descartadas por no seguir la voz).
+      const planned = current.document.scenes.filter((scene) => scene.content.canvas).length;
+      if (rewritesNarration || planned < current.document.scenes.length) {
         at("canvas-plan");
-        await deps.canvasPlan(contentItemId);
+        await deps.canvasPlan(contentItemId, !rewritesNarration && planned > 0);
         completedSteps.push(step);
       }
       animations = Object.fromEntries((await read()).document.scenes.map((scene) => [scene.id, sceneTemplates(scene.content.canvas)]));

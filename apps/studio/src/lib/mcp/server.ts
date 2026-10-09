@@ -453,7 +453,7 @@ function buildStudio({ origin, scopes, queued }: { origin: string; scopes: reado
       voiceover: (item, revision) => call(voiceoverScript.POST, { method: "POST", params: { id: item }, body: { action: "generate", revision } }),
       audio: (item, sceneId, voiceId, modelId, revision) => call(sceneAudio.POST, { method: "POST", params: { id: item, sceneId }, body: { voiceId, modelId, revision } }),
       caption: (item, revision) => call(videoCaption.POST, { method: "POST", params: { id: item }, body: { action: "generate", revision } }),
-      canvasPlan: (item) => call(canvasPlan.POST, { method: "POST", params: { id: item }, body: {} }),
+      canvasPlan: (item, onlyMissing) => call(canvasPlan.POST, { method: "POST", params: { id: item }, body: onlyMissing ? { onlyMissing } : {} }),
       render: async (item, chosen) => {
         const job = await call(renderJobs.POST, { method: "POST", body: { contentItemId: item, ...(chosen === "hyperframes" || chosen === "canvas" ? { engine: chosen } : {}) } }) as { id: string; status: string };
         const jobs = await call(renderJobs.GET, { query: { contentItemId: item } }) as { id: string; status: string }[];
@@ -480,7 +480,7 @@ function buildStudio({ origin, scopes, queued }: { origin: string; scopes: reado
     spends: true,
   }, ({ contentItemId, sceneId, feedback }) => call(sceneAnimation.POST, { method: "POST", params: { id: contentItemId, sceneId }, body: feedback ? { feedback } : {} }));
   tool("listar_animaciones", { description: "Biblioteca de animaciones del motor Canvas: cada plantilla con qué muestra, cuándo usarla, qué datos lleva y un ejemplo. Úsala para elegir la animación de una escena con generar_plan_canvas.", input: {}, readOnly: true },
-    async () => CANVAS_TEMPLATE_CATALOG.map(({ template, name, description, useFor, fields, example }) => ({ template, name, description, useFor, fields, example: { voiceover: example.voiceover, plan: example.plan } })));
+    async () => CANVAS_TEMPLATE_CATALOG.map(({ template, name, description, useFor, avoid, fields, example }) => ({ template, name, description, useFor, avoid, fields, example: { voiceover: example.voiceover, plan: example.plan } })));
   tool("generar_plan_canvas", {
     description: "Genera (o corrige con feedback) el plan del motor Canvas: 1 a 3 animaciones por escena (las escenas largas encadenan varias, una por idea), con sus datos y momentos anclados a palabras de la narración. Sin sceneId planifica todas las escenas; con sceneId y template cambia la animación principal de esa escena (ver listar_animaciones). Hazlo antes de renderizar_video con engine=canvas; sin plan, Canvas solo muestra el título de cada escena." + spendNote,
     input: { contentItemId: id("el video"), feedback: z.string().max(2000).optional(), sceneId: z.string().min(1).optional().describe("Escena a cambiar; va con template"), template: z.enum(CANVAS_TEMPLATES).optional().describe("Animación para esa escena") },

@@ -87,20 +87,21 @@ const dataPrompt = buildCanvasPlanPrompt(timelineLike);
 assert.match(dataPrompt, /DATOS DE LA ESCENA:\n- year: 1989\n- headline: Cae el muro\n- indicator: Protestas \| Fronteras abiertas/);
 assert.ok(!/- (voiceover|wordTimings|visual):/.test(dataPrompt), "lo que ya va aparte o no es contenido no se repite");
 assert.ok(!/prefiere las de pocos elementos/.test(CANVAS_PLAN_SYSTEM_PROMPT), "la foto ya no empuja a plantillas pobres");
-assert.match(CANVAS_PLAN_SYSTEM_PROMPT, /fechas o años → timeline/);
+assert.match(CANVAS_PLAN_SYSTEM_PROMPT, /- timeline: SÍ 2 a 5 fechas o años reales que la voz dice/, "cada plantilla con su SÍ");
+assert.match(CANVAS_PLAN_SYSTEM_PROMPT, /- flow: SÍ .* NO Procesos, ideas, relaciones/, "y su NO");
 
 // Revisión: solo escenas que (salvo la última) muestran el título. Ya no se exige un mínimo de plantillas
 // distintas: forzar variedad metía animaciones que no venían a cuento.
 const five = videoDocumentSchema.parse({ ...document, scenes: Array.from({ length: 6 }, (_, i) => ({ id: `scene-${i + 1}`, kind: "explainer", durationFrames: 90, content: { title: `T${i}`, voiceover: "Uno dos tres." } })) });
-const poor = { "scene-1": { template: "hook", words: [{ text: "Uno" }] }, "scene-2": { template: "title" }, "scene-3": { template: "title" }, "scene-4": { template: "list", icon: "dot", items: [{ text: "a" }, { text: "b" }] }, "scene-5": { template: "list", icon: "dot", items: [{ text: "a" }, { text: "b" }] }, "scene-6": { template: "title" } } as never;
+const poor = { "scene-1": { template: "hook", words: [{ text: "Uno" }] }, "scene-2": { template: "title" }, "scene-3": { template: "title" }, "scene-4": { template: "list", icon: "dot", items: [{ text: "a", cue: "uno" }, { text: "b", cue: "dos" }] }, "scene-5": { template: "list", icon: "dot", items: [{ text: "a", cue: "uno" }, { text: "b", cue: "dos" }] }, "scene-6": { template: "title" } } as never;
 const poorIssues = planVarietyIssues(five, poor);
 assert.match(poorIssues[0], /Las escenas 2, 3 solo muestran el título/, "la última escena puede ser solo título");
 assert.equal(poorIssues.length, 1, "repetir plantillas que encajan no es un problema");
 assert.match(CANVAS_PLAN_SYSTEM_PROMPT, /Calidad antes que variedad/);
-assert.match(CANVAS_PLAN_SYSTEM_PROMPT, /Nunca como metáfora/, "flow, network, terminal y map solo cuando el tema es literalmente eso");
+assert.match(CANVAS_PLAN_SYSTEM_PROMPT, /LA PRUEBA[\s\S]*tiene que DECIRSE en la narración/, "cada elemento animado se dice en la voz");
 assert.ok(!/al menos 5/.test(CANVAS_PLAN_SYSTEM_PROMPT));
 assert.ok(!/cualquier cosa que fluya/.test(CANVAS_PLAN_SYSTEM_PROMPT), "el flujo ya no se ofrece para todo lo que «fluye»");
-const rich = Object.fromEntries(["hook", "list", "stat", "steps", "quote", "outro"].map((template, i) => [`scene-${i + 1}`, template === "hook" ? { template, words: [{ text: "Uno" }] } : template === "list" ? { template, icon: "dot", items: [{ text: "a" }, { text: "b" }] } : template === "stat" ? { template, value: 3, decimals: 0, label: "x" } : template === "steps" ? { template, items: [{ label: "a" }, { label: "b" }] } : template === "quote" ? { template, text: "Uno dos" } : { template, line: "Fin" }]));
+const rich = Object.fromEntries(["hook", "list", "stat", "steps", "quote", "outro"].map((template, i) => [`scene-${i + 1}`, template === "hook" ? { template, words: [{ text: "Uno" }] } : template === "list" ? { template, icon: "dot", items: [{ text: "a", cue: "uno" }, { text: "b", cue: "dos" }] } : template === "stat" ? { template, value: 3, decimals: 0, label: "x", cue: "tres" } : template === "steps" ? { template, items: [{ label: "a", cue: "uno" }, { label: "b", cue: "dos" }] } : template === "quote" ? { template, text: "Uno dos", cue: "uno" } : { template, line: "Fin" }]));
 assert.deepEqual(planVarietyIssues(five, rich as never), [], "un plan sin escenas vacías no tiene problemas");
 
 // Revisión automática: un plan pobre se devuelve una vez con sus problemas y se queda el mejor; el costo suma las dos llamadas.
@@ -120,4 +121,29 @@ assert.equal(count, 2);
 count = 0;
 await generateCanvasPlan(five, undefined, async () => { count++; return reply(rich); });
 assert.equal(count, 1, "un plan completo no gasta otra llamada");
+// Animaciones que no siguen la voz (sus momentos no se dicen) se descartan y el motivo vuelve a la IA.
+const offTopic = normalizeCanvasPlans({ scenes: [
+  { sceneId: "scene-1", template: "hook", words: [{ text: "1 millón", cue: "millón" }] },
+  { sceneId: "scene-2", template: "map", points: [{ label: "Tokio", lat: 35.7, lon: 139.7, cue: "Tokio" }, { label: "Lima", lat: -12, lon: -77, cue: "Lima" }] },
+  { sceneId: "scene-3", template: "flow", sources: [{ label: "Ideas", count: 5 }], target: "Éxito" },
+] }, document);
+assert.deepEqual(Object.keys(offTopic.plans), ["scene-1"], "el mapa sin lugares dichos y el flujo sin momentos dichos no pasan");
+assert.match(offTopic.rejected.join(" "), /scene-2: descartada map: solo 0 de 2/);
+let reviewPrompt = "";
+const rescued = await generateCanvasPlan(document, undefined, async (_url, init) => {
+  const body = String(init?.body);
+  if (body.includes("REVISIÓN")) { reviewPrompt = body; return new Response(JSON.stringify({ output_text: JSON.stringify({ scenes: [{ sceneId: "scene-1", template: "hook", words: [{ text: "1 millón", cue: "millón" }] }, { sceneId: "scene-2", template: "list", icon: "dot", items: [{ text: "Bots", cue: "bots" }, { text: "Tráfico", cue: "tráfico" }] }, { sceneId: "scene-3", template: "outro", line: "Fin" }] }) })); }
+  return new Response(JSON.stringify({ output_text: JSON.stringify({ scenes: [{ sceneId: "scene-1", template: "hook", words: [{ text: "1 millón", cue: "millón" }] }, { sceneId: "scene-2", template: "map", points: [{ label: "Tokio", lat: 35.7, lon: 139.7, cue: "Tokio" }] }, { sceneId: "scene-3", template: "outro", line: "Fin" }] }) }));
+});
+assert.match(reviewPrompt, /descartada map/, "la revisión le dice a la IA qué descartamos y por qué");
+assert.equal(single(rescued.plans["scene-2"]).template, "list");
+// La persona eligió la plantilla: no se descarta aunque sus momentos no se digan.
+const forced = await generateCanvasPlan(document, undefined, async () => new Response(JSON.stringify({ output_text: JSON.stringify({ scenes: [{ sceneId: "scene-2", template: "map", points: [{ label: "Tokio", lat: 35.7, lon: 139.7 }] }] }) })), { sceneId: "scene-2", template: "map" });
+assert.equal(single(forced.plans["scene-2"]).template, "map");
+// Solo lo que falta: la escena con plan se conserva aunque la IA la devuelva.
+const partial = videoDocumentSchema.parse({ ...document, scenes: document.scenes.map((scene, i) => (i === 0 ? { ...scene, content: { ...scene.content, canvas: { template: "hook", words: [{ text: "Uno" }] } } } : scene)) });
+let missingPrompt = "";
+const filled = await generateCanvasPlan(partial, undefined, async (_url, init) => { missingPrompt = String(init?.body); return new Response(JSON.stringify({ output_text: JSON.stringify(answer) })); }, undefined, true);
+assert.match(missingPrompt, /SOLO FALTAN LAS ESCENAS scene-2, scene-3/);
+assert.ok(!("scene-1" in filled.plans), "no pisa el plan que ya traía el guion");
 console.log("canvas plan ok");
