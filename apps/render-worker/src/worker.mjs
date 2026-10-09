@@ -1,14 +1,10 @@
-import { bundle } from "@remotion/bundler";
-import { renderMedia, selectComposition } from "@remotion/renderer";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream, existsSync, mkdirSync, rmSync, statSync } from "node:fs";
 import { copyFile, readFile } from "node:fs/promises";
-import { createServer } from "node:http";
-import { dirname, resolve, sep } from "node:path";
+import { dirname, resolve } from "node:path";
 import { clearInterval, setInterval } from "node:timers";
 import pg from "pg";
 import { runCanvasRender } from "./canvas.mjs";
-import { runHyperframesRender } from "./hyperframes.mjs";
 
 const jobArgumentIndex = process.argv.indexOf("--job");
 const jobPath = jobArgumentIndex === -1 ? undefined : process.argv[jobArgumentIndex + 1];
@@ -25,7 +21,7 @@ const update = async (database, job, patch) => {
 /**
  * Progreso y "consola" del render viven en la misma fila: cada tick escribe el % y,
  * si hay una línea nueva, la agrega al log (recortado a las últimas MAX_LOG_LINES) para
- * que el panel de la app pueda mostrar qué está haciendo Remotion en vivo, sin abrir nada
+ * que el panel de la app pueda mostrar qué está haciendo el render en vivo, sin abrir nada
  * fuera del navegador.
  */
 async function reportProgress(database, jobId, patch) {
@@ -44,7 +40,7 @@ async function reportProgress(database, jobId, patch) {
 }
 
 /**
- * Remotion avisa del progreso con callbacks síncronos, y cada aviso es leer-modificar-escribir sobre
+ * El render avisa del progreso con callbacks síncronos, y cada aviso es leer-modificar-escribir sobre
  * la misma fila. Encadenarlos evita que dos avisos solapados lean el mismo estado y uno pise al otro
  * (con SQLite eran síncronos y esa carrera no existía). `flush()` espera a que se vacíe la cola.
  */
@@ -64,100 +60,18 @@ const claim = async (database, job, patch) => {
 };
 
 /**
- * Los mensajes de Remotion (CLI o SDK) pueden traer un stack larguísimo con códigos ANSI:
+ * Los errores del render (Chrome, ffmpeg) pueden traer un stack larguísimo con códigos ANSI:
  * para la app vale más la línea que explica el fallo que los últimos mil caracteres.
  */
 export function renderErrorMessage(output) {
   // eslint-disable-next-line no-control-regex
   const clean = (output ?? "").replace(/\[[0-9;]*m/g, "").trim();
-  if (!clean) return "Remotion no pudo renderizar.";
+  if (!clean) return "No se pudo renderizar el video.";
   const lines = clean.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   const meaningful = lines.filter((line) => !line.startsWith("at ") && !/^\d+\s*│/.test(line) && !/^│/.test(line));
   const start = meaningful.findIndex((line) => /error|failed|cannot|no se pudo/i.test(line));
   const picked = (start === -1 ? meaningful : meaningful.slice(start)).slice(0, 4).join(" ");
   return (picked || clean).slice(0, 1000);
-}
-
-/**
- * Renderiza en el mismo proceso con el SDK de Remotion (@remotion/bundler + @remotion/renderer)
- * en vez de invocar `npx remotion render` como subproceso: nada de ventanas de consola en
- * Windows, y el progreso llega como números en vez de tener que parsear texto de stdout.
- */
-/**
- * Sirve en 127.0.0.1 solo los assets de las escenas del job, leídos del volumen local. Remotion
- * pedía las imágenes y audios a `/api/assets` del Studio, pero esa ruta está detrás del login:
- * el Chromium del render recibía 401 y la imagen de fondo desaparecía sin dar error.
- */
-async function startAssetServer(document, { database, mediaRoot }) {
-  const ids = [...new Set(document.scenes.flatMap((scene) => [scene.imageAssetId, scene.audioAssetId]).filter(Boolean))];
-  if (!ids.length) return null;
-  const files = new Map();
-  for (const id of ids) {
-    const row = (await database.query("SELECT data_json FROM assets WHERE id = $1", [id])).rows[0];
-    if (!row) throw new Error(`Falta el asset ${id} de una escena.`);
-    const data = JSON.parse(row.data_json);
-    const path = resolve(mediaRoot, data.storageKey);
-    if (!path.startsWith(resolve(mediaRoot) + sep)) throw new Error(`Ruta de asset inválida: ${id}.`);
-    if (!existsSync(path)) throw new Error(`No se encontró el archivo del asset ${id}.`);
-    files.set(id, { path, mimeType: data.mimeType });
-  }
-  const server = createServer((request, response) => {
-    const id = /^\/api\/assets\/([^/?#]+)/.exec(request.url ?? "")?.[1];
-    const file = id ? files.get(id) : undefined;
-    if (!file) { response.writeHead(404).end(); return; }
-    const { size } = statSync(file.path);
-    // Range: el <Audio> de Remotion lo pide para leer la duración y moverse por el archivo.
-    const range = /^bytes=(\d*)-(\d*)$/.exec(request.headers.range ?? "");
-    const start = range?.[1] ? Number(range[1]) : range?.[2] ? Math.max(0, size - Number(range[2])) : 0;
-    const end = range?.[1] && range[2] ? Math.min(size - 1, Number(range[2])) : size - 1;
-    if (range && start > end) { response.writeHead(416, { "Content-Range": `bytes */${size}` }).end(); return; }
-    response.writeHead(range ? 206 : 200, {
-      "Content-Type": file.mimeType, "Content-Length": end - start + 1, "Accept-Ranges": "bytes",
-      "Access-Control-Allow-Origin": "*", ...(range ? { "Content-Range": `bytes ${start}-${end}/${size}` } : {}),
-    });
-    if (request.method === "HEAD") { response.end(); return; }
-    createReadStream(file.path, { start, end }).pipe(response);
-  });
-  await new Promise((resolveListen, reject) => { server.once("error", reject); server.listen(0, "127.0.0.1", resolveListen); });
-  const { port } = server.address();
-  return { url: `http://127.0.0.1:${port}`, close: () => new Promise((resolveClose) => server.close(() => resolveClose())) };
-}
-
-async function runRemotionRender(job, outputPath, onUpdate, { database, mediaRoot }) {
-  const entryPoint = resolve(process.cwd(), "packages/video-engine/src/index.ts");
-  const assets = await startAssetServer(job.inputProps.document, { database, mediaRoot });
-  try {
-    await renderRemotion({ ...job, inputProps: { ...job.inputProps, ...(assets ? { assetBaseUrl: assets.url } : {}) } }, entryPoint, outputPath, onUpdate);
-  } finally {
-    await assets?.close();
-  }
-}
-
-async function renderRemotion(job, entryPoint, outputPath, onUpdate) {
-  onUpdate({ log: "Empaquetando la composición…" });
-  const serveUrl = await bundle({ entryPoint });
-
-  onUpdate({ log: `Resolviendo la composición "${job.compositionId}"…` });
-  const composition = await selectComposition({ serveUrl, id: job.compositionId, inputProps: job.inputProps });
-  onUpdate({ log: `Renderizando ${composition.durationInFrames} frames a ${composition.fps}fps (${composition.width}x${composition.height})…` });
-
-  let lastLoggedStep = -1;
-  await renderMedia({
-    composition,
-    serveUrl,
-    codec: "h264",
-    outputLocation: outputPath,
-    inputProps: job.inputProps,
-    onProgress: ({ progress, renderedFrames, encodedFrames }) => {
-      onUpdate({ progress: 10 + Math.round(progress * 85) });
-      const step = Math.floor(progress * 20); // una línea cada ~5% para no inundar el log
-      if (step !== lastLoggedStep) {
-        lastLoggedStep = step;
-        onUpdate({ log: `Frame ${renderedFrames}/${composition.durationInFrames} · codificado ${encodedFrames}/${composition.durationInFrames}` });
-      }
-    },
-  });
-  onUpdate({ log: "Render de video completo, guardando MP4…" });
 }
 
 function hashFile(path) {
@@ -215,12 +129,9 @@ async function processNext(jobId) {
     const heartbeat = setInterval(() => progress.report({}), 15_000);
     heartbeat.unref();
     try {
-      if (!["StandardVideo", "TimelineVideo", "HyperframesVideo", "CanvasVideo"].includes(job.compositionId)) throw new Error("La composición de video no está registrada.");
+      // Todo se renderiza con Canvas, también los jobs de motores anteriores que sigan en cola.
       mkdirSync(dirname(outputPath), { recursive: true });
-      const onUpdate = (patch) => progress.report(patch);
-      if (job.compositionId === "HyperframesVideo") await runHyperframesRender(job, outputPath, { database, mediaRoot, onUpdate });
-      else if (job.compositionId === "CanvasVideo") await runCanvasRender(job, outputPath, { database, mediaRoot, onUpdate });
-      else await runRemotionRender(job, outputPath, onUpdate, { database, mediaRoot });
+      await runCanvasRender(job, outputPath, { database, mediaRoot, onUpdate: (patch) => progress.report(patch) });
       await progress.flush();
       const latest = await latestOf(job.id);
       if (latest.status === "cancelled") return console.log(JSON.stringify({ id: latest.id, status: "cancelled" }));

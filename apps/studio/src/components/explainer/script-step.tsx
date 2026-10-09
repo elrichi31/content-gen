@@ -45,7 +45,7 @@ export function ExplainerScriptStep({ document, onChange, busy, onContinue }: { 
                   {chosen(scene.content.canvas).length ? <p className="text-xs text-muted-foreground">Animaciones elegidas: <span className="font-medium text-foreground">{chosen(scene.content.canvas).join(" → ")}</span>. Si cambias la narración, mantén las palabras que las disparan.</p> : null}
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor={`visual-${scene.id}`} className="text-[10px] uppercase tracking-wider text-muted-foreground">Animación</Label>
+                  <Label htmlFor={`visual-${scene.id}`} className="text-[10px] uppercase tracking-wider text-muted-foreground">Idea visual</Label>
                   <Textarea id={`visual-${scene.id}`} rows={3} value={field(scene, "visual")} onChange={(event) => update(scene.id, "visual", event.target.value)} className="text-xs" />
                 </div>
               </div>
@@ -57,7 +57,7 @@ export function ExplainerScriptStep({ document, onChange, busy, onContinue }: { 
       <ResearchSources document={document} />
 
       <div className="flex flex-col-reverse gap-3 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-xs text-muted-foreground">{incomplete ? "Cada escena necesita narración y animación." : null}</p>
+        <p className="text-xs text-muted-foreground">{incomplete ? "Cada escena necesita narración e idea visual." : null}</p>
         <Button type="button" className="shrink-0" disabled={busy || incomplete} onClick={onContinue}>
           {busy ? "Guardando…" : "Guardar y continuar a la voz →"}
         </Button>

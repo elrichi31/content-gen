@@ -9,36 +9,37 @@ function fixture(templateId = "standard") {
     create: async () => { events.push("create"); return "video-1"; },
     read: async () => { events.push(`read:${revision}`); return { type: "video", revision, document }; },
     image: async (id, scene, prompt, source, rev) => { assert.equal(rev, revision); events.push(`image:${scene}:${source}:${prompt}`); revision++; },
-    animation: async (_id, scene) => { events.push(`animation:${scene}`); revision++; },
     voiceover: async (_id, rev) => { assert.equal(rev, revision); events.push("voiceover"); revision++; },
     audio: async (_id, scene, voiceId, modelId, rev) => { assert.equal(rev, revision); assert.equal(voiceId, "voice-123"); assert.equal(modelId, "eleven_multilingual_v2"); events.push(`audio:${scene}`); revision++; },
     caption: async (_id, rev) => { assert.equal(rev, revision); events.push("caption"); revision++; },
     canvasPlan: async (_id, onlyMissing) => { events.push(onlyMissing ? "canvas-plan:faltantes" : "canvas-plan"); revision++; },
-    render: async (_id, engine) => { events.push(engine ? `render:${engine}` : "render"); return { id: "render-1", status: "queued" }; },
+    render: async () => { events.push("render"); return { id: "render-1", status: "queued" }; },
   };
   return { events, deps };
 }
 
+// Todo va por Canvas: fotos de fondo, voz, plan de animaciones tras la voz, caption y render.
 const standard = fixture();
 const result = await runVideoPipeline({ topic: "Ciudad futura", imageSource: "unsplash", voiceId: "voice-123", modelId: "eleven_multilingual_v2" }, standard.deps);
 assert.equal(result.status, "queued");
 assert.equal(result.contentItemId, "video-1");
 assert.equal(result.renderJob?.id, "render-1");
-assert.deepEqual(standard.events.filter(e => !e.startsWith("read:")), ["create", "voiceover", "image:intro:unsplash:Una ciudad al amanecer", "image:close:unsplash:Ciudad futura", "audio:intro", "audio:close", "caption", "render"]);
-assert.equal(standard.events.at(-2), "read:6", "verifica el documento guardado antes del render");
+assert.deepEqual(standard.events.filter(e => !e.startsWith("read:")), ["create", "voiceover", "image:intro:unsplash:Una ciudad al amanecer", "image:close:unsplash:Ciudad futura", "audio:intro", "audio:close", "canvas-plan", "caption", "render"]);
+assert.equal(standard.events.at(-2), "read:7", "verifica el documento guardado antes del render");
 
+// El educativo también lleva fotos de fondo; sin voz no se reescribe nada.
 const explainer = fixture("explainer");
 await runVideoPipeline({ topic: "Una explicación", imageSource: "openai" }, explainer.deps);
-assert.deepEqual(explainer.events.filter(e => !e.startsWith("read:")), ["create", "animation:intro", "animation:close", "caption", "render"]);
+assert.deepEqual(explainer.events.filter(e => !e.startsWith("read:")), ["create", "image:intro:openai:Una ciudad al amanecer", "image:close:openai:Una explicación", "canvas-plan", "caption", "render"]);
 
 // El educativo ya trae su narración: con voz solo se genera el audio, sin reescribir el guion de voz.
 const narrated = fixture("explainer");
 narrated.deps.read = async () => ({ type: "video", revision: 0, document: { title: "E", templateId: "explainer", scenes: [{ id: "scene-1", content: { voiceover: "Hola." } }] } });
 narrated.deps.audio = async (_id, scene) => { narrated.events.push(`audio:${scene}`); };
-narrated.deps.animation = async (_id, scene) => { narrated.events.push(`animation:${scene}`); };
+narrated.deps.canvasPlan = async () => { narrated.events.push("canvas-plan"); };
 narrated.deps.caption = async () => { narrated.events.push("caption"); };
 await runVideoPipeline({ topic: "Una explicación", imageSource: "none", voiceId: "voice-123" }, narrated.deps);
-assert.deepEqual(narrated.events, ["create", "animation:scene-1", "audio:scene-1", "caption", "render"]);
+assert.deepEqual(narrated.events, ["create", "audio:scene-1", "canvas-plan", "caption", "render"]);
 
 const failed = fixture();
 failed.deps.image = async () => { throw new Error("Proveedor no disponible"); };
@@ -51,19 +52,8 @@ assert.ok(!failed.events.includes("render"));
 
 const noImages = fixture("timeline");
 await runVideoPipeline({ topic: "Historia del mundo", imageSource: "none" }, noImages.deps);
-assert.deepEqual(noImages.events.filter(e => !e.startsWith("read:")), ["create", "caption", "render"]);
+assert.deepEqual(noImages.events.filter(e => !e.startsWith("read:")), ["create", "canvas-plan", "caption", "render"]);
 
-// Con Canvas no se gastan animaciones HTML: el plan se genera tras la voz y el render va por Canvas.
-// Las imágenes sí se generan, también en el educativo: Canvas las pone de fondo.
-const canvasExplainer = fixture("explainer");
-await runVideoPipeline({ topic: "Una explicación", imageSource: "openai", voiceId: "voice-123", modelId: "eleven_multilingual_v2", engine: "canvas" }, canvasExplainer.deps);
-assert.deepEqual(canvasExplainer.events.filter(e => !e.startsWith("read:")), ["create", "voiceover", "image:intro:openai:Una ciudad al amanecer", "image:close:openai:Una explicación", "audio:intro", "audio:close", "canvas-plan", "caption", "render:canvas"]);
-const canvasExplainerNoPhotos = fixture("explainer");
-await runVideoPipeline({ topic: "Una explicación", imageSource: "none", engine: "canvas" }, canvasExplainerNoPhotos.deps);
-assert.deepEqual(canvasExplainerNoPhotos.events.filter(e => !e.startsWith("read:")), ["create", "canvas-plan", "caption", "render:canvas"]);
-const canvasStandard = fixture();
-await runVideoPipeline({ topic: "Ciudad futura", imageSource: "unsplash", engine: "canvas" }, canvasStandard.deps);
-assert.deepEqual(canvasStandard.events.filter(e => !e.startsWith("read:")), ["create", "image:intro:unsplash:Una ciudad al amanecer", "image:close:unsplash:Ciudad futura", "canvas-plan", "caption", "render:canvas"]);
 // El resultado dice qué animaciones quedaron en cada escena (un plan suelto o una lista).
 const planned = fixture();
 planned.deps.canvasPlan = async () => {
@@ -71,27 +61,24 @@ planned.deps.canvasPlan = async () => {
   doc.scenes[0].content.canvas = [{ template: "timeline" }, { template: "stat" }];
   doc.scenes[1].content.canvas = { template: "outro" };
 };
-const withAnimations = await runVideoPipeline({ topic: "Ciudad futura", imageSource: "none", engine: "canvas" }, planned.deps);
+const withAnimations = await runVideoPipeline({ topic: "Ciudad futura", imageSource: "none" }, planned.deps);
 assert.deepEqual(withAnimations.animations, { intro: ["timeline", "stat"], close: ["outro"] });
-assert.equal((await runVideoPipeline({ topic: "Ciudad futura", imageSource: "none" }, fixture().deps)).animations, undefined, "sin Canvas no hay plan que mostrar");
+
 // Educativo con las animaciones elegidas en el guion y su narración: no se replanifica (ni se paga otra llamada).
 const fromScript = fixture("explainer");
 const scriptDoc = (await fromScript.deps.read("video-1")).document;
 scriptDoc.scenes[0].content = { ...scriptDoc.scenes[0].content, voiceover: "Hola.", canvas: { template: "hook", words: [{ text: "Hola" }] } };
 scriptDoc.scenes[1].content = { voiceover: "Adiós.", canvas: { template: "outro", line: "Fin" } };
-const scripted = await runVideoPipeline({ topic: "Una explicación", imageSource: "none", voiceId: "voice-123", modelId: "eleven_multilingual_v2", engine: "canvas" }, fromScript.deps);
-assert.deepEqual(fromScript.events.filter(e => !e.startsWith("read:")), ["create", "audio:intro", "audio:close", "caption", "render:canvas"]);
+const scripted = await runVideoPipeline({ topic: "Una explicación", imageSource: "none", voiceId: "voice-123", modelId: "eleven_multilingual_v2" }, fromScript.deps);
+assert.deepEqual(fromScript.events.filter(e => !e.startsWith("read:")), ["create", "audio:intro", "audio:close", "caption", "render"]);
 assert.deepEqual(scripted.animations, { intro: ["hook"], close: ["outro"] });
 // Si el guion dejó una escena sin animación (se descartó por no seguir la voz), se planifica solo esa.
 const halfPlanned = fixture("explainer");
 const halfDoc = (await halfPlanned.deps.read("video-1")).document;
 halfDoc.scenes[0].content = { voiceover: "Hola.", canvas: { template: "hook", words: [{ text: "Hola" }] } };
 halfDoc.scenes[1].content = { voiceover: "Adiós." };
-await runVideoPipeline({ topic: "Una explicación", imageSource: "none", engine: "canvas" }, halfPlanned.deps);
+await runVideoPipeline({ topic: "Una explicación", imageSource: "none" }, halfPlanned.deps);
 assert.ok(halfPlanned.events.includes("canvas-plan:faltantes"));
-const hyper = fixture("explainer");
-await runVideoPipeline({ topic: "Una explicación", imageSource: "none", engine: "hyperframes" }, hyper.deps);
-assert.deepEqual(hyper.events.filter(e => !e.startsWith("read:")), ["create", "animation:intro", "animation:close", "caption", "render:hyperframes"]);
 
 const unsaved = fixture();
 unsaved.deps.create = async () => { throw new Error("Campaña inválida"); };

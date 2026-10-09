@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { buildCanvasHtml } from "../../../packages/canvas-engine/src/index.js";
 import { spawnSync } from "node:child_process";
 import { WORLD } from "../../../packages/canvas-engine/src/world.js";
-import { canvasSettings, frameRanges, imageDataUrl, muxArguments, prepareCanvasRender, renderCanvasStills, segmentArguments } from "./canvas.mjs";
+import { canvasSettings, frameRanges, imageDataUrl, muxArguments, prepareCanvasRender, renderCanvasStills, segmentArguments, withMeasuredAudio } from "./canvas.mjs";
 
 // Rejilla del mapa: tierra donde la hay y mar en medio del Atlántico.
 const land = (lat, lon) => { const i = Math.floor((WORLD.lat0 - lat) / WORLD.step) * WORLD.cols + Math.floor((lon + 180) / WORLD.step); return Boolean((parseInt(WORLD.bits[i >> 2], 16) >> (3 - (i & 3))) & 1); };
@@ -121,4 +121,15 @@ if (process.env.CANVAS_CHROME_PATH) {
   }
 }
 rmSync(dir, { recursive: true, force: true });
+// La duración de cada escena con voz sale del MP3 real, no de la guardada.
+{
+  const mp3 = Buffer.concat(Array.from({ length: 100 }, () => { const bytes = new Uint8Array(417); bytes.set([0xff, 0xfb, 0x90, 0x00]); return bytes; }));
+  const dir = mkdtempSync(join(tmpdir(), "voz-"));
+  writeFileSync(join(dir, "a.mp3"), mp3);
+  const scenes = [{ id: "a", durationFrames: 10, audioAssetId: "a" }, { id: "b", durationFrames: 78 }];
+  const measured = await withMeasuredAudio({ fps: 30, scenes }, () => join(dir, "a.mp3"));
+  assert.equal(measured.scenes[0].durationFrames, Math.ceil(100 * 1152 / 44100 * 30) + 4, "una escena guardada más corta que su voz se alarga");
+  assert.equal(measured.scenes[1].durationFrames, 78, "las escenas sin voz no cambian");
+  rmSync(dir, { recursive: true, force: true });
+}
 console.log("canvas ok");

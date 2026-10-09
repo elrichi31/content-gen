@@ -18,8 +18,8 @@ export const sceneLeadFrames = (index: number) => index === 0 ? INTRO_LEAD_FRAME
 
 /**
  * Duración en pantalla de la escena `index`: su base (narración + `TAIL_FRAMES`), el respiro
- * `SIL_FRAMES`, la entrada si es la primera y el cierre si es la última. Remotion, HyperFrames
- * y el editor usan esta misma cuenta.
+ * `SIL_FRAMES`, la entrada si es la primera y el cierre si es la última. El motor Canvas y el
+ * editor usan esta misma cuenta.
  */
 export const sceneTimelineFrames = (scenes: readonly { durationFrames: number }[], index: number) =>
   scenes[index].durationFrames + SIL_FRAMES + sceneLeadFrames(index) + (index === scenes.length - 1 ? OUTRO_HOLD_FRAMES : 0);

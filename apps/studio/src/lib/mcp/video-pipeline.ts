@@ -9,25 +9,23 @@ export type VideoPipelineDependencies = {
   create: () => Promise<string>;
   read: (id: string) => Promise<SavedVideo>;
   image: (id: string, sceneId: string, prompt: string, source: "openai" | "unsplash", revision: number) => Promise<unknown>;
-  animation: (id: string, sceneId: string) => Promise<unknown>;
   voiceover: (id: string, revision: number) => Promise<unknown>;
   audio: (id: string, sceneId: string, voiceId: string, modelId: string, revision: number) => Promise<unknown>;
   caption: (id: string, revision: number) => Promise<unknown>;
   /** `onlyMissing`: planifica solo las escenas sin animación y deja las que ya trae el guion. */
   canvasPlan: (id: string, onlyMissing?: boolean) => Promise<unknown>;
-  render: (id: string, engine?: RenderEngine) => Promise<RenderJob>;
+  render: (id: string) => Promise<RenderJob>;
   /** Avisa de cada paso al empezarlo, para que la cola muestre qué se está generando. */
   progress?: (step: string) => void;
 };
-export type RenderEngine = "remotion" | "hyperframes" | "canvas";
-type PipelineInput = { topic: string; imageSource: "none" | "openai" | "unsplash"; voiceId?: string; modelId?: string; engine?: RenderEngine };
+type PipelineInput = { topic: string; imageSource: "none" | "openai" | "unsplash"; voiceId?: string; modelId?: string };
 type PipelineResult = {
   status: "queued" | "incomplete";
   contentItemId: string;
   title?: string;
   completedSteps: string[];
   renderJob?: RenderJob;
-  /** Con Canvas: las animaciones que quedaron en cada escena, para ver de un vistazo si el plan salió. */
+  /** Las animaciones que quedaron en cada escena, para ver de un vistazo si el plan salió. */
   animations?: Record<string, string[]>;
   failedStep?: string;
   error?: string;
@@ -62,20 +60,15 @@ export async function runVideoPipeline(input: PipelineInput, deps: VideoPipeline
       await deps.voiceover(contentItemId, (await read()).revision);
       completedSteps.push(step);
     }
-    // Canvas no usa las animaciones HTML del educativo (dibuja su propio plan, que se genera al final),
-    // pero sí las imágenes, también en el educativo: van de fondo bajo la plantilla.
-    const canvas = input.engine === "canvas";
-    for (const scene of current.document.scenes) {
-      if (current.document.templateId === "explainer" && !canvas) {
-        at(`animation:${scene.id}`);
-        await deps.animation(contentItemId, scene.id);
-      } else if (input.imageSource !== "none") {
+    // Fotos de fondo de cada escena, bajo las animaciones de Canvas.
+    if (input.imageSource !== "none") {
+      for (const scene of current.document.scenes) {
         at(`image:${scene.id}`);
         const prompt = typeof scene.content.imagePrompt === "string" && scene.content.imagePrompt.trim().length >= 3
           ? scene.content.imagePrompt.trim().slice(0, 1500) : input.topic;
         await deps.image(contentItemId, scene.id, prompt, input.imageSource, (await read()).revision);
-      } else continue;
-      completedSteps.push(step);
+        completedSteps.push(step);
+      }
     }
     if (input.voiceId) {
       for (const scene of current.document.scenes) {
@@ -85,28 +78,25 @@ export async function runVideoPipeline(input: PipelineInput, deps: VideoPipeline
       }
     }
     // Después de la voz: así los cues del plan se comprueban contra los tiempos reales por palabra.
-    let animations: Record<string, string[]> | undefined;
-    if (canvas) {
-      // El educativo trae el plan del guion (la narración se escribió para esas animaciones): replanificar
-      // gastaba otra llamada y podía cambiar lo elegido. Si la voz se reescribió se planifica todo; si
-      // no, solo las escenas que se quedaron sin animación (las descartadas por no seguir la voz).
-      const planned = current.document.scenes.filter((scene) => scene.content.canvas).length;
-      if (rewritesNarration || planned < current.document.scenes.length) {
-        at("canvas-plan");
-        await deps.canvasPlan(contentItemId, !rewritesNarration && planned > 0);
-        completedSteps.push(step);
-      }
-      animations = Object.fromEntries((await read()).document.scenes.map((scene) => [scene.id, sceneTemplates(scene.content.canvas)]));
+    // El educativo trae el plan del guion (la narración se escribió para esas animaciones): replanificar
+    // gastaba otra llamada y podía cambiar lo elegido. Si la voz se reescribió se planifica todo; si
+    // no, solo las escenas que se quedaron sin animación (las descartadas por no seguir la voz).
+    const planned = current.document.scenes.filter((scene) => scene.content.canvas).length;
+    if (rewritesNarration || planned < current.document.scenes.length) {
+      at("canvas-plan");
+      await deps.canvasPlan(contentItemId, !rewritesNarration && planned > 0);
+      completedSteps.push(step);
     }
+    const animations = Object.fromEntries((await read()).document.scenes.map((scene) => [scene.id, sceneTemplates(scene.content.canvas)]));
     at("caption");
     await deps.caption(contentItemId, (await read()).revision);
     completedSteps.push(step);
     at("verify");
     await read();
     at("render");
-    const renderJob = await deps.render(contentItemId, input.engine);
+    const renderJob = await deps.render(contentItemId);
     completedSteps.push(step);
-    return { status: "queued", contentItemId, title, completedSteps, renderJob, ...(animations ? { animations } : {}) };
+    return { status: "queued", contentItemId, title, completedSteps, renderJob, animations };
   } catch (error) {
     return { status: "incomplete", contentItemId, title, completedSteps, failedStep: step, error: error instanceof Error ? error.message : "La generación falló." };
   }

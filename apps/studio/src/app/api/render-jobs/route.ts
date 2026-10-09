@@ -46,19 +46,18 @@ export async function POST(request: Request) {
   if (!content || content.type !== "video") return NextResponse.json({ error: "El video no existe o está archivado." }, { status: 400 });
   const document = videoDocumentSchema.safeParse(JSON.parse(content.document_json).document.data);
   if (!document.success) return NextResponse.json({ error: document.error.flatten() }, { status: 400 });
-  // `engine: "canvas"` usa el motor Canvas (60 fps, plantillas animadas); `engine: "hyperframes"`, el
-  // motor HTML de HyperFrames; si no, Remotion con la plantilla del documento. El video educativo no
-  // tiene versión en Remotion: sin motor explícito va por HyperFrames.
-  const { engine, ...jobInput } = input as { engine?: unknown };
-  const compositionId = engine === "canvas" ? "CanvasVideo" : engine === "hyperframes" || document.data.templateId === "explainer" ? "HyperframesVideo" : document.data.templateId === "timeline" ? "TimelineVideo" : "StandardVideo";
+  // Todo video se renderiza con el motor Canvas. `engine` se ignora: lo mandaban clientes de antes.
+  const jobInput: Record<string, unknown> = { ...input };
+  delete jobInput.engine;
+  const compositionId = "CanvasVideo";
   // Mejor avisar ahora, escena por escena, que dejar que el worker falle a mitad con un ENOENT.
   const missing = await missingVideoAssetFiles(document.data);
   if (missing.length) {
     const scenes = missing.map((item) => `${item.kind === "image" ? "la imagen" : "el audio"} de «${SCENE_LABELS[item.sceneId as VideoSceneKey] ?? item.sceneId}»`);
     return NextResponse.json({ error: `Faltan archivos en el servidor: ${scenes.join(", ")}. El registro existe pero el archivo ya no está en el disco (se pierde si /app/storage no es un volumen persistente y se redespliega). Vuelve a ponerlos en el editor y renderiza de nuevo.`, missing }, { status: 409 });
   }
-  const hasAssets = document.data.scenes.some((scene) => scene.imageAssetId || scene.audioAssetId);
-  const inputProps = { document: document.data, ...(hasAssets ? { assetBaseUrl: new URL(request.url).origin } : {}) };
+  // El worker lee las fotos y voces del disco, no por HTTP.
+  const inputProps = { document: document.data };
   const parsed = renderJobSchema.safeParse({ ...jobInput, id: randomUUID(), schemaVersion: 1, compositionId, inputProps, status: "queued", progress: 0, outputAssetId: null, createdAt: now, completedAt: null, error: null });
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   const inserted = await withDatabase(async (database) => {

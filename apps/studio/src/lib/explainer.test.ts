@@ -1,20 +1,7 @@
 import assert from "node:assert/strict";
 import { CANVAS_TEMPLATE_GUIDE } from "./canvas-plan.ts";
-import { speakable, buildExplainerAnimationPrompt, EXPLAINER_ANIMATION_SYSTEM_PROMPT, EXPLAINER_SCRIPT_SYSTEM_PROMPT, explainerPalette, explainerSceneCount, normalizeExplainerScript, replaceSceneAnimation, sceneSeconds, scopeAnimation } from "./explainer.ts";
-import { sceneLeadFrames, sceneTimelineFrames } from "@content-gen/domain/video";
+import { speakable, EXPLAINER_SCRIPT_SYSTEM_PROMPT, explainerPalette, explainerSceneCount, normalizeExplainerScript } from "./explainer.ts";
 import { videoGenerationInputSchema } from "./video-generation.ts";
-
-// Aislamiento: reglas anidadas bajo la clase de la escena y keyframes renombrados solo en `animation`.
-const scoped = scopeAnimation("scene-2", ".pulse { animation: pulse 1s infinite, fade-in .5s both; }\n@keyframes pulse { 0% { opacity: 0 } 100% { opacity: 1 } }\n@keyframes fade-in { from { transform: scale(.9) } to { transform: none } }", '<div class="pulse" style="animation-name: fade-in">x</div>');
-assert.ok(scoped.includes("@keyframes xa-scene-2-pulse {"));
-assert.ok(scoped.includes("@keyframes xa-scene-2-fade-in {"));
-assert.ok(scoped.includes(".xa-scene-2 {\n.pulse { animation: xa-scene-2-pulse 1s infinite, xa-scene-2-fade-in .5s both; }"));
-assert.ok(scoped.includes('class="pulse" style="animation-name: xa-scene-2-fade-in"'), "la clase .pulse no se renombra");
-assert.equal((scoped.match(/@keyframes/g) ?? []).length, 2, "los keyframes salen del bloque anidado");
-
-// Limpieza: nada ejecutable ni externo.
-const dirty = scopeAnimation("scene-1", "@import url(https://x.y/a.css); .a { background: url(https://x.y/i.png) }", '<script>alert(1)</script><img src="https://x.y/a.png" onerror="alert(1)"><a href="javascript:alert(1)">a</a><svg onload="x()"></svg>');
-assert.ok(!/script|onerror|onload|https:|javascript:|@import/i.test(dirty), dirty);
 
 // Guion: escenas numeradas, plantilla explainer y duración estimada por palabras.
 const input = videoGenerationInputSchema.parse({ topic: "Cómo funciona un DDoS", targetDurationSeconds: 45 });
@@ -38,27 +25,10 @@ assert.equal(explainerSceneCount(60), 5, "un minuto ya no son 9 escenas de 5 s")
 assert.equal(explainerSceneCount(15), 3);
 assert.equal(explainerSceneCount(180), 6);
 
-const animated = replaceSceneAnimation(document, "scene-2", { animationHtml: "<div></div>", animationSource: { css: "", html: "<div></div>" } });
-assert.equal(animated.scenes[1].content.animationHtml, "<div></div>");
-assert.equal(animated.scenes[0].content.animationHtml, undefined);
-// El prompt debe usar el mismo reloj que el render, incluida entrada y cierre.
-for (const index of [0, 1, document.scenes.length - 1]) {
-  const scene = document.scenes[index];
-  assert.equal(sceneSeconds(document, scene), sceneTimelineFrames(document.scenes, index) / document.fps, "duración del prompt = duración real del clip");
-  const prompt = buildExplainerAnimationPrompt(document, scene);
-  assert.ok(prompt.includes(`INICIO DE VOZ: ${(sceneLeadFrames(index) / document.fps).toFixed(2)} s`));
-}
 // Contrato editorial: explicar cambios observables, no solo presentar iconos; instrucciones compactas.
 assert.match(EXPLAINER_SCRIPT_SYSTEM_PROMPT, /estado inicial.*cambio.*resultado/i);
-assert.match(EXPLAINER_ANIMATION_SYSTEM_PROMPT, /estado inicial.*cambio.*resultado/i);
-assert.ok(EXPLAINER_ANIMATION_SYSTEM_PROMPT.length <= 3800, "presupuesto de caracteres del prompt de animación");
 // El catálogo de animaciones se cuenta aparte: va en el guion en lugar de en una segunda llamada de plan.
 assert.ok(EXPLAINER_SCRIPT_SYSTEM_PROMPT.replace(CANVAS_TEMPLATE_GUIDE, "").length <= 2800, "presupuesto de caracteres del prompt de guion (con las reglas de narración hablada)");
-// El HTML anterior se envía únicamente para una corrección explícita, nunca para regenerar.
-assert.ok(!buildExplainerAnimationPrompt(animated, animated.scenes[1]).includes("VERSIÓN ANTERIOR"));
-const correction = buildExplainerAnimationPrompt(animated, animated.scenes[1], "Mostrar la cola creciendo");
-assert.ok(correction.includes("Mostrar la cola creciendo") && correction.includes("VERSIÓN ANTERIOR"));
-assert.ok(correction.includes(JSON.stringify(animated.scenes[1].content.animationSource)));
 // Guion a partir de las animaciones: lo elegido con la narración queda como plan Canvas; lo inválido no.
 assert.match(EXPLAINER_SCRIPT_SYSTEM_PROMPT, /primero eliges las animaciones/);
 assert.match(EXPLAINER_SCRIPT_SYSTEM_PROMPT, /PLANTILLAS \(campos exactos\)/, "el guionista ve el catálogo");

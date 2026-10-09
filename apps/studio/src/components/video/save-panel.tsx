@@ -4,6 +4,7 @@ import { Check, Film, Pencil, Plus } from "lucide-react";
 import { SCENE_LABELS, type VideoDocument, type VideoSceneKey } from "@content-gen/domain/video";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { CanvasPreview } from "@/components/explainer/canvas-preview";
 import { VideoCaptionPanel } from "@/components/video-caption-panel";
 import { VideoRenderPanel } from "@/components/video-render-panel";
 
@@ -48,7 +49,7 @@ export function SavePanel({
               <ul className="space-y-1 font-mono text-sm text-muted-foreground">
                 <li>{document.slug} · {document.templateId} · {document.targetDurationSeconds}s</li>
                 <li>{document.scenes.length} escenas · {withImage} con imagen · {withAudio} con voz</li>
-                <li>1080 × 1920 · 30 FPS</li>
+                <li>1080 × 1920 · 60 FPS · motor Canvas</li>
               </ul>
               <div className="flex flex-wrap gap-1.5 pt-1">
                 {document.scenes.map((scene) => (
@@ -65,7 +66,11 @@ export function SavePanel({
           <VideoCaptionPanel contentItemId={contentItemId} revision={revision} document={document} onPersisted={onPersisted} />
         </div>
 
-        <VideoRenderPanel contentItemId={contentItemId} unsavedChanges={false} />
+        {/* Sin plan de animaciones el render solo muestra título y foto: se genera aquí antes de renderizar. */}
+        <div className="space-y-4">
+          <CanvasPreview contentItemId={contentItemId} document={document} onPersisted={onPersisted} />
+          <VideoRenderPanel contentItemId={contentItemId} unsavedChanges={false} />
+        </div>
       </div>
 
       <div className="flex flex-wrap gap-3">

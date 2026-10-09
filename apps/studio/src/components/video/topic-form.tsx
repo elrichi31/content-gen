@@ -31,7 +31,7 @@ export function TopicForm({
   initial,
   onScript,
   templates = VIDEO_TEMPLATES,
-  description = "La IA generará el guion completo con la estructura de 7 escenas lista para Remotion.",
+  description = "La IA generará el guion completo en 7 escenas; después se anima y renderiza con el motor Canvas.",
 }: {
   campaigns: { id: string; name: string }[];
   campaignId: string;

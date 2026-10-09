@@ -4,9 +4,8 @@ FROM node:24-bookworm-slim
 
 ENV NEXT_TELEMETRY_DISABLED=1
 
-# Librerías que necesita Chrome Headless Shell, con el que Remotion renderiza el video
-# (lista de https://www.remotion.dev/docs/docker) más CA y una fuente base. HyperFrames usa ese
-# mismo Chrome, pero necesita un FFmpeg completo del sistema (el que trae Remotion no escribe .m4a).
+# Librerías que necesita Chrome Headless Shell, con el que el motor Canvas dibuja cada frame, más CA,
+# una fuente base y FFmpeg, que codifica el MP4 y mezcla la voz.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       libnss3 libdbus-1-3 libatk1.0-0 libgbm-dev libasound2 libxrandr2 libxkbcommon-dev libxfixes3 \
       libxcomposite1 libxdamage1 libatk-bridge2.0-0 libpango-1.0-0 libcairo2 libcups2 \
@@ -18,8 +17,10 @@ COPY . .
 # La caché de npm (~330MB) se borra en la misma capa: en un RUN aparte seguiría pesando en la imagen.
 RUN npm ci && npm cache clean --force
 
-# Chrome Headless Shell dentro de la imagen: si no, el primer render lo descargaría en caliente.
-RUN node --input-type=module -e "import { ensureBrowser } from '@remotion/renderer'; await ensureBrowser();"
+# Chrome Headless Shell dentro de la imagen (la versión que espera puppeteer-core): si no, el primer
+# render lo descargaría en caliente.
+ENV CANVAS_CHROME_CACHE=/app/.chrome
+RUN node --input-type=module -e "const { chromePath } = await import('./apps/render-worker/src/canvas.mjs'); console.log(await chromePath());"
 
 # `next build` no abre ninguna conexión, pero exige que DATABASE_URL exista y tenga forma de URL de
 # Postgres. Los valores de aquí son de relleno y no quedan en la imagen: en runtime mandan las variables

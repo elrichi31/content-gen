@@ -122,10 +122,10 @@ contexto, idioma y búsqueda web. La búsqueda web viene apagada (`webSearch: fa
 agente ya investigó, pasa lo que encontró en `context`, que el guion usa como fuente de verdad;
 actívala solo cuando no haya información previa, porque es la llamada más cara del guion.
 En una llamada prepara el guion, guarda el borrador,
-genera imágenes (`standard`/`timeline`) o animaciones (`explainer`), añade caption y encola
-el render. `imageSource` permite `unsplash` (por defecto), `openai` o `none`.
+pone las fotos de fondo, la voz y el plan de animaciones, añade caption y encola el render con
+el motor Canvas (el único que hay). `imageSource` permite `unsplash` (por defecto), `openai` o `none`.
 
-La plantilla por defecto es `explainer` con el motor `canvas`: el guion se escribe **a partir
+La plantilla por defecto es `explainer`: el guion se escribe **a partir
 de las animaciones del catálogo** (`listar_animaciones`). Por escena la IA elige primero qué
 animación demuestra la idea y escribe la narración para ella (con sus cifras, fechas y palabras
 que la disparan), así que el plan sale con el guion y no se replanifica después. Con

@@ -1,14 +1,16 @@
-import { ensureBrowser } from "@remotion/renderer";
+import { Browser, computeExecutablePath, detectBrowserPlatform, install } from "@puppeteer/browsers";
 import { Buffer } from "node:buffer";
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { availableParallelism, tmpdir } from "node:os";
+import { availableParallelism, homedir, tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import puppeteer from "puppeteer-core";
+import { PUPPETEER_REVISIONS } from "puppeteer-core/internal/revisions.js";
 import { buildCanvasHtml } from "../../../packages/canvas-engine/src/index.js";
+import { mp3DurationSeconds } from "../../../packages/domain/src/audio.ts";
 import { buildCanvasSpec } from "../../../packages/domain/src/canvas.ts";
-import { withMeasuredAudio } from "./hyperframes.mjs";
+import { TAIL_FRAMES } from "../../../packages/domain/src/video.ts";
 
 /**
  * Motor Canvas: la runtime de packages/canvas-engine pinta cada frame en Chrome headless (Canvas 2D,
@@ -85,9 +87,16 @@ function run(command, args) {
   });
 }
 
-/** Chrome para el render: el que fije CANVAS_CHROME_PATH o el Headless Shell que ya baja Remotion. */
-async function chromePath() {
-  return process.env.CANVAS_CHROME_PATH || (await ensureBrowser()).path;
+/**
+ * Chrome para el render: el que fije CANVAS_CHROME_PATH o el Headless Shell de la versión que espera
+ * puppeteer-core, descargado una vez en CANVAS_CHROME_CACHE (la imagen Docker ya lo trae).
+ */
+export async function chromePath() {
+  if (process.env.CANVAS_CHROME_PATH) return process.env.CANVAS_CHROME_PATH;
+  const options = { browser: Browser.CHROMEHEADLESSSHELL, buildId: PUPPETEER_REVISIONS["chrome-headless-shell"], cacheDir: process.env.CANVAS_CHROME_CACHE || join(homedir(), ".cache", "content-gen-chrome") };
+  const executablePath = computeExecutablePath(options);
+  if (!existsSync(executablePath)) await install({ ...options, platform: detectBrowserPlatform() });
+  return executablePath;
 }
 
 const launch = async (executablePath) => puppeteer.launch({
@@ -212,7 +221,20 @@ export function imageDataUrl(path) {
   });
 }
 
-/** Documento + rutas de los assets → spec, voces e imágenes. Mide los MP3 reales como HyperFrames y Remotion. */
+/**
+ * Cada escena con voz dura lo que mide su MP3 de verdad más `TAIL_FRAMES`. La duración guardada puede
+ * venir de una estimación o de una edición a mano, y si queda corta se recortaría la narración.
+ */
+export async function withMeasuredAudio(document, pathOf) {
+  const scenes = await Promise.all(document.scenes.map(async (scene) => {
+    if (!scene.audioAssetId) return scene;
+    const seconds = mp3DurationSeconds(await readFile(pathOf(scene.audioAssetId)));
+    return seconds ? { ...scene, durationFrames: Math.ceil(seconds * document.fps) + TAIL_FRAMES } : scene;
+  }));
+  return { ...document, scenes };
+}
+
+/** Documento + rutas de los assets → spec, voces e imágenes, con la duración real de cada voz. */
 export async function prepareCanvasRender(document, pathOf) {
   const measured = await withMeasuredAudio(document, pathOf);
   const spec = buildCanvasSpec(measured);

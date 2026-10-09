@@ -31,7 +31,7 @@ export function costCatalog(pricing: Pricing | null, asOf = new Date().toISOStri
     { id: "search-console", name: "Google Search Console", provider: "google", metered: false },
     { id: "google-analytics", name: "Google Analytics Data API", provider: "google", metered: false },
     { id: "tiktok", name: "TikTok · perfil y métricas", provider: "tiktok", metered: false },
-    { id: "render", name: "Render · Remotion / Hyperframes", provider: "local", metered: false },
+    { id: "render", name: "Render · Canvas", provider: "local", metered: false },
     { id: "database", name: "Postgres y almacenamiento de assets", provider: "local", metered: false },
   ].map(entry => ({ ...entry, unit: "servicio", rate: null, source: null, verifiedAt: null, reviewAfter: null, basis: "usage", note: "Sin tarifa cargada; no se considera gratuito." }));
   return [...entries, ...services.map(entry => ({ ...entry, rates: [{ label: "Servicio", amount: entry.rate, unit: entry.unit }], verification: entry.source && entry.verifiedAt ? "verified" as const : "pending" as const }))];

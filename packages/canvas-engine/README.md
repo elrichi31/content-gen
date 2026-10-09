@@ -56,7 +56,7 @@ Video de prueba de 63,5 s con 8 escenas (todas las plantillas): 3808 frames a 60
 ## Variables
 
 - `CANVAS_FPS` (60), `CANVAS_SUBFRAMES` (6), `CANVAS_WORKERS` (núcleos − 1, máx. 4).
-- `CANVAS_CHROME_PATH`: Chrome a usar; si no, el Headless Shell que descarga Remotion (`ensureBrowser()`).
+- `CANVAS_CHROME_PATH`: Chrome a usar; si no, el Chrome Headless Shell de la versión que espera puppeteer-core, que se descarga una vez en `CANVAS_CHROME_CACHE` (por defecto `~/.cache/content-gen-chrome`; la imagen Docker ya lo trae).
 
 ## Uso local
 

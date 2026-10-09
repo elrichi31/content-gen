@@ -71,7 +71,7 @@ Si el render falla repetidamente:
 
 1. Ejecuta `npm run check:env` y `npm run check:integrity`.
 2. Confirma espacio disponible en `storage/`.
-3. Ejecuta `npm run build` para validar Next.js y Remotion.
+3. Ejecuta `npm run build` para validar Next.js.
 4. Pon `RENDER_WORKER_AUTOSTART=0` y ejecuta `npm run worker:once` para observar el error.
 5. Conserva el mensaje del job; nunca compartas `.env.local` ni un volcado completo de la base como log.
 

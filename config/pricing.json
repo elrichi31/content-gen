@@ -63,7 +63,7 @@
     { "id": "search-console", "name": "Google Search Console", "provider": "google", "unit": "llamada API", "rate": 0, "metered": false, "source": "https://developers.google.com/webmaster-tools/pricing", "verifiedAt": "2026-10-06", "note": "Uso gratuito sujeto a límites. Sin medición de llamadas en generation_runs." },
     { "id": "google-analytics", "name": "Google Analytics Data API", "provider": "google", "unit": "llamada API", "rate": null, "metered": false, "source": "https://developers.google.com/analytics/devguides/reporting/data/v1/quotas", "note": "Fuente consultada: cuotas de API, no tarifa por llamada. Analytics 360 y plan de cuenta no contabilizados." },
     { "id": "tiktok", "name": "TikTok · perfil y métricas", "provider": "tiktok", "unit": "llamada API", "rate": null, "metered": false, "note": "OAuth y lecturas de perfil existentes; sin tarifa monetaria verificada ni medición de llamadas." },
-    { "id": "render", "name": "Render · Remotion / Hyperframes", "provider": "local", "unit": "trabajo", "rate": null, "metered": false, "note": "Servidor, CPU y almacenamiento dependen del hosting. No existe un precio universal por render." },
+    { "id": "render", "name": "Render · Canvas", "provider": "local", "unit": "trabajo", "rate": null, "metered": false, "note": "Servidor, CPU y almacenamiento dependen del hosting. No existe un precio universal por render." },
     { "id": "database", "name": "Postgres y almacenamiento de assets", "provider": "local", "unit": "mes / almacenamiento", "rate": null, "metered": false, "note": "Falta el costo del plan de hosting; no se considera gratis ni se suma al gasto API." }
   ]
 }

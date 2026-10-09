@@ -1,6 +1,6 @@
 # Content Gen
 
-Estudio local para crear, editar, guardar y exportar carruseles, anuncios y videos verticales. Usa Next.js para la interfaz, Postgres para los datos y el login, el filesystem (un volumen) para los medios, y Remotion para preview y render MP4.
+Estudio local para crear, editar, guardar y exportar carruseles, anuncios y videos verticales. Usa Next.js para la interfaz, Postgres para los datos y el login, el filesystem (un volumen) para los medios, y el motor Canvas (`packages/canvas-engine`, Chrome headless + FFmpeg) para la vista previa y el render MP4.
 
 ## Requisitos
 
@@ -29,7 +29,7 @@ Abre [http://localhost:3000](http://localhost:3000). El modo local funciona sin 
 
 ```bash
 npm run dev               # Studio en desarrollo
-npm run build             # Build de Next.js y bundle de Remotion
+npm run build             # Build de Next.js
 npm start                 # Servidor de producción después del build
 npm test                  # Pruebas locales rápidas
 npm run test:integration  # HTTP, Postgres, E2E con MP4 y rendimiento
@@ -67,7 +67,7 @@ Parte de `.env.example`. No versionar `.env` ni `.env.local`.
 
 ## Datos y operación
 
-Los datos viven en Postgres; los medios y renders, bajo `storage/` (ignorada por Git). Los cambios de esquema son archivos SQL versionados en `db/migrations/`; el historial de lo aplicado queda en la tabla `pgmigrations`. Consulta [Operación](docs/operations.md) para backups, restore y recuperación de renders, y [Plantillas de video](docs/video-templates.md) para ampliar Remotion.
+Los datos viven en Postgres; los medios y renders, bajo `storage/` (ignorada por Git). Los cambios de esquema son archivos SQL versionados en `db/migrations/`; el historial de lo aplicado queda en la tabla `pgmigrations`. Consulta [Operación](docs/operations.md) para backups, restore y recuperación de renders, y [Plantillas de video](docs/video-templates.md) para las plantillas de guion y las animaciones.
 
 ## Validación antes de subir cambios
 

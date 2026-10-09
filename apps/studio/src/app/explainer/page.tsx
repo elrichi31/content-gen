@@ -106,7 +106,7 @@ export default function ExplainerPage() {
       <ModeSwitch modes={VIDEO_MODES} current="/explainer" className="mb-4" />
       <PageHeading
         title="Video educativo"
-        description="Explica cómo funciona algo con narración y animaciones generadas por IA, sin imágenes. Se renderiza con HyperFrames o con el motor Canvas a 60 fps."
+        description="Explica cómo funciona algo con narración y animaciones del motor Canvas a 60 fps, con fotos de fondo opcionales."
         actions={<><Button type="button" variant={view === "wizard" ? "default" : "outline"} onClick={startNew}><Plus className="h-4 w-4" /> Nuevo</Button><Button type="button" variant={view === "list" ? "default" : "outline"} onClick={() => { setView("list"); setNotice(null); }}><GraduationCap className="h-4 w-4" /> Mis videos educativos</Button></>}
       />
 
@@ -158,7 +158,7 @@ export default function ExplainerPage() {
               </div>
               <div className="grid gap-6 lg:grid-cols-[minmax(0,320px)_minmax(0,1fr)]">
                 <RenderChecklist document={document} onGo={go} />
-                <VideoRenderPanel contentItemId={contentId} unsavedChanges={unsaved} hyperframesOnly defaultEngine="canvas" />
+                <VideoRenderPanel contentItemId={contentId} unsavedChanges={unsaved} />
               </div>
               <div className="flex justify-start border-t border-border pt-4">
                 <Button type="button" variant="outline" onClick={() => go(4)}>← Volver a las animaciones</Button>

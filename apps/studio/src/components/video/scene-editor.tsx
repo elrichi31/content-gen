@@ -235,7 +235,7 @@ export function SceneEditor({
           <div className="space-y-2 lg:col-start-2 2xl:col-start-auto 2xl:sticky 2xl:top-5">
             <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Vista previa · escena {sceneIndex + 1}</p>
             <div className="mx-auto max-w-[20rem]"><ScenePlayer document={document} index={sceneIndex} /></div>
-            <p className="text-[11px] text-muted-foreground">Así sale en el render: imagen, texto, colores y voz de esta escena.</p>
+            <p className="text-[11px] text-muted-foreground">Así sale en el render, con el motor Canvas. Para verlo en movimiento y con voz, ve al paso de render.</p>
           </div>
         </div>
       ) : (
