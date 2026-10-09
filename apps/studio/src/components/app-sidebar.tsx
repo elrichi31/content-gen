@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   Activity, BarChart3, CalendarDays, Clapperboard, FileText, FolderKanban, GalleryHorizontal, Home, Library,
-  LogOut, Megaphone, Menu, PanelLeft, Palette, Radar, Wallet, Workflow, HardDrive, type LucideIcon,
+  ListChecks, LogOut, Megaphone, Menu, PanelLeft, Palette, Radar, Wallet, Workflow, HardDrive, type LucideIcon,
 } from "lucide-react";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { LogoMark } from "@/components/logo-mark";
@@ -41,7 +41,7 @@ export const GROUPS: NavGroup[] = [
       { href: "/analytics", label: "Métricas", icon: BarChart3 },
     ],
   },
-  { title: "Sistema", items: [{ href: "/costs", label: "Costos", icon: Wallet }, { href: "/storage", label: "Almacenamiento", icon: HardDrive }, { href: "/diagnostics", label: "Diagnóstico", icon: Activity }] },
+  { title: "Sistema", items: [{ href: "/queue", label: "Cola", icon: ListChecks }, { href: "/costs", label: "Costos", icon: Wallet }, { href: "/storage", label: "Almacenamiento", icon: HardDrive }, { href: "/diagnostics", label: "Diagnóstico", icon: Activity }] },
 ];
 
 const COLLAPSED_KEY = "sidebar-collapsed";

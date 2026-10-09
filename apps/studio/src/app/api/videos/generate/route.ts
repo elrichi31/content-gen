@@ -8,8 +8,9 @@ import { withDatabase } from "@/lib/db";
 
 type Body = { templateId?: unknown; contentItemId?: unknown; campaignId?: unknown };
 
-// El asistente genera el guion antes de guardar el video, así que `contentItemId`
-// es opcional: sin él no hay GenerationRun que registrar, solo la generación.
+// El asistente (y el MCP) genera el guion antes de guardar el video, así que `contentItemId` es
+// opcional. Sin él el GenerationRun se registra sin pieza: es la llamada más cara (búsqueda web
+// incluida) y antes no aparecía en Costos.
 function campaignQuery(body: Body) {
   const base = "SELECT campaign.data_json AS campaign_json, brand.data_json AS brand_json FROM campaigns campaign LEFT JOIN brand_kits brand ON brand.id = campaign.brand_kit_id AND brand.archived_at IS NULL";
   return typeof body.contentItemId === "string" && body.contentItemId
@@ -31,13 +32,13 @@ export async function POST(request: Request) {
   const contentItemId = typeof body?.contentItemId === "string" && body.contentItemId ? body.contentItemId : null;
   const startedAt = Date.now(); let run: Awaited<ReturnType<typeof beginGenerationRun>> | undefined;
   try {
-    if (contentItemId) run = await beginGenerationRun({ contentItemId, operation: `video-${body?.templateId === "timeline" || body?.templateId === EXPLAINER_TEMPLATE_ID ? body.templateId : "standard"}-script`, model: openAiModel(body?.templateId === EXPLAINER_TEMPLATE_ID ? "explainer" : "script") });
+    run = await beginGenerationRun({ contentItemId, operation: `video-${body?.templateId === "timeline" || body?.templateId === EXPLAINER_TEMPLATE_ID ? body.templateId : "standard"}-script`, model: openAiModel(body?.templateId === EXPLAINER_TEMPLATE_ID ? "explainer" : "script") });
     const generationInput = { ...input.data, brandName: brand?.name, primaryColor: brand?.primaryColor };
     const generated = body?.templateId === EXPLAINER_TEMPLATE_ID ? await generateExplainerScriptRun(generationInput)
       : body?.templateId === "timeline" ? await generateTimelineVideoScriptRun(generationInput) : await generateStandardVideoScriptRun(generationInput);
     // La búsqueda usa otro modelo (el de investigar): se registra como operación aparte para que su costo cuente bien.
     const { research } = generated;
-    if (contentItemId && research) await trackGeneration({ contentItemId, operation: "video-research", model: research.model }, async () => ({ value: null, usage: research.usage }));
+    if (research) await trackGeneration({ contentItemId, operation: "video-research", model: research.model }, async () => ({ value: null, usage: research.usage }));
     return NextResponse.json({ document: generated.document, ...(run ? { generationRun: await finishGenerationRun(run.id, { durationMs: Date.now() - startedAt, usage: generated.usage }) } : {}) });
   } catch (error) {
     if (run) await finishGenerationRun(run.id, { durationMs: Date.now() - startedAt, error: error instanceof Error ? error.message : "Error desconocido" });

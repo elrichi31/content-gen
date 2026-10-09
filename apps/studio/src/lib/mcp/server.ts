@@ -57,6 +57,7 @@ import { imagesToDocument } from "@/lib/carousel-automation-rules";
 import { drawAiCarousel, prepareAiCarousel } from "@/lib/carousel-pipeline";
 import { contentTitle } from "@/lib/content-title";
 import { downloadPublicFile } from "@/lib/carousel-remix";
+import { enqueueGeneration, getGenerationRequest, listGenerationRequests } from "@/lib/generation-queue";
 import { runVideoPipeline } from "./video-pipeline";
 import { CANVAS_TEMPLATE_CATALOG, CANVAS_TEMPLATES } from "@content-gen/domain/canvas";
 import { videoDocumentSchema } from "@content-gen/domain/video";
@@ -104,8 +105,35 @@ async function lastEvent(response: Response) {
 }
 
 /** `scopes` decide qué herramientas existen: con solo `studio:read` no aparece ninguna que escriba o gaste. */
-export function createStudioMcpServer({ origin, scopes = ["studio:read", "studio:write"] }: { origin: string; scopes?: readonly string[] }) {
+const ALL_SCOPES = ["studio:read", "studio:write"];
+
+export function createStudioMcpServer({ origin, scopes = ALL_SCOPES }: { origin: string; scopes?: readonly string[] }) {
+  return buildStudio({ origin, scopes, queued: true }).server;
+}
+
+/**
+ * Ejecuta una herramienta que gasta, ya aprobada en la cola, con los argumentos que validó el MCP.
+ * `log` recibe los pasos para que la cola muestre qué se está generando.
+ */
+export async function runQueuedTool({ origin, tool, args, log }: { origin: string; tool: string; args: Record<string, unknown>; log: (message: string) => void }) {
+  const { server, runners } = buildStudio({ origin, scopes: ALL_SCOPES, queued: false });
+  try {
+    const run = runners.get(tool);
+    if (!run) throw new ToolError(`La herramienta ${tool} ya no existe.`);
+    const output = await run(args as never, log);
+    return output instanceof WithImage ? output.result : output;
+  } finally { await server.close(); }
+}
+
+type Runner = (args: never, log: (message: string) => void) => Promise<unknown>;
+
+/**
+ * Con `queued`, las herramientas que gastan no corren: se encolan y esperan a que una persona las
+ * apruebe en /queue (un agente que reintenta por timeout lanzaba varios videos a la vez).
+ */
+function buildStudio({ origin, scopes, queued }: { origin: string; scopes: readonly string[]; queued: boolean }) {
   const server = new McpServer({ name: "content-gen-studio", version: "1.0.0" });
+  const runners = new Map<string, Runner>();
 
   // `handler` es cualquier export de ruta: cada una declara sus params con su propio tipo.
   async function call(route: unknown, { method = "GET", params = {}, query = {}, body }: Call = {}) {
@@ -128,15 +156,16 @@ export function createStudioMcpServer({ origin, scopes = ["studio:read", "studio
   const getContent = (id: string) => call(contentItem.GET, { params: { id } }) as Promise<{ id: string; revision: number; campaignId: string; type: string; document: { data: Record<string, unknown> } }>;
 
   type Shape = Record<string, z.ZodType>;
-  function tool<S extends Shape>(name: string, options: { description: string; input: S; readOnly?: boolean; spends?: boolean; destructive?: boolean }, run: (args: z.infer<z.ZodObject<S>>) => Promise<unknown>) {
+  function tool<S extends Shape>(name: string, options: { description: string; input: S; readOnly?: boolean; spends?: boolean; destructive?: boolean }, run: (args: z.infer<z.ZodObject<S>>, log: (message: string) => void) => Promise<unknown>) {
     if (!scopes.includes(options.readOnly ? "studio:read" : "studio:write")) return;
+    runners.set(name, run as Runner);
     server.registerTool(name, {
-      description: options.description,
+      description: options.spends && queued ? options.description + queueNote : options.description,
       inputSchema: options.input,
       annotations: { readOnlyHint: Boolean(options.readOnly), destructiveHint: Boolean(options.destructive), openWorldHint: Boolean(options.spends) },
     }, (async (args: z.infer<z.ZodObject<S>>) => {
       try {
-        const output = await run(args);
+        const output = options.spends && queued ? await enqueue(name, args) : await run(args, () => {});
         if (!(output instanceof WithImage)) return { content: [{ type: "text" as const, text: JSON.stringify(output, null, 2) }] };
         return { content: [{ type: "text" as const, text: JSON.stringify(output.result, null, 2) }, { type: "image" as const, data: output.bytes.toString("base64"), mimeType: output.mimeType }] };
       }
@@ -152,6 +181,15 @@ export function createStudioMcpServer({ origin, scopes = ["studio:read", "studio
   const clock = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).describe("Hora HH:MM, 24 h");
   const platform = z.enum(["instagram", "tiktok", "youtube", "linkedin", "blog"]);
   const spendNote = " Gasta créditos de IA.";
+  const queueNote = " No corre al momento: queda en la cola hasta que una persona la apruebe en el Studio (/queue). Devuelve solicitudId; consulta su estado y resultado con ver_solicitud y no la repitas mientras esté pendiente o en curso.";
+  const enqueue = async (name: string, args: Record<string, unknown>) => {
+    const { request, duplicate } = await enqueueGeneration({ tool: name, args, origin });
+    return {
+      solicitudId: request.id, estado: request.status, duplicada: duplicate,
+      mensaje: duplicate ? "Ya había una solicitud igual sin terminar; no se encoló otra." : "Encolada. Una persona debe aprobarla en /queue; consulta su avance con ver_solicitud.",
+      revisar: new URL("/queue", origin).href,
+    };
+  };
 
   type RadarAutomationRow = { id: string; name: string; active: boolean; frequency: string; time: string; weekday: number; monthDay: number; nextRunAt: string; scan: Record<string, unknown>; lastExecution?: unknown };
   const radarAutomationSummary = ({ id: automation, name, active, frequency, time, weekday, monthDay, nextRunAt, scan, lastExecution }: RadarAutomationRow) =>
@@ -397,8 +435,9 @@ export function createStudioMcpServer({ origin, scopes = ["studio:read", "studio
       engine: z.enum(["remotion", "hyperframes", "canvas"]).default("canvas").describe("Motor de render. Por defecto canvas: la IA pone 1 a 3 animaciones por escena (línea de tiempo, cifras, listas, flujos…) sincronizadas con la voz, a 60 fps, con las fotos de fondo. remotion = plantilla fija con imágenes y sin animaciones; hyperframes = animaciones HTML del educativo"),
     },
     spends: true,
-  }, async ({ imageSource, voiceId, modelId, engine, ...args }) => {
+  }, async ({ imageSource, voiceId, modelId, engine, ...args }, log) => {
     const result = await runVideoPipeline({ topic: args.topic, imageSource, voiceId, modelId, engine }, {
+      progress: (step) => log(`Paso: ${step}`),
       create: async () => {
         const generated = await call(videoGenerate.POST, { method: "POST", body: args }) as { document: unknown };
         const document = videoDocumentSchema.parse(generated.document);
@@ -616,6 +655,10 @@ export function createStudioMcpServer({ origin, scopes = ["studio:read", "studio
 
   /* ---------------------------- Costos y métricas ---------------------------- */
 
+  tool("ver_solicitud", { description: "Estado de una generación encolada (pendiente, aprobada, en_curso, completada, fallida o rechazada), su registro de pasos y, al terminar, su resultado.", input: { id: id("la solicitud (solicitudId)") }, readOnly: true },
+    ({ id: request }) => getGenerationRequest(request));
+  tool("listar_cola", { description: "Generaciones encoladas, de la más reciente a la más antigua, con su estado. Úsala antes de pedir otra para no repetir lo que ya espera aprobación o está en curso.", input: {}, readOnly: true },
+    async () => (await listGenerationRequests(30)).map(({ id: request, tool: name, status, createdAt, updatedAt, args, error }) => ({ id: request, tool: name, status, createdAt, updatedAt, topic: args.topic ?? null, error })));
   tool("ver_costos", { description: "Gasto de IA del mes por operación, proveedor y pieza.", input: { month: month.optional() }, readOnly: true }, (query) => call(costs.GET, { query }));
   tool("ver_metricas", {
     description: "Métricas de las plataformas conectadas (Search Console, Analytics, TikTok…).",
@@ -625,5 +668,5 @@ export function createStudioMcpServer({ origin, scopes = ["studio:read", "studio
   tool("sincronizar_metricas", { description: "Trae las métricas recientes de las plataformas conectadas.", input: { days: z.number().int().min(1).max(90).optional() } },
     (args) => call(analyticsSync.POST, { method: "POST", body: args }));
 
-  return server;
+  return { server, runners };
 }

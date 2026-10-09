@@ -26,6 +26,13 @@ y el gasto queda registrado en Costos igual que desde la app.
   en la biblioteca. `exportar_articulo_blog` escribe el `.md` en el repo del sitio, pero el commit
   lo hace una persona.
 - Las herramientas que gastan créditos lo dicen en su descripción (y llevan `openWorldHint`).
+- **Lo que gasta pasa por la cola de aprobación.** Esas herramientas no corren al llamarlas:
+  devuelven `solicitudId` y quedan `pendiente` en `/queue` (menú Sistema → Cola) hasta que una
+  persona las aprueba o rechaza. Lo aprobado se genera de uno en uno, por orden, con su registro
+  de pasos. Un pedido idéntico a otro sin terminar no se encola de nuevo (devuelve
+  `duplicada: true`): así un agente que reintenta no lanza varios videos. El agente consulta el
+  estado y el resultado con `ver_solicitud` y lo encolado con `listar_cola`. Si el servidor se
+  reinicia a mitad de una generación, queda `fallida` y no se reintenta sola.
 
 ## Activarlo
 
@@ -104,7 +111,8 @@ el render. `imageSource` permite `unsplash` (por defecto), `openai` o `none`.
 Para narración, elige un `voiceId` con `listar_voces`; sin él se genera sin voz. `modelId`
 es opcional (por defecto `eleven_multilingual_v2`). Consume créditos de los proveedores.
 
-El resultado incluye `contentItemId`, `completedSteps`, `renderJob` y `abrir`. No significa
+Pasa por la cola (ver arriba): el resultado llega en `ver_solicitud` una vez aprobada y
+terminada, e incluye `contentItemId`, `completedSteps`, `renderJob` y `abrir`. No significa
 que el MP4 haya terminado: consulta `listar_renders` con ese `contentItemId` hasta que el
 trabajo esté `completed`, y usa `ver_asset` con su `outputAssetId` para obtener la URL.
 No publica en redes.
@@ -116,7 +124,8 @@ volvería a gastar. Las escenas se procesan en serie para respetar sus revisione
 
 ## Tiempos
 
-Casi todo responde en segundos. Tardan más: carrusel de imágenes IA (1-2 min), artículo con
+Las herramientas que gastan responden al instante porque solo encolan; lo que sigue aplica a
+lo que tarda la generación una vez aprobada. Casi todo responde en segundos. Tardan más: carrusel de imágenes IA (1-2 min), artículo con
 búsqueda web y guion de video con búsqueda (1-3 min) y el radar (varios minutos). Si el cliente
 corta antes, sube su timeout de herramientas (en Claude Code, `MCP_TOOL_TIMEOUT` en milisegundos).
 El render de video no espera: `renderizar_video` encola el trabajo y `listar_renders` da su avance.

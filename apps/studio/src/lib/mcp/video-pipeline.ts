@@ -15,6 +15,8 @@ export type VideoPipelineDependencies = {
   caption: (id: string, revision: number) => Promise<unknown>;
   canvasPlan: (id: string) => Promise<unknown>;
   render: (id: string, engine?: RenderEngine) => Promise<RenderJob>;
+  /** Avisa de cada paso al empezarlo, para que la cola muestre qué se está generando. */
+  progress?: (step: string) => void;
 };
 export type RenderEngine = "remotion" | "hyperframes" | "canvas";
 type PipelineInput = { topic: string; imageSource: "none" | "openai" | "unsplash"; voiceId?: string; modelId?: string; engine?: RenderEngine };
@@ -35,9 +37,11 @@ const sceneTemplates = (canvas: unknown) => (Array.isArray(canvas) ? canvas : ca
 
 /** Guarda primero; si un proveedor falla conserva el borrador y no encola un video incompleto. */
 export async function runVideoPipeline(input: PipelineInput, deps: VideoPipelineDependencies): Promise<PipelineResult> {
+  deps.progress?.("create");
   const contentItemId = await deps.create();
   const completedSteps = ["create"];
   let step = "read";
+  const at = (name: string) => { step = name; deps.progress?.(name); };
   let title: string | undefined;
   try {
     const read = async () => {
@@ -52,7 +56,7 @@ export async function runVideoPipeline(input: PipelineInput, deps: VideoPipeline
     // regenerarla era una llamada de más que además la desalineaba.
     const hasNarration = current.document.scenes.every((scene) => typeof scene.content.voiceover === "string" && scene.content.voiceover.trim());
     if (input.voiceId && !(current.document.templateId === "explainer" && hasNarration)) {
-      step = "voiceover";
+      at("voiceover");
       await deps.voiceover(contentItemId, (await read()).revision);
       completedSteps.push(step);
     }
@@ -61,10 +65,10 @@ export async function runVideoPipeline(input: PipelineInput, deps: VideoPipeline
     const canvas = input.engine === "canvas";
     for (const scene of current.document.scenes) {
       if (current.document.templateId === "explainer" && !canvas) {
-        step = `animation:${scene.id}`;
+        at(`animation:${scene.id}`);
         await deps.animation(contentItemId, scene.id);
       } else if (input.imageSource !== "none") {
-        step = `image:${scene.id}`;
+        at(`image:${scene.id}`);
         const prompt = typeof scene.content.imagePrompt === "string" && scene.content.imagePrompt.trim().length >= 3
           ? scene.content.imagePrompt.trim().slice(0, 1500) : input.topic;
         await deps.image(contentItemId, scene.id, prompt, input.imageSource, (await read()).revision);
@@ -73,7 +77,7 @@ export async function runVideoPipeline(input: PipelineInput, deps: VideoPipeline
     }
     if (input.voiceId) {
       for (const scene of current.document.scenes) {
-        step = `audio:${scene.id}`;
+        at(`audio:${scene.id}`);
         await deps.audio(contentItemId, scene.id, input.voiceId, input.modelId ?? "eleven_multilingual_v2", (await read()).revision);
         completedSteps.push(step);
       }
@@ -81,17 +85,17 @@ export async function runVideoPipeline(input: PipelineInput, deps: VideoPipeline
     // Después de la voz: así los cues del plan se comprueban contra los tiempos reales por palabra.
     let animations: Record<string, string[]> | undefined;
     if (canvas) {
-      step = "canvas-plan";
+      at("canvas-plan");
       await deps.canvasPlan(contentItemId);
       completedSteps.push(step);
       animations = Object.fromEntries((await read()).document.scenes.map((scene) => [scene.id, sceneTemplates(scene.content.canvas)]));
     }
-    step = "caption";
+    at("caption");
     await deps.caption(contentItemId, (await read()).revision);
     completedSteps.push(step);
-    step = "verify";
+    at("verify");
     await read();
-    step = "render";
+    at("render");
     const renderJob = await deps.render(contentItemId, input.engine);
     completedSteps.push(step);
     return { status: "queued", contentItemId, title, completedSteps, renderJob, ...(animations ? { animations } : {}) };

@@ -23,6 +23,8 @@ registerHooks({
       export const campaignCaptions = unused, imagesToDocument = unused;
       export const drawAiCarousel = unused, prepareAiCarousel = unused;
       export const contentTitle = unused, downloadPublicFile = unused;
+      export const getGenerationRequest = unused, listGenerationRequests = unused;
+      export const enqueueGeneration = async ({ tool, args }) => ({ request: { id: "solicitud-1", status: "pendiente", tool, args }, duplicate: false });
     ` };
     if (url.endsWith(".ts")) return { format: "module", shortCircuit: true, source: ts.transpileModule(readFileSync(fileURLToPath(url), "utf8"), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText };
     return next(url, context);
@@ -45,6 +47,14 @@ for (const scopes of [["studio:read", "studio:write"], ["studio:read"]]) {
     assert.ok(tool.inputSchema.properties.voiceId);
     const invalid = await client.callTool({ name: tool.name, arguments: { campaignId: "campaign", topic: "x" } });
     assert.equal(invalid.isError, true);
+    // Lo que gasta no corre al pedirlo: se encola (las APIs del fixture lanzarían si se llamaran).
+    const queued = await client.callTool({ name: tool.name, arguments: { campaignId: "campaign", topic: "Historia de la IA" } });
+    assert.equal(queued.isError, undefined);
+    const body = JSON.parse(queued.content[0].text);
+    assert.equal(body.solicitudId, "solicitud-1");
+    assert.equal(body.estado, "pendiente");
+    assert.match(tool.description, /cola/);
+    assert.ok(tools.some((item) => item.name === "ver_solicitud"));
   } else assert.equal(tool, undefined, "lectura no permite generar/gastar");
   await client.close();
   await server.close();
