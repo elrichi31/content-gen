@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { CANVAS_TEMPLATE_GUIDE } from "./canvas-plan.ts";
-import { buildExplainerAnimationPrompt, EXPLAINER_ANIMATION_SYSTEM_PROMPT, EXPLAINER_SCRIPT_SYSTEM_PROMPT, explainerPalette, explainerSceneCount, normalizeExplainerScript, replaceSceneAnimation, sceneSeconds, scopeAnimation } from "./explainer.ts";
+import { speakable, buildExplainerAnimationPrompt, EXPLAINER_ANIMATION_SYSTEM_PROMPT, EXPLAINER_SCRIPT_SYSTEM_PROMPT, explainerPalette, explainerSceneCount, normalizeExplainerScript, replaceSceneAnimation, sceneSeconds, scopeAnimation } from "./explainer.ts";
 import { sceneLeadFrames, sceneTimelineFrames } from "@content-gen/domain/video";
 import { videoGenerationInputSchema } from "./video-generation.ts";
 
@@ -53,7 +53,7 @@ assert.match(EXPLAINER_SCRIPT_SYSTEM_PROMPT, /estado inicial.*cambio.*resultado/
 assert.match(EXPLAINER_ANIMATION_SYSTEM_PROMPT, /estado inicial.*cambio.*resultado/i);
 assert.ok(EXPLAINER_ANIMATION_SYSTEM_PROMPT.length <= 3800, "presupuesto de caracteres del prompt de animación");
 // El catálogo de animaciones se cuenta aparte: va en el guion en lugar de en una segunda llamada de plan.
-assert.ok(EXPLAINER_SCRIPT_SYSTEM_PROMPT.replace(CANVAS_TEMPLATE_GUIDE, "").length <= 2400, "presupuesto de caracteres del prompt de guion");
+assert.ok(EXPLAINER_SCRIPT_SYSTEM_PROMPT.replace(CANVAS_TEMPLATE_GUIDE, "").length <= 2800, "presupuesto de caracteres del prompt de guion (con las reglas de narración hablada)");
 // El HTML anterior se envía únicamente para una corrección explícita, nunca para regenerar.
 assert.ok(!buildExplainerAnimationPrompt(animated, animated.scenes[1]).includes("VERSIÓN ANTERIOR"));
 const correction = buildExplainerAnimationPrompt(animated, animated.scenes[1], "Mostrar la cola creciendo");
@@ -70,4 +70,12 @@ const animated2 = normalizeExplainerScript({ displayTitle: "DDoS", scenes: [
 assert.equal((animated2.scenes[0].content.canvas as { template: string }).template, "hook");
 assert.equal((animated2.scenes[1].content.canvas as { template: string }).template, "steps", "la cifra que la voz no dice se descarta");
 assert.equal(animated2.scenes[2].content.canvas, undefined, "sin animación válida, la escena queda para planificar después");
+// Narración hablable: reglas en el prompt y, en código, sin MAYÚSCULAS largas que la voz grita o deletrea.
+assert.match(EXPLAINER_SCRIPT_SYSTEM_PROMPT, /nunca apuntes/);
+assert.match(EXPLAINER_SCRIPT_SYSTEM_PROMPT, /una o dos cifras por escena/);
+assert.match(EXPLAINER_SCRIPT_SYSTEM_PROMPT, /sin dígitos ni "%"/);
+assert.equal(speakable("IA: ATACANTE usa una API; SNARKY SPIDER ataca."), "IA: Atacante usa una API; Snarky Spider ataca.");
+const shouted = normalizeExplainerScript({ displayTitle: "x", scenes: Array.from({ length: 3 }, () => ({ title: "t", voiceover: "El ATACANTE entra.", visual: "v", beats: [{ template: "stat", value: 1, label: "Atacante", cue: "ATACANTE" }] })) }, input);
+assert.equal(shouted.scenes[0].content.voiceover, "El Atacante entra.");
+assert.equal((shouted.scenes[0].content.canvas as { template: string }).template, "stat", "el cue en mayúsculas sigue encontrando su palabra");
 console.log("explainer ok");

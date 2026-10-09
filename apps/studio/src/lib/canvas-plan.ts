@@ -38,7 +38,9 @@ ${CANVAS_TEMPLATE_CATALOG.map(({ template, useFor, avoid }) => `- ${template}: S
 
 LA PRUEBA
 - Cada elemento que muestra la animación (paso, punto, fecha, nodo, lugar, etapa, comando, cifra) tiene que DECIRSE en la narración, y su cue es esa palabra. Si tendrías que inventar elementos que la voz no dice, esa no es la animación. Las animaciones cuyos momentos casi no se dicen se descartan solas.
-- Calidad antes que variedad: si una idea no encaja limpia en ninguna, usa menos animaciones o title. No repitas la misma plantilla en escenas seguidas salvo que la narración lo pida.`;
+- Calidad antes que variedad: si una idea no encaja limpia en ninguna, usa menos animaciones o title. No repitas la misma plantilla en escenas seguidas salvo que la narración lo pida.
+- Si la idea es un número, cuéntalo (stat, compare o chart) en vez de enumerarlo en una list.
+- Tiempo para leerlas: una animación por cada ~7 s de voz (hasta unos 10 s, una; hasta 17 s, dos; más, tres). Las que sobran se recortan.`;
 
 export const CANVAS_PLAN_SYSTEM_PROMPT = `Eres director de motion graphics para videos educativos verticales. Para cada escena eliges 1 a 3 plantillas animadas que se suceden y escribes sus datos. No dibujas: el motor anima las plantillas.
 
@@ -81,11 +83,13 @@ type StoredPlan = ReturnType<typeof storedBeats>;
 export function entryBeats(entry: unknown, scene: VideoDocument["scenes"][number], fps: number, rejected: string[] = [], strict = true): CanvasSceneBeat[] | null {
   const list = (entry as { beats?: unknown })?.beats;
   const words = sceneWords(scene, fps);
+  // Una animación por cada ~7 s de voz: tres en 10 s pasaban sin que se alcanzaran a leer.
+  const room = Math.max(1, Math.min(3, Math.round(narrationSeconds(scene, fps) / 7)));
   const beats = (Array.isArray(list)
     ? list.flatMap((item) => { const parsed = canvasSceneBeatSchema.safeParse(item); return parsed.success ? [parsed.data] : []; })
     : (() => { const parsed = canvasScenePlanSchema.safeParse(entry); return parsed.success ? [parsed.data] : []; })())
     .filter((beat) => { const reason = strict ? beatMismatch(beat, words) : null; if (reason) rejected.push(`Escena ${scene.id}: descartada ${reason}.`); return !reason; })
-    .slice(0, 3);
+    .slice(0, room);
   return beats.length ? pruneBeats(beats, words) : null;
 }
 

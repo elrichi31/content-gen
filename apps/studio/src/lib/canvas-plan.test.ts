@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import type { CanvasScenePlan } from "@content-gen/domain/canvas";
 import { videoDocumentSchema } from "@content-gen/domain/video";
-import { buildCanvasPlanPrompt, CANVAS_PLAN_SYSTEM_PROMPT, generateCanvasPlan, normalizeCanvasPlans, planVarietyIssues, replaceCanvasPlans } from "./canvas-plan.ts";
+import { buildCanvasPlanPrompt, CANVAS_PLAN_SYSTEM_PROMPT, entryBeats, generateCanvasPlan, normalizeCanvasPlans, planVarietyIssues, replaceCanvasPlans } from "./canvas-plan.ts";
 
 process.env.CONTENT_GEN_AI_PROVIDER = "openai"; process.env.OPENAI_API_KEY = "test";
 
@@ -72,13 +72,15 @@ const beatsAnswer = { scenes: [{ sceneId: "scene-2", beats: [
   { template: "title", from: "inventado" },
   { template: "title" },
 ] }] };
-const beatPlans = normalizeCanvasPlans(beatsAnswer, document).plans["scene-2"] as { template: string; from?: string }[];
+// Escena de 25 s: caben 3 animaciones (ver el tope por duración más abajo).
+const longDocument = videoDocumentSchema.parse({ ...document, scenes: document.scenes.map((scene) => (scene.id === "scene-2" ? { ...scene, durationFrames: 750 } : scene)) });
+const beatPlans = normalizeCanvasPlans(beatsAnswer, longDocument).plans["scene-2"] as { template: string; from?: string }[];
 assert.deepEqual(beatPlans.map((beat) => beat.template), ["network", "stat", "title"], "la inválida se salta y no pasan de 3");
 assert.equal(beatPlans[1].from, "el servidor");
 assert.equal(beatPlans[2].from, undefined, "una frase de entrada que no se dice se quita");
 assert.deepEqual(normalizeCanvasPlans({ scenes: [{ sceneId: "scene-1", beats: [{ template: "title" }] }] }, document).plans["scene-1"], { template: "title" }, "una sola animación se guarda como plan suelto");
 assert.match(CANVAS_PLAN_SYSTEM_PROMPT, /"from"/);
-const focusBeats = await generateCanvasPlan(document, undefined, async () => new Response(JSON.stringify({ output_text: JSON.stringify({ scenes: [{ sceneId: "scene-2", beats: [{ template: "steps", items: [{ label: "A" }, { label: "B" }] }, { template: "title", from: "servidor" }] }] }) })), { sceneId: "scene-2", template: "steps" });
+const focusBeats = await generateCanvasPlan(longDocument, undefined, async () => new Response(JSON.stringify({ output_text: JSON.stringify({ scenes: [{ sceneId: "scene-2", beats: [{ template: "steps", items: [{ label: "A" }, { label: "B" }] }, { template: "title", from: "servidor" }] }] }) })), { sceneId: "scene-2", template: "steps" });
 assert.ok(Array.isArray(focusBeats.plans["scene-2"]), "al cambiar la animación principal puede seguir con otras");
 
 // Videos con imágenes: los datos de la escena (año, titular, listas) llegan a la IA, sin repetir lo que ya va aparte.
@@ -146,4 +148,11 @@ let missingPrompt = "";
 const filled = await generateCanvasPlan(partial, undefined, async (_url, init) => { missingPrompt = String(init?.body); return new Response(JSON.stringify({ output_text: JSON.stringify(answer) })); }, undefined, true);
 assert.match(missingPrompt, /SOLO FALTAN LAS ESCENAS scene-2, scene-3/);
 assert.ok(!("scene-1" in filled.plans), "no pisa el plan que ya traía el guion");
+// Tiempo para leerlas: una animación por cada ~7 s de voz; las que sobran se recortan.
+const crammed = { beats: [{ template: "hook", words: [{ text: "Uno", cue: "uno" }] }, { template: "stat", value: 2, label: "Dos", cue: "dos", from: "dos" }, { template: "stat", value: 3, label: "Tres", cue: "tres", from: "tres" }] };
+const shortScene = videoDocumentSchema.parse({ ...document, scenes: [{ id: "s", kind: "explainer", durationFrames: 240, content: { title: "T", voiceover: "Uno dos tres." } }] });
+assert.equal(entryBeats(crammed, shortScene.scenes[0], 30)?.length, 1, "8 s de voz: una animación");
+const longScene = videoDocumentSchema.parse({ ...document, scenes: [{ id: "s", kind: "explainer", durationFrames: 450, content: { title: "T", voiceover: "Uno dos tres." } }] });
+assert.equal(entryBeats(crammed, longScene.scenes[0], 30)?.length, 2, "15 s de voz: dos");
+assert.match(CANVAS_PLAN_SYSTEM_PROMPT, /cuéntalo \(stat, compare o chart\) en vez de enumerarlo/);
 console.log("canvas plan ok");

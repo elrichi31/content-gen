@@ -395,7 +395,7 @@ export const CANVAS_TEMPLATE_CATALOG: CanvasTemplateInfo[] = [
   },
   {
     template: "list", name: "Lista", description: "Puntos que aparecen con su marca (check, cruz o punto) cuando se nombran.",
-    useFor: "2 a 4 elementos paralelos sin orden que la voz nombra: consejos (check), errores o mitos (cross), rasgos (dot).", avoid: "Pasos con orden (steps), un solo punto o frases largas que no caben.", fields: ["icono: check, cross o dot", "2 a 4 puntos (máx. 40 letras)", "cue de cada punto"],
+    useFor: "2 a 4 elementos paralelos sin orden que la voz nombra: consejos (check), errores o mitos (cross), rasgos (dot).", avoid: "Cifras (stat, compare o chart: un número se cuenta, no se enumera), pasos con orden (steps), un solo punto o frases largas que no caben.", fields: ["icono: check, cross o dot", "2 a 4 puntos (máx. 40 letras)", "cue de cada punto"],
     example: { title: "Checklist", voiceover: "Revisa tres cosas: que tengas un CDN, límites de peticiones y alertas de tráfico.", plan: { template: "list", icon: "check", items: [{ text: "Usa un CDN", cue: "CDN" }, { text: "Límites de peticiones", cue: "límites" }, { text: "Alertas de tráfico", cue: "alertas" }] } },
   },
   {
