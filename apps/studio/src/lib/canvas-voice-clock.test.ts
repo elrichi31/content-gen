@@ -18,6 +18,14 @@ assert.equal(nextPreviewTime(2.3, 0.016, playing, 0).t, 2.3, "nunca retrocede");
 assert.equal(nextPreviewTime(2.05, 0.016, playing, 0).t, 2.1);
 assert.deepEqual(nextPreviewTime(3.5, 0.016, playing, 0), { t: 3.5, seek: 1.5, wait: false, giveUp: false }, "tras mover la barra el audio salta a su sitio");
 
+// play() deja paused=false al instante: si el audio se queda cargando/atascado, también se le espera con límite.
+const stalled = slot(2, { paused: false, currentTime: 0 });
+assert.deepEqual(nextPreviewTime(2, 0.016, stalled, 0.5), { t: 2, seek: null, wait: true, giveUp: false });
+assert.equal(nextPreviewTime(2, 0.016, stalled, VOICE_START_WAIT).giveUp, true, "un audio atascado no congela la preview");
+
+// Al terminar, el redondeo deja el reloj justo antes del final: sigue en vez de rearrancar la voz en bucle.
+assert.deepEqual(nextPreviewTime(5.99, 0.016, slot(2, { currentTime: 4 }), 0), { t: 6.006, seek: null, wait: false, giveUp: false });
+
 // Qué voz toca en cada instante.
 const slots = [slot(0.3), slot(5, { duration: Number.NaN })];
 assert.equal(voiceAtTime(slots, 0.1), null, "antes de la primera voz");

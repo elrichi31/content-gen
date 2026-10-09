@@ -12,6 +12,8 @@ export type VoiceSlot = { voiceAt: number; audio: VoiceLike };
 export const VOICE_START_WAIT = 1.5;
 /** Desfase a partir del cual el audio se recoloca: solo pasa cuando el usuario mueve la barra. */
 export const VOICE_RESYNC = 0.5;
+/** Una voz pausada a menos de esto de su final ya terminó (el redondeo deja el reloj justo antes). */
+export const VOICE_END = 0.1;
 
 /** La voz que debería sonar en `t`, saltando las que fallaron. */
 export function voiceAtTime(slots: readonly VoiceSlot[], t: number, failed: ReadonlySet<VoiceLike> = new Set()): VoiceSlot | null {
@@ -25,12 +27,14 @@ export function voiceAtTime(slots: readonly VoiceSlot[], t: number, failed: Read
 export function nextPreviewTime(t: number, dt: number, slot: VoiceSlot | null, waited: number): { t: number; seek: number | null; wait: boolean; giveUp: boolean } {
   if (!slot) return { t: t + dt, seek: null, wait: false, giveUp: false };
   const local = t - slot.voiceAt;
-  if (slot.audio.paused) {
-    if (waited >= VOICE_START_WAIT) return { t: t + dt, seek: null, wait: false, giveUp: true };
-    return { t, seek: waited === 0 ? local : null, wait: true, giveUp: false };
-  }
+  // Ya terminó: el reloj sigue solo, si no se volvería a arrancar su último instante en bucle.
+  if (slot.audio.paused && local >= slot.audio.duration - VOICE_END) return { t: t + dt, seek: null, wait: false, giveUp: false };
   const voiced = slot.voiceAt + slot.audio.currentTime;
-  if (Math.abs(voiced - t) > VOICE_RESYNC) return { t, seek: local, wait: false, giveUp: false };
-  // Nunca hacia atrás: el audio puede reportar un instante algo anterior justo al arrancar.
-  return { t: Math.max(t, voiced), seek: null, wait: false, giveUp: false };
+  if (!slot.audio.paused && Math.abs(voiced - t) > VOICE_RESYNC) return { t, seek: local, wait: false, giveUp: false };
+  // Pausada, cargando o atascada (play() ya la marca como no pausada): la animación espera, con límite.
+  if (slot.audio.paused || voiced <= t) {
+    if (waited >= VOICE_START_WAIT) return { t: t + dt, seek: null, wait: false, giveUp: true };
+    return { t, seek: slot.audio.paused && waited === 0 ? local : null, wait: true, giveUp: false };
+  }
+  return { t: voiced, seek: null, wait: false, giveUp: false };
 }

@@ -41,7 +41,8 @@ export function useCanvasVoices(spec: CanvasSpec, document: VideoDocument) {
     if (slot && next.giveUp) failed.current.add(slot.audio);
     if (slot && next.seek !== null) {
       slot.audio.currentTime = next.seek;
-      if (slot.audio.paused) void slot.audio.play().catch(() => failed.current.add(slot.audio));
+      // AbortError es un pause() que interrumpió el arranque (pausar o mover la barra), no un audio roto.
+      if (slot.audio.paused) void slot.audio.play().catch((error: unknown) => { if ((error as Error).name !== "AbortError") failed.current.add(slot.audio); });
     }
     waited.current = next.wait ? waited.current + dt : 0;
     return next.t;
