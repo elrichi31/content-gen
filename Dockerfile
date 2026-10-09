@@ -5,11 +5,12 @@ FROM node:24-bookworm-slim
 ENV NEXT_TELEMETRY_DISABLED=1
 
 # Librerías que necesita Chrome Headless Shell, con el que el motor Canvas dibuja cada frame, más CA,
-# una fuente base y FFmpeg, que codifica el MP4 y mezcla la voz.
+# una fuente base y FFmpeg, que codifica el MP4 y mezcla la voz. `unzip`: @puppeteer/browsers baja
+# Chrome en .zip y la imagen slim no trae con qué descomprimirlo.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       libnss3 libdbus-1-3 libatk1.0-0 libgbm-dev libasound2 libxrandr2 libxkbcommon-dev libxfixes3 \
       libxcomposite1 libxdamage1 libatk-bridge2.0-0 libpango-1.0-0 libcairo2 libcups2 \
-      ca-certificates fonts-liberation ffmpeg \
+      ca-certificates fonts-liberation ffmpeg unzip \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
