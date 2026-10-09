@@ -413,7 +413,7 @@ function buildStudio({ origin, scopes, queued }: { origin: string; scopes: reado
 
   tool("crear_video", {
     description: "Escribe el guion de un video por escenas y lo guarda como borrador. Plantillas: standard (imágenes), timeline o explainer (educativo con animaciones). Luego: imágenes/animaciones, voz y render." + spendNote,
-    input: { campaignId, topic: z.string().min(3).max(240), templateId: z.enum(["standard", "timeline", "explainer"]).default("standard"), targetDurationSeconds: z.number().int().min(15).max(180).default(45), context: z.string().max(12000).optional(), webSearch: z.boolean().default(true), audience: z.string().optional(), tone: z.string().optional() },
+    input: { campaignId, topic: z.string().min(3).max(240), templateId: z.enum(["standard", "timeline", "explainer"]).default("standard"), targetDurationSeconds: z.number().int().min(15).max(180).default(45), context: z.string().max(12000).optional().describe("Lo que ya sabes del tema (datos, cifras, fechas, fuentes): el guion lo usa como fuente de verdad"), webSearch: z.boolean().default(false).describe("Búsqueda web propia del Studio antes del guion (cuesta más). Déjala en false si ya investigaste: pasa lo que encontraste en context"), audience: z.string().optional(), tone: z.string().optional() },
     spends: true,
   }, async (args) => {
     const { document } = await call(videoGenerate.POST, { method: "POST", body: args }) as { document: { title?: string; scenes: { id: string }[] } };
@@ -426,7 +426,8 @@ function buildStudio({ origin, scopes, queued }: { origin: string; scopes: reado
       campaignId, topic: z.string().trim().min(3).max(240),
       templateId: z.enum(["standard", "timeline", "explainer"]).default("standard"),
       targetDurationSeconds: z.number().int().min(15).max(180).default(45),
-      context: z.string().max(12000).optional(), webSearch: z.boolean().default(true),
+      context: z.string().max(12000).optional().describe("Lo que ya sabes del tema (datos, cifras, fechas, fuentes): el guion lo usa como fuente de verdad"),
+      webSearch: z.boolean().default(false).describe("Búsqueda web propia del Studio antes del guion (cuesta más). Déjala en false si ya investigaste: pasa lo que encontraste en context"),
       audience: z.string().max(160).optional(), tone: z.string().max(120).optional(),
       language: z.string().min(2).max(40).optional(),
       imageSource: z.enum(["none", "unsplash", "openai"]).default("unsplash").describe("Fotos de las escenas. Standard/timeline las usan siempre; explainer solo con engine=canvas, que las pone de fondo (sin canvas, explainer genera animaciones HTML y no usa fotos)"),

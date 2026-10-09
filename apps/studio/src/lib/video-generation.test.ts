@@ -37,7 +37,7 @@ assert.deepEqual(document.scenes[1].content.terminal, ["> audio = segundos", "> 
 
 // Búsqueda en internet: primero investiga (web_search, sin modo JSON), luego redacta (JSON, sin herramientas).
 const calls: { tools?: unknown[]; text?: unknown; input: { content: string }[] }[] = [];
-const researched = await generateStandardVideoScript(input, async (_url, init) => {
+const researched = await generateStandardVideoScript({ ...input, webSearch: true }, async (_url, init) => {
   const body = JSON.parse(String(init?.body)); calls.push(body);
   return new Response(JSON.stringify(body.tools
     ? { output: [{ content: [{ type: "output_text", text: "El FBI reportó 2.300 casos en 2025.", annotations: [{ type: "url_citation", url: "https://www.ic3.gov/report?utm_source=openai", title: "IC3 Report" }] }] }] }
@@ -61,3 +61,4 @@ assert.deepEqual(timeline.scenes.slice(1, 5).map((item) => item.content.year), [
 assert.throws(() => normalizeTimelineVideoScript({ ...timelinePayload, scenes: { ...timelinePayload.scenes, event2: event("2018") } }, input), /orden ascendente/, "rechaza cronologías desordenadas");
 assert.throws(() => normalizeTimelineVideoScript(standardPayload, input), /siete escenas de la cronología/, "rechaza un guion estándar en la plantilla timeline");
 console.log("Guion de video: prompts legacy, siete escenas, accents y duraciones validados.");
+assert.equal(videoGenerationInputSchema.parse({ topic: "Historia de la IA" }).webSearch, false, "la búsqueda web es opcional: apagada salvo que se pida");

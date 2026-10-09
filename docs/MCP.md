@@ -104,7 +104,10 @@ queda abierto.
 ## Generar un video completo
 
 `generar_video_completo` recibe `campaignId`, `topic` y opciones de plantilla, duración,
-contexto, idioma y búsqueda web. En una llamada prepara el guion, guarda el borrador,
+contexto, idioma y búsqueda web. La búsqueda web viene apagada (`webSearch: false`): si el
+agente ya investigó, pasa lo que encontró en `context`, que el guion usa como fuente de verdad;
+actívala solo cuando no haya información previa, porque es la llamada más cara del guion.
+En una llamada prepara el guion, guarda el borrador,
 genera imágenes (`standard`/`timeline`) o animaciones (`explainer`), añade caption y encola
 el render. `imageSource` permite `unsplash` (por defecto), `openai` o `none`.
 

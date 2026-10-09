@@ -46,7 +46,8 @@ export function TopicForm({
   const [contextFileName, setContextFileName] = useState("");
   const [targetDurationSeconds, setTargetDuration] = useState(initial.targetDurationSeconds);
   const [templateId, setTemplateId] = useState(initial.templateId);
-  const [webSearch, setWebSearch] = useState(true);
+  // Apagada por defecto: el contexto pegado arriba suele bastar y la búsqueda es lo más caro del guion.
+  const [webSearch, setWebSearch] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
@@ -154,7 +155,7 @@ export function TopicForm({
 
         <label className="flex items-start gap-2 text-sm text-muted-foreground">
           <input type="checkbox" aria-label="Buscar en internet datos y fuentes" className="mt-0.5 h-4 w-4 accent-primary" checked={webSearch} onChange={(event) => setWebSearch(event.target.checked)} />
-          <span>Buscar en internet datos y fuentes antes de escribir el guion <span className="block text-[10px] opacity-70">Tarda un poco más, pero las cifras y casos salen respaldados.</span></span>
+          <span>Buscar en internet datos y fuentes antes de escribir el guion <span className="block text-[10px] opacity-70">Solo si no tienes la información a mano: tarda más y cuesta más. Si ya la tienes, pégala en el contexto.</span></span>
         </label>
 
         {error ? <p className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p> : null}

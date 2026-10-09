@@ -17,8 +17,11 @@ export const videoGenerationInputSchema = z.object({
   context: z.string().trim().max(12000).default(""),
   targetDurationSeconds: z.number().int().min(15).max(180).default(DEFAULT_TARGET_DURATION),
   campaignId: z.string().min(1).optional(),
-  /** Buscar en internet datos y fuentes del tema antes de redactar el guion. */
-  webSearch: z.boolean().default(true),
+  /**
+   * Buscar en internet antes de redactar. Apagado por defecto: es la llamada más cara del guion y casi
+   * siempre sobra, porque el agente (MCP) ya investigó o la persona pega lo que sabe en `context`.
+   */
+  webSearch: z.boolean().default(false),
 });
 export type VideoGenerationInput = z.infer<typeof videoGenerationInputSchema>;
 type VideoGenerationRequest = z.input<typeof videoGenerationInputSchema> & { brandName?: string; primaryColor?: string };
