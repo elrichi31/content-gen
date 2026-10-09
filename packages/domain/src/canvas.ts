@@ -347,7 +347,7 @@ export const CANVAS_TEMPLATE_CATALOG: CanvasTemplateInfo[] = [
   },
   {
     template: "flow", name: "Flujo", description: "Grupos de emisores mandan paquetes a un destino; el tráfico se dispara, un escudo opcional filtra y se ve el desenlace (aguanta, se cae o se bloquea).",
-    useFor: "Redes, ataques, APIs, colas: cualquier cosa que viaje de muchos a uno.", fields: ["1 a 3 emisores con etiqueta y cantidad", "destino", "escudo (opcional)", "ritmo: calm, busy o flood", "desenlace: ok, overload o blocked", "cues: surge, shield, outcome"],
+    useFor: "Solo tráfico real de muchos a uno que puede saturar o bloquearse: peticiones a un servidor, ataques, colas de pedidos. No para procesos, ideas ni relaciones.", fields: ["1 a 3 emisores con etiqueta y cantidad", "destino", "escudo (opcional)", "ritmo: calm, busy o flood", "desenlace: ok, overload o blocked", "cues: surge, shield, outcome"],
     example: { title: "Así funciona un DDoS", voiceover: "Miles de bots envían tráfico al mismo servidor. De repente el tráfico se dispara y el servidor se cae.", plan: { template: "flow", sources: [{ label: "Bots", count: 40 }, { label: "Usuarios", count: 6 }], target: "Servidor web", rate: "flood", outcome: "overload", cues: { surge: "dispara", outcome: "cae" } } },
   },
   {

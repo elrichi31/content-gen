@@ -99,6 +99,7 @@ assert.equal(poorIssues.length, 1, "repetir plantillas que encajan no es un prob
 assert.match(CANVAS_PLAN_SYSTEM_PROMPT, /Calidad antes que variedad/);
 assert.match(CANVAS_PLAN_SYSTEM_PROMPT, /Nunca como metáfora/, "flow, network, terminal y map solo cuando el tema es literalmente eso");
 assert.ok(!/al menos 5/.test(CANVAS_PLAN_SYSTEM_PROMPT));
+assert.ok(!/cualquier cosa que fluya/.test(CANVAS_PLAN_SYSTEM_PROMPT), "el flujo ya no se ofrece para todo lo que «fluye»");
 const rich = Object.fromEntries(["hook", "list", "stat", "steps", "quote", "outro"].map((template, i) => [`scene-${i + 1}`, template === "hook" ? { template, words: [{ text: "Uno" }] } : template === "list" ? { template, icon: "dot", items: [{ text: "a" }, { text: "b" }] } : template === "stat" ? { template, value: 3, decimals: 0, label: "x" } : template === "steps" ? { template, items: [{ label: "a" }, { label: "b" }] } : template === "quote" ? { template, text: "Uno dos" } : { template, line: "Fin" }]));
 assert.deepEqual(planVarietyIssues(five, rich as never), [], "un plan sin escenas vacías no tiene problemas");
 
