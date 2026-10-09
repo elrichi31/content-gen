@@ -383,7 +383,7 @@ export function createStudioMcpServer({ origin, scopes = ["studio:read", "studio
     return { contentItemId: saved.id, title: document.title, scenes: document.scenes.map((scene) => scene.id), abrir: args.templateId === "explainer" ? `/explainer?id=${saved.id}` : `/video?id=${saved.id}` };
   });
   tool("generar_video_completo", {
-    description: "Genera un video de principio a fin: guion, imágenes (standard/timeline) o animaciones (explainer), narración si se pasa voiceId, caption y render automático con el motor elegido (engine). Con engine=canvas no genera las animaciones HTML del educativo; las imágenes (imageSource) van de fondo en todas las plantillas, educativo incluido: genera el plan de Canvas y renderiza a 60 fps. Guarda un borrador y devuelve contentItemId y renderJob; el MP4 aún no está listo: consultar listar_renders hasta completed y abrir el outputAssetId con ver_asset. Si falla, devuelve el borrador y failedStep para continuar con las herramientas por escena, sin volver a crear ni gastar todo. Puede tardar varios minutos. No publica." + spendNote,
+    description: "Genera un video de principio a fin: guion, imágenes, narración si se pasa voiceId, plan de animaciones, caption y render automático. Por defecto (engine=canvas) las imágenes (imageSource) van de fondo y la IA anima cada escena; la respuesta trae `animations` con las plantillas de cada escena. Guarda un borrador y devuelve contentItemId y renderJob; el MP4 aún no está listo: consultar listar_renders hasta completed y abrir el outputAssetId con ver_asset. Si falla, devuelve el borrador y failedStep para continuar con las herramientas por escena, sin volver a crear ni gastar todo. Puede tardar varios minutos. No publica." + spendNote,
     input: {
       campaignId, topic: z.string().trim().min(3).max(240),
       templateId: z.enum(["standard", "timeline", "explainer"]).default("standard"),
@@ -394,7 +394,7 @@ export function createStudioMcpServer({ origin, scopes = ["studio:read", "studio
       imageSource: z.enum(["none", "unsplash", "openai"]).default("unsplash").describe("Fotos de las escenas. Standard/timeline las usan siempre; explainer solo con engine=canvas, que las pone de fondo (sin canvas, explainer genera animaciones HTML y no usa fotos)"),
       voiceId: z.string().min(8).max(64).optional().describe("Voz de listar_voces; si se omite, video sin narración"),
       modelId: z.string().min(3).max(80).default("eleven_multilingual_v2"),
-      engine: z.enum(["remotion", "hyperframes", "canvas"]).optional().describe("Motor de render. Por defecto Remotion (standard/timeline) o HyperFrames (explainer); canvas = plantillas animadas a 60 fps sincronizadas con la voz"),
+      engine: z.enum(["remotion", "hyperframes", "canvas"]).default("canvas").describe("Motor de render. Por defecto canvas: la IA pone 1 a 3 animaciones por escena (línea de tiempo, cifras, listas, flujos…) sincronizadas con la voz, a 60 fps, con las fotos de fondo. remotion = plantilla fija con imágenes y sin animaciones; hyperframes = animaciones HTML del educativo"),
     },
     spends: true,
   }, async ({ imageSource, voiceId, modelId, engine, ...args }) => {
@@ -422,7 +422,7 @@ export function createStudioMcpServer({ origin, scopes = ["studio:read", "studio
         return saved;
       },
     });
-    return { ...result, abrir: args.templateId === "explainer" ? `/explainer?id=${result.contentItemId}` : `/video?id=${result.contentItemId}`, narracion: Boolean(voiceId), motor: engine ?? (args.templateId === "explainer" ? "hyperframes" : "remotion") };
+    return { ...result, abrir: args.templateId === "explainer" ? `/explainer?id=${result.contentItemId}` : `/video?id=${result.contentItemId}`, narracion: Boolean(voiceId), motor: engine };
   });
   const withRevision = async (contentItemId: string) => {
     const current = await getContent(contentItemId);
@@ -460,9 +460,14 @@ export function createStudioMcpServer({ origin, scopes = ["studio:read", "studio
   tool("generar_caption_video", { description: "Escribe el caption y hashtags de un video guardado." + spendNote, input: { contentItemId: id("el video") }, spends: true },
     async ({ contentItemId }) => call(videoCaption.POST, { method: "POST", params: { id: contentItemId }, body: { action: "generate", revision: await withRevision(contentItemId) } }));
   tool("renderizar_video", {
-    description: "Encola el render del video con el motor elegido: remotion (por defecto en standard/timeline), hyperframes (por defecto en los educativos) o canvas (plantillas animadas a 60 fps; antes usa generar_plan_canvas). Devuelve el trabajo; consulta su avance con listar_renders.",
+    description: "Encola el render del video con el motor elegido: canvas (animaciones a 60 fps; antes usa generar_plan_canvas), remotion (plantilla fija con imágenes) o hyperframes (animaciones HTML del educativo). Sin engine usa canvas si el video ya tiene plan de animaciones; si no, remotion (standard/timeline) o hyperframes (educativo). Devuelve el trabajo; consulta su avance con listar_renders.",
     input: { contentItemId: id("el video"), engine: z.enum(["remotion", "hyperframes", "canvas"]).optional() },
-  }, ({ contentItemId, engine }) => call(renderJobs.POST, { method: "POST", body: { contentItemId, ...(engine === "hyperframes" || engine === "canvas" ? { engine } : {}) } }));
+  }, async ({ contentItemId, engine }) => {
+    // Un video con plan de Canvas renderizado en otro motor pierde todas sus animaciones: sin engine, manda el plan.
+    const planned = !engine && Boolean(((await getContent(contentItemId)).document.data.scenes as { content?: { canvas?: unknown } }[] | undefined)?.some((scene) => scene.content?.canvas));
+    const chosen = engine ?? (planned ? "canvas" : undefined);
+    return call(renderJobs.POST, { method: "POST", body: { contentItemId, ...(chosen === "hyperframes" || chosen === "canvas" ? { engine: chosen } : {}) } });
+  });
   tool("listar_renders", { description: "Trabajos de render con estado, progreso y el asset de salida cuando terminan.", input: { contentItemId: z.string().optional() }, readOnly: true },
     (query) => call(renderJobs.GET, { query }));
   tool("gestionar_render", { description: "Cancela un render en curso o reintenta uno fallido.", input: { id: id("el trabajo de render"), action: z.enum(["cancel", "retry"]) } },

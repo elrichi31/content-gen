@@ -24,9 +24,14 @@ type PipelineResult = {
   title?: string;
   completedSteps: string[];
   renderJob?: RenderJob;
+  /** Con Canvas: las animaciones que quedaron en cada escena, para ver de un vistazo si el plan salió. */
+  animations?: Record<string, string[]>;
   failedStep?: string;
   error?: string;
 };
+
+/** Plantillas de `content.canvas` (un plan suelto o una lista de animaciones); vacío si no hay plan. */
+const sceneTemplates = (canvas: unknown) => (Array.isArray(canvas) ? canvas : canvas ? [canvas] : []).map((beat) => String((beat as { template?: unknown }).template ?? "title"));
 
 /** Guarda primero; si un proveedor falla conserva el borrador y no encola un video incompleto. */
 export async function runVideoPipeline(input: PipelineInput, deps: VideoPipelineDependencies): Promise<PipelineResult> {
@@ -74,10 +79,12 @@ export async function runVideoPipeline(input: PipelineInput, deps: VideoPipeline
       }
     }
     // Después de la voz: así los cues del plan se comprueban contra los tiempos reales por palabra.
+    let animations: Record<string, string[]> | undefined;
     if (canvas) {
       step = "canvas-plan";
       await deps.canvasPlan(contentItemId);
       completedSteps.push(step);
+      animations = Object.fromEntries((await read()).document.scenes.map((scene) => [scene.id, sceneTemplates(scene.content.canvas)]));
     }
     step = "caption";
     await deps.caption(contentItemId, (await read()).revision);
@@ -87,7 +94,7 @@ export async function runVideoPipeline(input: PipelineInput, deps: VideoPipeline
     step = "render";
     const renderJob = await deps.render(contentItemId, input.engine);
     completedSteps.push(step);
-    return { status: "queued", contentItemId, title, completedSteps, renderJob };
+    return { status: "queued", contentItemId, title, completedSteps, renderJob, ...(animations ? { animations } : {}) };
   } catch (error) {
     return { status: "incomplete", contentItemId, title, completedSteps, failedStep: step, error: error instanceof Error ? error.message : "La generación falló." };
   }

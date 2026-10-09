@@ -64,6 +64,16 @@ assert.deepEqual(canvasExplainerNoPhotos.events.filter(e => !e.startsWith("read:
 const canvasStandard = fixture();
 await runVideoPipeline({ topic: "Ciudad futura", imageSource: "unsplash", engine: "canvas" }, canvasStandard.deps);
 assert.deepEqual(canvasStandard.events.filter(e => !e.startsWith("read:")), ["create", "image:intro:unsplash:Una ciudad al amanecer", "image:close:unsplash:Ciudad futura", "canvas-plan", "caption", "render:canvas"]);
+// El resultado dice qué animaciones quedaron en cada escena (un plan suelto o una lista).
+const planned = fixture();
+planned.deps.canvasPlan = async () => {
+  const doc = (await planned.deps.read("video-1")).document;
+  doc.scenes[0].content.canvas = [{ template: "timeline" }, { template: "stat" }];
+  doc.scenes[1].content.canvas = { template: "outro" };
+};
+const withAnimations = await runVideoPipeline({ topic: "Ciudad futura", imageSource: "none", engine: "canvas" }, planned.deps);
+assert.deepEqual(withAnimations.animations, { intro: ["timeline", "stat"], close: ["outro"] });
+assert.equal((await runVideoPipeline({ topic: "Ciudad futura", imageSource: "none" }, fixture().deps)).animations, undefined, "sin Canvas no hay plan que mostrar");
 const hyper = fixture("explainer");
 await runVideoPipeline({ topic: "Una explicación", imageSource: "none", engine: "hyperframes" }, hyper.deps);
 assert.deepEqual(hyper.events.filter(e => !e.startsWith("read:")), ["create", "animation:intro", "animation:close", "caption", "render:hyperframes"]);
