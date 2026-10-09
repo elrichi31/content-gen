@@ -10,9 +10,12 @@ import { VideoGenerationError } from "./video-generation.ts";
  * `scene.content.canvas` (ver `storedBeats`); el render y la preview lo leen de ahí.
  */
 
-export const CANVAS_PLAN_SYSTEM_PROMPT = `Eres director de motion graphics para videos educativos verticales. Para cada escena eliges 1 a 3 plantillas animadas que se suceden y escribes sus datos. No dibujas: el motor anima las plantillas.
-
-PLANTILLAS (campos exactos):
+/**
+ * Catálogo y criterio de elección, compartido por el plan y por el guion educativo (que se escribe a
+ * partir de las animaciones). Prima que la animación demuestre la idea: forzar variedad metía
+ * plantillas que no venían a cuento (flujos, redes o mapas donde no fluye, conecta ni hay lugares).
+ */
+export const CANVAS_TEMPLATE_GUIDE = `PLANTILLAS (campos exactos):
 - hook: palabras gigantes que golpean al decirse. { "template": "hook", "words": [{ "text": "1-14 letras", "cue": "..." }] } (1 a 4). Para el gancho de la primera escena.
 - flow: emisores → (escudo) → destino, con paquetes viajando. Redes, ataques, APIs, colas, cualquier cosa que fluya hacia algo. { "template": "flow", "sources": [{ "label": "...", "count": 1-60 }] (1 a 3), "target": "...", "shield": "..." (opcional: lo que filtra o protege), "rate": "calm"|"busy"|"flood", "outcome": "ok"|"overload"|"blocked", "cues": { "surge": "...", "shield": "...", "outcome": "..." } }. surge = cuando el tráfico se dispara; outcome = cuando se ve el resultado.
 - steps: proceso en orden. { "template": "steps", "items": [{ "label": "máx 36", "cue": "..." }] } (2 a 4).
@@ -30,11 +33,18 @@ PLANTILLAS (campos exactos):
 - outro: cierre. { "template": "outro", "line": "máx 40", "cta": "máx 40 (opcional)" }. Para la última escena.
 - title: solo el título de la escena en grande. Úsalo solo si ninguna otra encaja.
 
+CÓMO ELEGIR
+- Elige la plantilla que DEMUESTRE la idea, no la que la decore: fechas o años → timeline; pasos o fases → steps; acciones, señales o recomendaciones → list; una cifra → stat; dos cifras → compare; serie de cifras → chart; etapas que se reducen → funnel; antes y después → split; una frase clave o cita → quote.
+- Las plantillas literales solo cuando el tema ES eso: flow si algo viaja de verdad hacia un destino (tráfico, paquetes, peticiones, dinero); network si hay cosas que de verdad se conectan o se propagan; terminal si hay comandos o registros reales; map si se nombran lugares reales. Nunca como metáfora.
+- Calidad antes que variedad: si una idea no encaja limpia en ninguna, usa menos animaciones o title. Una plantilla que obliga a inventar etiquetas, cifras o nodos es la plantilla equivocada.
+- No repitas la misma plantilla en escenas seguidas salvo que la narración lo pida. hook para el gancho de la primera escena; outro para cerrar la última.`;
+
+export const CANVAS_PLAN_SYSTEM_PROMPT = `Eres director de motion graphics para videos educativos verticales. Para cada escena eliges 1 a 3 plantillas animadas que se suceden y escribes sus datos. No dibujas: el motor anima las plantillas.
+
+${CANVAS_TEMPLATE_GUIDE}
+
 REGLAS
 - Varias animaciones por escena: si la narración dura más de unos 7 s y encadena ideas, usa 2 o 3 animaciones seguidas, una por idea y en el orden de la voz, que cuenten una progresión (no la misma idea dos veces). Desde la segunda, cada una lleva "from": frase literal de 1 a 3 palabras con la que empieza su idea; sus cues van después de esa frase. Escenas cortas o de una sola idea: una animación.
-- Recorre TODO el catálogo para cada idea antes de elegir y quédate con la plantilla que mejor la DEMUESTRE, no la que la decore: fechas o años → timeline; pasos o fases → steps; acciones, señales o recomendaciones → list; una cifra → stat; dos cifras → compare; serie de cifras → chart; etapas que se reducen → funnel; algo que viaja o satura → flow; cosas conectadas o que se propagan → network; comandos o registros → terminal; antes y después → split; lugares → map; una frase clave o cita → quote.
-- Varía: no repitas la misma plantilla en escenas seguidas salvo que la narración lo pida, y usa tantas plantillas distintas como permitan las ideas (al menos 5 en un video de 5 escenas o más).
-- title es el último recurso: solo si la escena no tiene ninguna fecha, cifra, lista, proceso, comparación ni relación que mostrar. Cerrar con outro está bien.
 - Cada "cue" es una palabra o frase de 1 a 3 palabras copiada LITERALMENTE de la narración de ESA escena (mismas palabras, mismo orden). Es el instante en que se dispara la animación. Ponlos en el orden en que se dicen.
 - DATOS DE LA ESCENA (fechas, titulares, listas, cifras, comandos) son material para rellenar las plantillas: úsalos. Cifras (compare, stat, chart, funnel) y fechas (timeline) solo si están en la narración o en esos datos; nunca las inventes.
 - Si la escena tiene IMAGEN, la foto va de fondo con un velo oscuro y cualquier plantilla se lee encima: la foto no es motivo para elegir una plantilla más pobre.
@@ -66,7 +76,7 @@ type StoredPlan = ReturnType<typeof storedBeats>;
  * Animaciones de una entrada de la IA: `beats` (se quedan las válidas, hasta 3) o un plan suelto.
  * Los cues y frases de entrada que no se dicen se quitan. `null` si no queda ninguna.
  */
-function entryBeats(entry: unknown, scene: VideoDocument["scenes"][number], fps: number): CanvasSceneBeat[] | null {
+export function entryBeats(entry: unknown, scene: VideoDocument["scenes"][number], fps: number): CanvasSceneBeat[] | null {
   const list = (entry as { beats?: unknown })?.beats;
   const beats = Array.isArray(list)
     ? list.flatMap((item) => { const parsed = canvasSceneBeatSchema.safeParse(item); return parsed.success ? [parsed.data] : []; }).slice(0, 3)
@@ -116,8 +126,9 @@ export function replaceCanvasPlans(document: VideoDocument, plans: Record<string
 }
 
 /**
- * Lo que le falta de variedad a un plan, en frases para devolvérselas a la IA: escenas que (salvo la
- * última) solo muestran el título y pocas plantillas distintas. Vacío si está bien.
+ * Lo que le falta a un plan, en frases para devolvérselas a la IA: escenas que (salvo la última) solo
+ * muestran el título. Ya no exige un mínimo de plantillas distintas: eso empujaba a elegir animaciones
+ * que no venían a cuento. Vacío si está bien.
  */
 export function planVarietyIssues(document: VideoDocument, plans: Record<string, StoredPlan>) {
   const templates = document.scenes.map((scene) => {
@@ -126,10 +137,7 @@ export function planVarietyIssues(document: VideoDocument, plans: Record<string,
   });
   const issues: string[] = [];
   const titled = document.scenes.flatMap((scene, index) => (index < document.scenes.length - 1 && templates[index].every((template) => template === "title") ? [index + 1] : []));
-  if (titled.length) issues.push(`Las escenas ${titled.join(", ")} solo muestran el título: dales una animación que demuestre su idea con sus datos.`);
-  const distinct = new Set(templates.flat().filter((template) => template !== "title" && template !== "outro"));
-  const target = Math.min(5, document.scenes.length - 1);
-  if (distinct.size < target) issues.push(`Solo usaste ${distinct.size} plantillas distintas (${[...distinct].join(", ") || "ninguna"}); usa al menos ${target}, eligiendo para cada idea la que mejor la demuestre.`);
+  if (titled.length) issues.push(`Las escenas ${titled.join(", ")} solo muestran el título: dales una animación que demuestre su idea con sus datos, si alguna encaja de verdad.`);
   return issues;
 }
 
@@ -147,7 +155,7 @@ export async function generateCanvasPlan(document: VideoDocument, feedback?: str
       return { ...result, plans: { [focus.sceneId]: storedBeats(beats) }, skipped: [] as string[], reviewed: false };
     }
     const first = normalizeCanvasPlans(result.value, document);
-    // Una revisión: si el plan se quedó corto de variedad, se le devuelven los problemas concretos y se
+    // Una revisión: si quedaron escenas solo con título, se le devuelven los problemas concretos y se
     // queda la versión con menos problemas. No se repite más: cada vuelta es otra llamada que se paga.
     const issues = planVarietyIssues(document, first.plans);
     if (issues.length && Object.keys(first.plans).length) {

@@ -89,14 +89,18 @@ assert.ok(!/- (voiceover|wordTimings|visual):/.test(dataPrompt), "lo que ya va a
 assert.ok(!/prefiere las de pocos elementos/.test(CANVAS_PLAN_SYSTEM_PROMPT), "la foto ya no empuja a plantillas pobres");
 assert.match(CANVAS_PLAN_SYSTEM_PROMPT, /fechas o años → timeline/);
 
-// Variedad: escenas que solo muestran el título (salvo la última) y pocas plantillas distintas.
+// Revisión: solo escenas que (salvo la última) muestran el título. Ya no se exige un mínimo de plantillas
+// distintas: forzar variedad metía animaciones que no venían a cuento.
 const five = videoDocumentSchema.parse({ ...document, scenes: Array.from({ length: 6 }, (_, i) => ({ id: `scene-${i + 1}`, kind: "explainer", durationFrames: 90, content: { title: `T${i}`, voiceover: "Uno dos tres." } })) });
 const poor = { "scene-1": { template: "hook", words: [{ text: "Uno" }] }, "scene-2": { template: "title" }, "scene-3": { template: "title" }, "scene-4": { template: "list", icon: "dot", items: [{ text: "a" }, { text: "b" }] }, "scene-5": { template: "list", icon: "dot", items: [{ text: "a" }, { text: "b" }] }, "scene-6": { template: "title" } } as never;
 const poorIssues = planVarietyIssues(five, poor);
 assert.match(poorIssues[0], /Las escenas 2, 3 solo muestran el título/, "la última escena puede ser solo título");
-assert.match(poorIssues[1], /Solo usaste 2 plantillas distintas \(hook, list\); usa al menos 5/);
+assert.equal(poorIssues.length, 1, "repetir plantillas que encajan no es un problema");
+assert.match(CANVAS_PLAN_SYSTEM_PROMPT, /Calidad antes que variedad/);
+assert.match(CANVAS_PLAN_SYSTEM_PROMPT, /Nunca como metáfora/, "flow, network, terminal y map solo cuando el tema es literalmente eso");
+assert.ok(!/al menos 5/.test(CANVAS_PLAN_SYSTEM_PROMPT));
 const rich = Object.fromEntries(["hook", "list", "stat", "steps", "quote", "outro"].map((template, i) => [`scene-${i + 1}`, template === "hook" ? { template, words: [{ text: "Uno" }] } : template === "list" ? { template, icon: "dot", items: [{ text: "a" }, { text: "b" }] } : template === "stat" ? { template, value: 3, decimals: 0, label: "x" } : template === "steps" ? { template, items: [{ label: "a" }, { label: "b" }] } : template === "quote" ? { template, text: "Uno dos" } : { template, line: "Fin" }]));
-assert.deepEqual(planVarietyIssues(five, rich as never), [], "un plan variado no tiene problemas");
+assert.deepEqual(planVarietyIssues(five, rich as never), [], "un plan sin escenas vacías no tiene problemas");
 
 // Revisión automática: un plan pobre se devuelve una vez con sus problemas y se queda el mejor; el costo suma las dos llamadas.
 const calls: string[] = [];
@@ -114,5 +118,5 @@ assert.equal(single(kept.plans["scene-2"]).template, "title");
 assert.equal(count, 2);
 count = 0;
 await generateCanvasPlan(five, undefined, async () => { count++; return reply(rich); });
-assert.equal(count, 1, "un plan variado no gasta otra llamada");
+assert.equal(count, 1, "un plan completo no gasta otra llamada");
 console.log("canvas plan ok");

@@ -74,6 +74,14 @@ planned.deps.canvasPlan = async () => {
 const withAnimations = await runVideoPipeline({ topic: "Ciudad futura", imageSource: "none", engine: "canvas" }, planned.deps);
 assert.deepEqual(withAnimations.animations, { intro: ["timeline", "stat"], close: ["outro"] });
 assert.equal((await runVideoPipeline({ topic: "Ciudad futura", imageSource: "none" }, fixture().deps)).animations, undefined, "sin Canvas no hay plan que mostrar");
+// Educativo con las animaciones elegidas en el guion y su narración: no se replanifica (ni se paga otra llamada).
+const fromScript = fixture("explainer");
+const scriptDoc = (await fromScript.deps.read("video-1")).document;
+scriptDoc.scenes[0].content = { ...scriptDoc.scenes[0].content, voiceover: "Hola.", canvas: { template: "hook", words: [{ text: "Hola" }] } };
+scriptDoc.scenes[1].content = { voiceover: "Adiós.", canvas: { template: "outro", line: "Fin" } };
+const scripted = await runVideoPipeline({ topic: "Una explicación", imageSource: "none", voiceId: "voice-123", modelId: "eleven_multilingual_v2", engine: "canvas" }, fromScript.deps);
+assert.deepEqual(fromScript.events.filter(e => !e.startsWith("read:")), ["create", "audio:intro", "audio:close", "caption", "render:canvas"]);
+assert.deepEqual(scripted.animations, { intro: ["hook"], close: ["outro"] });
 const hyper = fixture("explainer");
 await runVideoPipeline({ topic: "Una explicación", imageSource: "none", engine: "hyperframes" }, hyper.deps);
 assert.deepEqual(hyper.events.filter(e => !e.startsWith("read:")), ["create", "animation:intro", "animation:close", "caption", "render:hyperframes"]);

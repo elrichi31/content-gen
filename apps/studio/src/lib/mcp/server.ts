@@ -424,7 +424,7 @@ function buildStudio({ origin, scopes, queued }: { origin: string; scopes: reado
     description: "Genera un video de principio a fin: guion, imágenes, narración si se pasa voiceId, plan de animaciones, caption y render automático. Por defecto (engine=canvas) las imágenes (imageSource) van de fondo y la IA anima cada escena; la respuesta trae `animations` con las plantillas de cada escena. Guarda un borrador y devuelve contentItemId y renderJob; el MP4 aún no está listo: consultar listar_renders hasta completed y abrir el outputAssetId con ver_asset. Si falla, devuelve el borrador y failedStep para continuar con las herramientas por escena, sin volver a crear ni gastar todo. Puede tardar varios minutos. No publica." + spendNote,
     input: {
       campaignId, topic: z.string().trim().min(3).max(240),
-      templateId: z.enum(["standard", "timeline", "explainer"]).default("standard"),
+      templateId: z.enum(["standard", "timeline", "explainer"]).default("explainer").describe("explainer (por defecto): el guion se escribe a partir de las animaciones del motor Canvas, que salen ya elegidas. standard/timeline: guion con su estructura propia y las animaciones se eligen después"),
       targetDurationSeconds: z.number().int().min(15).max(180).default(45),
       context: z.string().max(12000).optional().describe("Lo que ya sabes del tema (datos, cifras, fechas, fuentes): el guion lo usa como fuente de verdad"),
       webSearch: z.boolean().default(false).describe("Búsqueda web propia del Studio antes del guion (cuesta más). Déjala en false si ya investigaste: pasa lo que encontraste en context"),

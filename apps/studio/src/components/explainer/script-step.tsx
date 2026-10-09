@@ -1,5 +1,6 @@
 "use client";
 
+import { CANVAS_TEMPLATE_CATALOG } from "@content-gen/domain/canvas";
 import type { VideoDocument } from "@content-gen/domain/video";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -10,6 +11,9 @@ import { ResearchSources } from "@/components/video/script-preview";
 
 type Field = "title" | "voiceover" | "visual";
 const field = (scene: VideoDocument["scenes"][number], key: Field) => (typeof scene.content[key] === "string" ? scene.content[key] as string : "");
+/** Nombres de las animaciones que la IA eligió con el guion (un plan suelto o una lista). */
+const chosen = (canvas: unknown) => (Array.isArray(canvas) ? canvas : canvas ? [canvas] : [])
+  .map((beat) => { const template = (beat as { template?: unknown }).template; return CANVAS_TEMPLATE_CATALOG.find((item) => item.template === template)?.name ?? String(template); });
 
 /** Guion del video educativo: por escena, el texto en pantalla, la narración y la animación pedida. */
 export function ExplainerScriptStep({ document, onChange, busy, onContinue }: { document: VideoDocument; onChange: (next: VideoDocument) => void; busy: boolean; onContinue: () => void }) {
@@ -23,7 +27,7 @@ export function ExplainerScriptStep({ document, onChange, busy, onContinue }: { 
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl font-bold tracking-tight text-foreground">{document.title}</h2>
-        <p className="mt-1 text-sm text-muted-foreground">Revisa lo que dice el narrador y qué animación acompaña cada escena. La animación se genera después de la voz, con la duración real de cada escena.</p>
+        <p className="mt-1 text-sm text-muted-foreground">Revisa lo que dice el narrador y qué animación acompaña cada escena. El guion se escribió a partir de las animaciones del motor: cada escena trae las suyas, que se ajustan a la voz real y puedes cambiar en el paso de animaciones.</p>
       </div>
 
       <div className="space-y-4">
@@ -38,6 +42,7 @@ export function ExplainerScriptStep({ document, onChange, busy, onContinue }: { 
                 <div className="space-y-1.5">
                   <Label htmlFor={`narracion-${scene.id}`} className="text-[10px] uppercase tracking-wider text-muted-foreground">Narración</Label>
                   <Textarea id={`narracion-${scene.id}`} rows={3} value={field(scene, "voiceover")} onChange={(event) => update(scene.id, "voiceover", event.target.value)} />
+                  {chosen(scene.content.canvas).length ? <p className="text-xs text-muted-foreground">Animaciones elegidas: <span className="font-medium text-foreground">{chosen(scene.content.canvas).join(" → ")}</span>. Si cambias la narración, mantén las palabras que las disparan.</p> : null}
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor={`visual-${scene.id}`} className="text-[10px] uppercase tracking-wider text-muted-foreground">Animación</Label>

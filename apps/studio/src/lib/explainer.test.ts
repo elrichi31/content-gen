@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { CANVAS_TEMPLATE_GUIDE } from "./canvas-plan.ts";
 import { buildExplainerAnimationPrompt, EXPLAINER_ANIMATION_SYSTEM_PROMPT, EXPLAINER_SCRIPT_SYSTEM_PROMPT, explainerPalette, explainerSceneCount, normalizeExplainerScript, replaceSceneAnimation, sceneSeconds, scopeAnimation } from "./explainer.ts";
 import { sceneLeadFrames, sceneTimelineFrames } from "@content-gen/domain/video";
 import { videoGenerationInputSchema } from "./video-generation.ts";
@@ -51,10 +52,23 @@ for (const index of [0, 1, document.scenes.length - 1]) {
 assert.match(EXPLAINER_SCRIPT_SYSTEM_PROMPT, /estado inicial.*cambio.*resultado/i);
 assert.match(EXPLAINER_ANIMATION_SYSTEM_PROMPT, /estado inicial.*cambio.*resultado/i);
 assert.ok(EXPLAINER_ANIMATION_SYSTEM_PROMPT.length <= 3800, "presupuesto de caracteres del prompt de animación");
-assert.ok(EXPLAINER_SCRIPT_SYSTEM_PROMPT.length <= 2200, "presupuesto de caracteres del prompt de guion");
+// El catálogo de animaciones se cuenta aparte: va en el guion en lugar de en una segunda llamada de plan.
+assert.ok(EXPLAINER_SCRIPT_SYSTEM_PROMPT.replace(CANVAS_TEMPLATE_GUIDE, "").length <= 2400, "presupuesto de caracteres del prompt de guion");
 // El HTML anterior se envía únicamente para una corrección explícita, nunca para regenerar.
 assert.ok(!buildExplainerAnimationPrompt(animated, animated.scenes[1]).includes("VERSIÓN ANTERIOR"));
 const correction = buildExplainerAnimationPrompt(animated, animated.scenes[1], "Mostrar la cola creciendo");
 assert.ok(correction.includes("Mostrar la cola creciendo") && correction.includes("VERSIÓN ANTERIOR"));
 assert.ok(correction.includes(JSON.stringify(animated.scenes[1].content.animationSource)));
+// Guion a partir de las animaciones: lo elegido con la narración queda como plan Canvas; lo inválido no.
+assert.match(EXPLAINER_SCRIPT_SYSTEM_PROMPT, /primero eliges las animaciones/);
+assert.match(EXPLAINER_SCRIPT_SYSTEM_PROMPT, /PLANTILLAS \(campos exactos\)/, "el guionista ve el catálogo");
+const animated2 = normalizeExplainerScript({ displayTitle: "DDoS", scenes: [
+  { title: "Gancho", voiceover: "Un millón de peticiones por segundo.", visual: "v", beats: [{ template: "hook", words: [{ text: "1 millón", cue: "millón" }] }] },
+  { title: "Pasos", voiceover: "Primero detectas, luego filtras.", visual: "v", beats: [{ template: "steps", items: [{ label: "Detectar", cue: "detectas" }, { label: "Filtrar", cue: "filtras" }] }, { template: "stat", value: 3, label: "x", from: "inventado" }] },
+  { title: "Fin", voiceover: "Sígueme.", visual: "v", beats: [{ template: "nope" }] },
+] }, input);
+assert.equal((animated2.scenes[0].content.canvas as { template: string }).template, "hook");
+assert.deepEqual((animated2.scenes[1].content.canvas as { template: string }[]).map((beat) => beat.template), ["steps", "stat"]);
+assert.equal((animated2.scenes[1].content.canvas as { from?: string }[])[1].from, undefined, "una frase de entrada que no se dice se quita");
+assert.equal(animated2.scenes[2].content.canvas, undefined, "sin animación válida, la escena queda para planificar después");
 console.log("explainer ok");

@@ -55,7 +55,8 @@ export async function runVideoPipeline(input: PipelineInput, deps: VideoPipeline
     // El educativo ya trae su narración en el guion (sus animaciones se escriben sobre ella):
     // regenerarla era una llamada de más que además la desalineaba.
     const hasNarration = current.document.scenes.every((scene) => typeof scene.content.voiceover === "string" && scene.content.voiceover.trim());
-    if (input.voiceId && !(current.document.templateId === "explainer" && hasNarration)) {
+    const rewritesNarration = Boolean(input.voiceId) && !(current.document.templateId === "explainer" && hasNarration);
+    if (rewritesNarration) {
       at("voiceover");
       await deps.voiceover(contentItemId, (await read()).revision);
       completedSteps.push(step);
@@ -85,9 +86,14 @@ export async function runVideoPipeline(input: PipelineInput, deps: VideoPipeline
     // Después de la voz: así los cues del plan se comprueban contra los tiempos reales por palabra.
     let animations: Record<string, string[]> | undefined;
     if (canvas) {
-      at("canvas-plan");
-      await deps.canvasPlan(contentItemId);
-      completedSteps.push(step);
+      // El educativo trae el plan del guion (la narración se escribió para esas animaciones): replanificar
+      // gastaba otra llamada y podía cambiar lo elegido. Solo se planifica si falta o la voz se reescribió.
+      const planned = !rewritesNarration && current.document.scenes.every((scene) => scene.content.canvas);
+      if (!planned) {
+        at("canvas-plan");
+        await deps.canvasPlan(contentItemId);
+        completedSteps.push(step);
+      }
       animations = Object.fromEntries((await read()).document.scenes.map((scene) => [scene.id, sceneTemplates(scene.content.canvas)]));
     }
     at("caption");

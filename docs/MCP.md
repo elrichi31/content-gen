@@ -111,6 +111,12 @@ En una llamada prepara el guion, guarda el borrador,
 genera imágenes (`standard`/`timeline`) o animaciones (`explainer`), añade caption y encola
 el render. `imageSource` permite `unsplash` (por defecto), `openai` o `none`.
 
+La plantilla por defecto es `explainer` con el motor `canvas`: el guion se escribe **a partir
+de las animaciones del catálogo** (`listar_animaciones`). Por escena la IA elige primero qué
+animación demuestra la idea y escribe la narración para ella (con sus cifras, fechas y palabras
+que la disparan), así que el plan sale con el guion y no se replanifica después. Con
+`standard`/`timeline` el guion conserva su estructura y las animaciones se eligen al final.
+
 Para narración, elige un `voiceId` con `listar_voces`; sin él se genera sin voz. `modelId`
 es opcional (por defecto `eleven_multilingual_v2`). Consume créditos de los proveedores.
 
