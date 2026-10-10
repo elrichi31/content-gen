@@ -13,10 +13,25 @@ const labels: Record<GenerationStatus, string> = { pendiente: "Espera aprobació
 const statusTone: Record<GenerationStatus, (typeof tones)[keyof typeof tones]> = { pendiente: tones.violet, aprobada: tones.sky, en_curso: tones.amber, completada: tones.emerald, fallida: tones.red, rechazada: tones.zinc };
 const ACTIVE = new Set<GenerationStatus>(["pendiente", "aprobada", "en_curso"]);
 
-/** Lo que pidió el agente, en una línea: el tema si lo hay, si no los argumentos. */
+/** Lo que pidió el agente, en una línea: el título o el tema. Los argumentos completos van en el desplegable. */
 function summary(args: Record<string, unknown>) {
-  const topic = args.topic ?? args.url ?? args.prompt ?? args.focus;
-  return typeof topic === "string" ? topic : JSON.stringify(args);
+  const topic = args.title ?? args.topic ?? args.url ?? args.prompt ?? args.focus;
+  return typeof topic === "string" && topic.trim() ? topic : "Sin título";
+}
+
+const FACTS: Record<string, string> = { language: "Idioma", imageSource: "Fotos", templateId: "Plantilla", format: "Formato", niche: "Nicho" };
+
+/** Texto de apoyo (el pie o la primera narración) y datos sueltos de la solicitud, para no leer el JSON. */
+function details(args: Record<string, unknown>) {
+  const scenes = Array.isArray(args.scenes) ? args.scenes as Record<string, unknown>[] : [];
+  const beats = scenes.reduce((sum, scene) => sum + (Array.isArray(scene.beats) ? scene.beats.length : 0), 0);
+  const caption = (args.caption as { text?: unknown } | undefined)?.text ?? scenes[0]?.voiceover;
+  const facts = [
+    ...scenes.length ? [`${scenes.length} escenas`] : [],
+    ...beats ? [`${beats} animaciones`] : [],
+    ...Object.entries(FACTS).flatMap(([key, label]) => (typeof args[key] === "string" && args[key] ? [`${label}: ${args[key]}`] : [])),
+  ];
+  return { description: typeof caption === "string" ? caption : "", facts };
 }
 
 export function GenerationQueue() {
@@ -61,6 +76,7 @@ export function GenerationQueue() {
         {requests.map((request) => {
           const tone = statusTone[request.status];
           const result = request.result as { abrir?: unknown; contentItemId?: unknown } | null;
+          const { description, facts } = details(request.args);
           return (
             <li key={request.id} className={cn("rounded-lg border p-3", ACTIVE.has(request.status) ? tone.border : "border-border")}>
               <div className="flex flex-wrap items-start justify-between gap-2">
@@ -71,8 +87,14 @@ export function GenerationQueue() {
                     </span>
                     <code className="text-xs">{request.tool}</code>
                   </p>
-                  <p className="mt-1 break-words text-sm">{summary(request.args)}</p>
-                  <p className="text-xs text-muted-foreground"><time dateTime={request.createdAt} title={fullDate(request.createdAt)}>Pedida {relativeTime(request.createdAt)}</time></p>
+                  <p className="mt-1.5 break-words text-sm font-medium">{summary(request.args)}</p>
+                  {description ? <p className="mt-0.5 line-clamp-2 break-words text-sm text-muted-foreground">{description}</p> : null}
+                  {facts.length ? (
+                    <ul className="mt-1.5 flex flex-wrap gap-1.5">
+                      {facts.map((fact) => <li key={fact} className="rounded border border-border bg-muted/40 px-1.5 py-0.5 text-[11px] text-muted-foreground">{fact}</li>)}
+                    </ul>
+                  ) : null}
+                  <p className="mt-1.5 text-xs text-muted-foreground"><time dateTime={request.createdAt} title={fullDate(request.createdAt)}>Pedida {relativeTime(request.createdAt)}</time></p>
                 </div>
                 {request.status === "pendiente" ? (
                   <div className="flex gap-2">
