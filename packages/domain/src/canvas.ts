@@ -386,7 +386,7 @@ export type CanvasTemplateInfo = {
  */
 export const CANVAS_TEMPLATE_CATALOG: CanvasTemplateInfo[] = [
   {
-    template: "hook", name: "Gancho", description: "Palabras gigantes que golpean una a una justo cuando se dicen, con onda de choque y temblor de cámara.",
+    template: "hook", name: "Gancho", description: "Palabras gigantes que golpean una a una justo cuando se dicen, con destello, chispas y temblor de cámara; la última remata sobre una barra de color.",
     useFor: "La primera escena: 1 a 4 palabras o una cifra que la voz dice literalmente al arrancar y frenan el scroll.", avoid: "Fuera de la primera escena, o con palabras que la voz no dice.", fields: ["1 a 4 palabras (máx. 14 letras)", "cue de cada palabra"],
     example: { title: "El gancho", voiceover: "Un millón de peticiones por segundo. Así se tumba un servidor.", plan: { template: "hook", words: [{ text: "1 millón", cue: "millón" }, { text: "peticiones", cue: "peticiones" }, { text: "por segundo", cue: "segundo" }] } },
   },

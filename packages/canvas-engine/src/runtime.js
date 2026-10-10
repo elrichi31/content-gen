@@ -189,39 +189,86 @@ export function canvasRuntime(spec, options) {
     const shrink = Math.min(1, 980 / total);
     total *= shrink;
     let y = 940 - total / 2;
-    items.forEach((item, i) => {
-      const size = item.size * shrink, h = lineHeight(item) * shrink;
-      y += h;
-      const k = t - item.at;
-      const last = i === items.length - 1;
-      if (k >= -0.02) {
-        const s = 1 + 0.55 * (1 - E.outExpo(clamp(k / 0.32)));
-        const label = item.text.toUpperCase();
+    const rows = items.map((item) => {
+      const size = item.size * shrink;
+      y += lineHeight(item) * shrink;
+      const row = { at: item.at, size, cy: y - size * 0.36, label: item.text.toUpperCase() };
+      y += 24 * shrink;
+      return row;
+    });
+    const first = rows[0].at, lastAt = rows[rows.length - 1].at;
+    // Antes de la primera palabra, una barra que se tensa en el centro: el golpe sale de ahí.
+    if (t < first) {
+      const pre = E.outExpo(P(t, scene.start + 0.05, first));
+      ctx.fillStyle = ACC;
+      ctx.fillRect(CX - 110 * pre, 935, 220 * pre, 10);
+      return;
+    }
+    ctx.save();
+    // Empuje lento de cámara durante toda la escena: el bloque nunca se queda quieto.
+    const push = 1 + 0.05 * P(t, first, scene.start + scene.duration);
+    ctx.translate(CX, 940); ctx.scale(push, push); ctx.translate(-CX, -940);
+    // Destello del color de la paleta en cada golpe; más fuerte en la palabra que remata.
+    rows.forEach((row, i) => {
+      const k = t - row.at;
+      if (k < 0 || k > 0.2) return;
+      ctx.fillStyle = alpha(ACC, (i === rows.length - 1 ? 0.3 : 0.18) * (1 - k / 0.2));
+      ctx.fillRect(-200, -200, W + 400, H + 400);
+    });
+    // Cuando remata la última, las anteriores vuelven a encenderse y la frase se lee entera.
+    const relight = P(t, lastAt + 0.45, lastAt + 0.85);
+    rows.forEach((row, i) => {
+      const k = t - row.at;
+      if (k < -0.02) return;
+      const last = i === rows.length - 1, size = row.size;
+      const width = measure(ctx, row.label, 900, size);
+      // Cae desde muy cerca y rebota: el muelle pasa de largo y aplasta un poco la palabra al asentarse.
+      const s = 1 + 0.9 * (1 - spring(k, 22, 17));
+      // Al entrar la siguiente, esta se atenúa: el foco está siempre en lo que se acaba de decir.
+      const dim = last ? 0 : P(t, rows[i + 1].at - 0.05, rows[i + 1].at + 0.15) * (1 - relight);
+      ctx.save();
+      ctx.translate(CX, row.cy);
+      ctx.scale(s, s);
+      ctx.globalAlpha = clamp((k + 0.02) / 0.06) * (1 - 0.55 * dim);
+      if (last) {
+        // Barra inclinada que barre por detrás, con un brillo que la cruza cada tanto.
+        const bw = width + 72, bh = size * 1.04;
         ctx.save();
-        ctx.translate(CX, y - size * 0.36);
-        ctx.scale(s, s);
-        ctx.globalAlpha = clamp((k + 0.02) / 0.08);
-        // La última palabra lleva una barra de color que barre por detrás: es la que remata.
-        if (last) {
-          const width = measure(ctx, label, 900, size) + 56;
-          const sweep = E.outExpo(P(k, 0.08, 0.5));
-          ctx.fillStyle = ACC;
-          ctx.fillRect(-width / 2, -size * 0.5, width * sweep, size * 0.98);
+        ctx.transform(1, 0, -0.14, 1, 0, 0);
+        ctx.fillStyle = ACC;
+        ctx.fillRect(-bw / 2, -bh / 2, bw * E.outExpo(P(k, 0.06, 0.42)), bh);
+        const sheen = k > 0.7 ? ((k - 0.7) % 2.6) / 0.6 : 2;
+        if (sheen < 1) {
+          ctx.beginPath(); ctx.rect(-bw / 2, -bh / 2, bw, bh); ctx.clip();
+          ctx.fillStyle = "rgba(255,255,255,0.4)";
+          ctx.fillRect(lerp(-bw / 2 - 140, bw / 2 + 40, sheen), -bh / 2, 100, bh);
         }
-        text(ctx, label, 0, size * 0.36, 900, size, last ? C.ink : C.white, "center");
         ctx.restore();
-        // Onda de choque al golpear.
-        const ring = P(k, 0, 0.45);
-        if (ring > 0 && ring < 1) {
-          ctx.strokeStyle = alpha(ACC2, 0.5 * (1 - ring));
-          ctx.lineWidth = 10 * (1 - ring) + 1;
+      }
+      text(ctx, row.label, 0, size * 0.36, 900, size, last ? C.ink : C.white, "center");
+      ctx.restore();
+      // Chispas que salen despedidas del contorno de la palabra al golpear.
+      const burst = P(k, 0, 0.42);
+      if (burst > 0 && burst < 1) {
+        ctx.save();
+        ctx.lineCap = "round";
+        ctx.strokeStyle = alpha(ACC2, 0.9 * (1 - burst));
+        ctx.lineWidth = 7 * (1 - burst) + 1;
+        const count = last ? 22 : 14;
+        for (let j = 0; j < count; j++) {
+          const a = Math.PI * 2 * (j + hash(i, j) * 0.8) / count;
+          const ex = Math.cos(a) * (width / 2 + 50), ey = Math.sin(a) * (size * 0.5 + 40);
+          const d = Math.hypot(ex, ey), ux = ex / d, uy = ey / d;
+          const far = (90 + 240 * hash(j, i + 7)) * E.outCubic(burst), len = (30 + 70 * hash(i + 3, j)) * (1 - burst);
           ctx.beginPath();
-          ctx.arc(CX, y - size * 0.36, 120 + 520 * E.outCubic(ring), 0, Math.PI * 2);
+          ctx.moveTo(CX + ex + ux * far, row.cy + ey + uy * far);
+          ctx.lineTo(CX + ex + ux * (far + len), row.cy + ey + uy * (far + len));
           ctx.stroke();
         }
+        ctx.restore();
       }
-      y += 24 * shrink;
     });
+    ctx.restore();
   };
 
   // Flujo: emisores → (escudo) → destino, con paquetes viajando.
