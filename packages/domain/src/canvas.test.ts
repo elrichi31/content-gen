@@ -128,6 +128,19 @@ console.log("canvas plantillas nuevas ok");
   assert.ok(quote.plan.template === "quote" && quote.plan.text.toLowerCase().includes(quote.plan.highlight), "el resaltado sale de la frase");
 }
 console.log("canvas terminal/embudo/cita/mapa ok");
+// Definición, porcentaje, ranking y ciclo: cada ejemplo del catálogo se dice entero en su narración.
+{
+  for (const template of ["definition", "percent", "ranking", "cycle"] as const) {
+    const info = CANVAS_TEMPLATE_CATALOG.find((item) => item.template === template)!;
+    assert.equal(canvasScenePlanSchema.safeParse(info.example.plan).success, true, `${template}: el ejemplo valida`);
+    const scene = sampleCanvasSpec(template).scenes[0];
+    assert.equal(scene.plan.template, template);
+  }
+  const ranking = sampleCanvasSpec("ranking").scenes[0].plan;
+  assert.ok(ranking.template === "ranking" && ranking.items.every((item, i, all) => i === 0 || item.at > all[i - 1].at), "el ranking entra en orden");
+  assert.equal(canvasScenePlanSchema.safeParse({ template: "percent", value: 120, label: "x" }).success, false, "porcentaje fuera de rango");
+}
+
 
 // Escenas largas con varias animaciones: cada una entra con su frase y sus momentos caen en su tramo.
 {

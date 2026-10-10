@@ -154,5 +154,5 @@ const shortScene = videoDocumentSchema.parse({ ...document, scenes: [{ id: "s", 
 assert.equal(entryBeats(crammed, shortScene.scenes[0], 30)?.length, 1, "8 s de voz: una animación");
 const longScene = videoDocumentSchema.parse({ ...document, scenes: [{ id: "s", kind: "explainer", durationFrames: 450, content: { title: "T", voiceover: "Uno dos tres." } }] });
 assert.equal(entryBeats(crammed, longScene.scenes[0], 30)?.length, 2, "15 s de voz: dos");
-assert.match(CANVAS_PLAN_SYSTEM_PROMPT, /cuéntalo \(stat, compare o chart\) en vez de enumerarlo/);
+assert.match(CANVAS_PLAN_SYSTEM_PROMPT, /cuéntalo \(stat, percent, compare, ranking o chart\) en vez de enumerarlo/);
 console.log("canvas plan ok");

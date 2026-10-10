@@ -30,6 +30,10 @@ export const CANVAS_TEMPLATE_GUIDE = `PLANTILLAS (campos exactos):
 - funnel: embudo que se estrecha. { "template": "funnel", "stages": [{ "label": "máx 24", "value": número (opcional), "cue": "..." }] (3 a 5, de mayor a menor), "unit": "máx 8 (opcional)" }. Conversiones, filtros.
 - quote: cita destacada. { "template": "quote", "text": "máx 140", "author": "máx 30 (opcional)", "highlight": "parte literal de text a resaltar (opcional)", "cue": "..." }. Citas reales o la idea clave del video; nunca inventes autores.
 - map: mapa del mundo de puntos. { "template": "map", "points": [{ "label": "máx 18", "lat": número, "lon": número, "cue": "..." }] (1 a 5), "connect": true|false }. connect=true une los lugares en orden con arcos (rutas, viajes). Coordenadas reales del lugar.
+- definition: término y su definición. { "template": "definition", "term": "máx 24", "definition": "máx 120", "cue": "..." }. cue = cuando la voz dice el término.
+- percent: anillo que se llena. { "template": "percent", "value": 0-100, "decimals": 0-1, "label": "máx 40", "cue": "..." }. Solo porcentajes reales.
+- ranking: barras con posición. { "template": "ranking", "items": [{ "label": "máx 28", "value": número (opcional), "cue": "..." }] (3 a 5, el primero es el #1), "unit": "máx 8 (opcional)" }.
+- cycle: pasos en círculo que se repiten. { "template": "cycle", "items": [{ "label": "máx 18", "cue": "..." }] } (3 a 5).
 - outro: cierre. { "template": "outro", "line": "máx 40", "cta": "máx 40 (opcional)" }. Para la última escena.
 - title: solo el título de la escena en grande. Úsalo solo si ninguna otra encaja.
 
@@ -39,7 +43,7 @@ ${CANVAS_TEMPLATE_CATALOG.map(({ template, useFor, avoid }) => `- ${template}: S
 LA PRUEBA
 - Cada elemento que muestra la animación (paso, punto, fecha, nodo, lugar, etapa, comando, cifra) tiene que DECIRSE en la narración, y su cue es esa palabra. Si tendrías que inventar elementos que la voz no dice, esa no es la animación. Las animaciones cuyos momentos casi no se dicen se descartan solas.
 - Calidad antes que variedad: si una idea no encaja limpia en ninguna, usa menos animaciones o title. No repitas la misma plantilla en escenas seguidas salvo que la narración lo pida.
-- Si la idea es un número, cuéntalo (stat, compare o chart) en vez de enumerarlo en una list.
+- Si la idea es un número, cuéntalo (stat, percent, compare, ranking o chart) en vez de enumerarlo en una list.
 - Tiempo para leerlas: una animación por cada ~7 s de voz (hasta unos 10 s, una; hasta 17 s, dos; más, tres). Las que sobran se recortan.`;
 
 export const CANVAS_PLAN_SYSTEM_PROMPT = `Eres director de motion graphics para videos educativos verticales. Para cada escena eliges 1 a 3 plantillas animadas que se suceden y escribes sus datos. No dibujas: el motor anima las plantillas.
@@ -49,7 +53,7 @@ ${CANVAS_TEMPLATE_GUIDE}
 REGLAS
 - Varias animaciones por escena: si la narración dura más de unos 7 s y encadena ideas, usa 2 o 3 animaciones seguidas, una por idea y en el orden de la voz, que cuenten una progresión (no la misma idea dos veces). Desde la segunda, cada una lleva "from": frase literal de 1 a 3 palabras con la que empieza su idea; sus cues van después de esa frase. Escenas cortas o de una sola idea: una animación.
 - Cada "cue" es una palabra o frase de 1 a 3 palabras copiada LITERALMENTE de la narración de ESA escena (mismas palabras, mismo orden). Es el instante en que se dispara la animación. Ponlos en el orden en que se dicen.
-- DATOS DE LA ESCENA (fechas, titulares, listas, cifras, comandos) son material para rellenar las plantillas: úsalos. Cifras (compare, stat, chart, funnel) y fechas (timeline) solo si están en la narración o en esos datos; nunca las inventes.
+- DATOS DE LA ESCENA (fechas, titulares, listas, cifras, comandos) son material para rellenar las plantillas: úsalos. Cifras (compare, stat, percent, ranking, chart, funnel) y fechas (timeline) solo si están en la narración o en esos datos; nunca las inventes.
 - Si la escena tiene IMAGEN, la foto va de fondo con un velo oscuro y cualquier plantilla se lee encima: la foto no es motivo para elegir una plantilla más pobre.
 - Etiquetas cortas (1 a 3 palabras), en el idioma de la narración, sin emojis. "label" de flow máx 28 caracteres.
 - Devuelve SOLO JSON: { "scenes": [{ "sceneId": "...", "beats": [{ ...plan }, { ...plan, "from": "..." }] }] } con una entrada por escena, en orden.`;

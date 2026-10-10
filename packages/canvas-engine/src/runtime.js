@@ -1149,6 +1149,125 @@ export function canvasRuntime(spec, options) {
     });
   };
 
+  // Definición: el término se revela con una línea de acento y la explicación entra debajo.
+  T.definition = (ctx, plan, scene, t) => {
+    const k = t - plan.at;
+    const term = fit(ctx, plan.term, 900, X1 - X0, 2, 130, 70);
+    term.lines.forEach((line, i) => maskedLine(ctx, line, X0, 840 + i * term.size * 1.02, 900, term.size, ACC, "left", P(k, 0.05 + 0.06 * i, 0.75 + 0.06 * i)));
+    const bottom = 840 + (term.lines.length - 1) * term.size * 1.02;
+    ctx.fillStyle = ACC;
+    ctx.fillRect(X0, bottom + 34, (X1 - X0) * E.outExpo(P(k, 0.3, 1.1)), 6);
+    const body = fit(ctx, plan.definition, 500, X1 - X0, 4, 56, 38);
+    body.lines.forEach((line, i) => maskedLine(ctx, line, X0, bottom + 124 + i * body.size * 1.25, 500, body.size, "rgba(255,255,255,0.88)", "left", P(k, 0.55 + 0.1 * i, 1.25 + 0.1 * i)));
+  };
+
+  // Porcentaje: un anillo que se llena hasta su valor con la cifra contando en el centro.
+  T.percent = (ctx, plan, scene, t) => {
+    const k = t - plan.at, p = E.outExpo(clamp(k / 1.6)), cy = 880, r = 250;
+    const start = -Math.PI / 2, end = start + Math.PI * 2 * (plan.value / 100) * p;
+    ctx.save();
+    ctx.globalAlpha = clamp((k + 0.25) / 0.25);
+    ctx.lineCap = "round"; ctx.lineWidth = 46;
+    ctx.strokeStyle = "rgba(255,255,255,0.08)";
+    ctx.beginPath(); ctx.arc(CX, cy, r, 0, Math.PI * 2); ctx.stroke();
+    if (p > 0.001) { ctx.strokeStyle = ACC; ctx.beginPath(); ctx.arc(CX, cy, r, start, end); ctx.stroke(); }
+    // El tamaño sale de la cifra final para que no salte mientras cuenta.
+    const final = formatNumber(plan.value, plan.decimals) + "%";
+    const size = fit(ctx, final, 900, 2 * r - 130, 1, 230, 100).size;
+    text(ctx, formatNumber(plan.value * p, plan.decimals) + "%", CX, cy + size * 0.36, 900, size, C.white, "center");
+    ctx.restore();
+    const label = fit(ctx, plan.label, 700, X1 - X0, 2, 56, 36);
+    label.lines.forEach((line, i) => maskedLine(ctx, line, CX, cy + r + 130 + i * label.size * 1.12, 700, label.size, "rgba(255,255,255,0.85)", "center", P(k, 0.3 + i * 0.08, 1 + i * 0.08)));
+  };
+
+  // Ranking: barras horizontales con su posición; la primera, de acento, y cada una se llena al nombrarla.
+  T.ranking = (ctx, plan, scene, t) => {
+    const n = plan.items.length;
+    const gap = Math.min(190, (STAGE_BOTTOM - STAGE_TOP) / n);
+    const top = (STAGE_TOP + STAGE_BOTTOM) / 2 - gap * n / 2;
+    const x = X0 + 100, full = X1 - x;
+    // Largo proporcional solo si los valores bajan con la posición: en un «menos es mejor» el primero tendría la barra más corta.
+    const valued = plan.items.every((item, i, all) => item.value !== null && (i === 0 || item.value <= all[i - 1].value));
+    const max = Math.max(...plan.items.map((item) => item.value || 0), 1);
+    plan.items.forEach((item, i) => {
+      const k = t - item.at;
+      const y = top + i * gap;
+      const share = valued ? Math.max(0.08, item.value / max) : 1 - i * 0.16;
+      // La silueta de la barra está desde el principio; al nombrarla se llena de izquierda a derecha.
+      ctx.fillStyle = "rgba(255,255,255,0.06)";
+      roundRect(ctx, x, y + 70, full, 46, 23); ctx.fill();
+      if (k < -0.05) return;
+      const s = spring(k + 0.05, 20, 8);
+      ctx.save();
+      ctx.translate(X0 + 40, y + 70);
+      ctx.scale(s, s);
+      ctx.fillStyle = i === 0 ? ACC : "rgba(255,255,255,0.14)";
+      ctx.beginPath(); ctx.arc(0, 0, 38, 0, Math.PI * 2); ctx.fill();
+      text(ctx, String(i + 1), 0, 14, 900, 42, i === 0 ? C.ink : C.white, "center");
+      ctx.restore();
+      const fill = E.outExpo(clamp(k / 0.7));
+      ctx.fillStyle = i === 0 ? ACC : alpha(ACC, 0.45);
+      if (fill > 0.001) { roundRect(ctx, x, y + 70, Math.max(46, full * share * fill), 46, 23); ctx.fill(); }
+      const final = item.value === null ? "" : compactNumber(item.value, item.value) + (plan.unit ? " " + plan.unit : "");
+      const label = fit(ctx, item.label, 700, full - (final ? measure(ctx, final, 900, 40) + 28 : 0), 1, 46, 28);
+      ctx.save();
+      ctx.globalAlpha = clamp((k + 0.05) / 0.3);
+      text(ctx, label.lines[0], x, y + 48, 700, label.size, C.white);
+      if (item.value !== null) text(ctx, compactNumber(item.value * E.outExpo(clamp(k / 1.1)), item.value) + (plan.unit ? " " + plan.unit : ""), X1, y + 48, 900, 40, i === 0 ? ACC : "rgba(255,255,255,0.8)", "right");
+      ctx.restore();
+    });
+  };
+
+  // Ciclo: pasos en círculo que se encienden en orden; el último cierra el anillo y un punto sigue orbitando.
+  T.cycle = (ctx, plan, scene, t) => {
+    const n = plan.items.length, cx = CX, cy = 890, R = 200, nr = 54;
+    const angle = (i) => -Math.PI / 2 + Math.PI * 2 * i / n;
+    const gapA = (nr + 16) / R;
+    ctx.save();
+    ctx.lineCap = "round"; ctx.lineWidth = 8;
+    // Arco de un paso al siguiente: se traza justo antes de que la voz nombre el siguiente (el último, al cerrar).
+    const closeAt = plan.items[n - 1].at + 0.3;
+    for (let i = 0; i < n; i++) {
+      const a0 = angle(i) + gapA, a1 = angle(i + 1) - gapA;
+      ctx.strokeStyle = "rgba(255,255,255,0.08)";
+      ctx.beginPath(); ctx.arc(cx, cy, R, a0, a1); ctx.stroke();
+      const draw = i < n - 1 ? P(t, plan.items[i + 1].at - 0.45, plan.items[i + 1].at) : P(t, closeAt, closeAt + 0.8);
+      if (draw > 0) { ctx.strokeStyle = ACC; ctx.beginPath(); ctx.arc(cx, cy, R, a0, a0 + (a1 - a0) * E.inOutCubic(draw)); ctx.stroke(); }
+    }
+    if (t > closeAt + 0.8) {
+      const a = -Math.PI / 2 + (t - closeAt - 0.8) * 1.1;
+      ctx.fillStyle = ACC2;
+      ctx.beginPath(); ctx.arc(cx + Math.cos(a) * R, cy + Math.sin(a) * R, 11, 0, Math.PI * 2); ctx.fill();
+    }
+    plan.items.forEach((item, i) => {
+      const k = t - item.at;
+      const x = cx + Math.cos(angle(i)) * R, y = cy + Math.sin(angle(i)) * R;
+      ctx.fillStyle = C.ink2;
+      ctx.beginPath(); ctx.arc(x, y, nr, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = "rgba(255,255,255,0.14)"; ctx.lineWidth = 6;
+      ctx.beginPath(); ctx.arc(x, y, nr, 0, Math.PI * 2); ctx.stroke();
+      if (k < -0.05) return;
+      const s = spring(k + 0.05, 20, 8);
+      ctx.save();
+      ctx.translate(x, y); ctx.scale(s, s);
+      ctx.fillStyle = ACC;
+      ctx.beginPath(); ctx.arc(0, 0, nr, 0, Math.PI * 2); ctx.fill();
+      text(ctx, String(i + 1), 0, 16, 900, 48, C.ink, "center");
+      ctx.restore();
+      // El rótulo va fuera del círculo: a un lado en los pasos laterales, arriba en el de arriba y abajo en el resto.
+      const cos = Math.cos(angle(i)), side = Math.abs(cos) > 0.5;
+      const label = fit(ctx, item.label, 700, side ? (X1 - X0) / 2 - Math.abs(cos) * R - nr - 16 : 250, 2, 40, 26);
+      const lines = label.lines.length, lh = label.size * 1.1;
+      const above = Math.sin(angle(i)) < -0.5;
+      const first = side ? y - (lines - 1) * lh / 2 + label.size * 0.36 : above ? y - nr - 24 - (lines - 1) * lh : y + nr + 24 + label.size * 0.8;
+      ctx.save();
+      ctx.globalAlpha = clamp((k + 0.05) / 0.3);
+      label.lines.forEach((line, li) => text(ctx, line, side ? x + Math.sign(cos) * (nr + 16) : x, first + li * lh, 700, label.size, C.white, side ? (cos > 0 ? "left" : "right") : "center"));
+      ctx.restore();
+    });
+    ctx.restore();
+  };
+
   // Cierre: la frase final palabra a palabra y una llamada a la acción.
   T.outro = (ctx, plan, scene, t) => {
     const { size, lines } = fit(ctx, plan.line, 900, X1 - X0, 4, 124, 64);

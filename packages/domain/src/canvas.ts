@@ -71,7 +71,7 @@ export function findCue(words: readonly WordTiming[], phrase: string, after = 0)
 const cue = z.string().trim().min(1).max(60);
 const label = z.string().trim().min(1).max(28);
 
-export const CANVAS_TEMPLATES = ["hook", "flow", "steps", "compare", "stat", "list", "timeline", "split", "chart", "network", "terminal", "funnel", "quote", "map", "outro", "title"] as const;
+export const CANVAS_TEMPLATES = ["hook", "flow", "steps", "compare", "stat", "list", "timeline", "split", "chart", "network", "terminal", "funnel", "quote", "map", "definition", "percent", "ranking", "cycle", "outro", "title"] as const;
 export type CanvasTemplate = (typeof CANVAS_TEMPLATES)[number];
 
 export const canvasScenePlanSchema = z.discriminatedUnion("template", [
@@ -144,6 +144,14 @@ export const canvasScenePlanSchema = z.discriminatedUnion("template", [
     points: z.array(z.object({ label: z.string().trim().min(1).max(18), lat: z.number().min(-90).max(90), lon: z.number().min(-180).max(180), cue: cue.optional() })).min(1).max(5),
     connect: z.boolean().default(false),
   }),
+  // Término y su definición: el término se revela y la explicación entra debajo.
+  z.object({ template: z.literal("definition"), term: z.string().trim().min(1).max(24), definition: z.string().trim().min(1).max(120), cue: cue.optional() }),
+  // Anillo que se llena hasta un porcentaje con la cifra contando en el centro.
+  z.object({ template: z.literal("percent"), value: z.number().min(0).max(100), decimals: z.number().int().min(0).max(1).default(0), label: z.string().trim().min(1).max(40), cue: cue.optional() }),
+  // Ranking: barras horizontales con su posición; el primero va arriba. Sin valores, las barras solo bajan de largo.
+  z.object({ template: z.literal("ranking"), items: z.array(z.object({ label, value: z.number().min(0).max(1e12).optional(), cue: cue.optional() })).min(3).max(5), unit: z.string().trim().max(8).optional() }),
+  // Ciclo: pasos en círculo que se encienden en orden y el último vuelve al primero.
+  z.object({ template: z.literal("cycle"), items: z.array(z.object({ label: z.string().trim().min(1).max(18), cue: cue.optional() })).min(3).max(5) }),
   // Cierre.
   z.object({ template: z.literal("outro"), line: z.string().trim().min(1).max(40), cta: z.string().trim().max(40).optional() }),
   // Respaldo: el título de la escena en grande. Lo usa el motor si no hay plan.
@@ -199,7 +207,8 @@ export function pruneCues(plan: CanvasScenePlan, words: readonly WordTiming[]): 
     case "terminal": return { ...plan, lines: plan.lines.map((line) => ({ ...line, cue: keep(line.cue) })) };
     case "funnel": return { ...plan, stages: plan.stages.map((stage) => ({ ...stage, cue: keep(stage.cue) })) };
     case "map": return { ...plan, points: plan.points.map((point) => ({ ...point, cue: keep(point.cue) })) };
-    case "compare": case "stat": case "split": case "chart": case "quote": return { ...plan, cue: keep(plan.cue) };
+    case "ranking": case "cycle": return { ...plan, items: plan.items.map((item) => ({ ...item, cue: keep(item.cue) })) };
+    case "compare": case "stat": case "split": case "chart": case "quote": case "definition": case "percent": return { ...plan, cue: keep(plan.cue) };
     default: return plan;
   }
 }
@@ -216,7 +225,7 @@ export function beatMismatch(plan: CanvasScenePlan, words: readonly WordTiming[]
   switch (plan.template) {
     case "hook": case "outro": case "title": return null;
     case "flow": cues = [plan.cues.surge, plan.cues.shield, plan.cues.outcome].filter(Boolean); if (!cues.length) cues = [undefined]; break;
-    case "steps": case "list": cues = plan.items.map((item) => item.cue); break;
+    case "steps": case "list": case "ranking": case "cycle": cues = plan.items.map((item) => item.cue); break;
     case "timeline": cues = plan.events.map((event) => event.cue); break;
     case "network": cues = plan.nodes.map((node) => node.cue); break;
     case "terminal": cues = plan.lines.map((line) => line.cue); break;
@@ -255,6 +264,10 @@ export type ResolvedPlan =
   | { template: "funnel"; stages: { label: string; value: number | null; at: number }[]; unit: string }
   | { template: "quote"; text: string; author: string; highlight: string; at: number }
   | { template: "map"; connect: boolean; points: { label: string; lat: number; lon: number; at: number }[] }
+  | { template: "definition"; term: string; definition: string; at: number }
+  | { template: "percent"; value: number; decimals: number; label: string; at: number }
+  | { template: "ranking"; unit: string; items: { label: string; value: number | null; at: number }[] }
+  | { template: "cycle"; items: { label: string; at: number }[] }
   | { template: "outro"; line: string; cta: string; at: number }
   | { template: "title"; at: number };
 
@@ -334,6 +347,10 @@ export function buildCanvasSpec(document: VideoDocument): CanvasSpec {
         case "funnel": resolved = { template: "funnel", unit: plan.unit ?? "", stages: plan.stages.map((stage, i) => ({ label: stage.label, value: stage.value ?? null, at: at(stage.cue, spread(plan.stages.length, i)) })) }; break;
         case "quote": resolved = { template: "quote", text: plan.text, author: plan.author ?? "", highlight: plan.highlight ?? "", at: at(plan.cue, 0.05) }; break;
         case "map": resolved = { template: "map", connect: plan.connect, points: plan.points.map((point, i) => ({ label: point.label, lat: point.lat, lon: point.lon, at: at(point.cue, spread(plan.points.length, i, 0.1, 0.75)) })) }; break;
+        case "definition": resolved = { template: "definition", term: plan.term, definition: plan.definition, at: at(plan.cue, 0.05) }; break;
+        case "percent": resolved = { template: "percent", value: plan.value, decimals: plan.decimals, label: plan.label, at: at(plan.cue, 0.1) }; break;
+        case "ranking": resolved = { template: "ranking", unit: plan.unit ?? "", items: plan.items.map((item, i) => ({ label: item.label, value: item.value ?? null, at: at(item.cue, spread(plan.items.length, i)) })) }; break;
+        case "cycle": resolved = { template: "cycle", items: plan.items.map((item, i) => ({ label: item.label, at: at(item.cue, spread(plan.items.length, i, 0.05, 0.65)) })) }; break;
         case "outro": resolved = { template: "outro", line: plan.line, cta: plan.cta ?? "", at: round(from) }; break;
         default: resolved = { template: "title", at: round(from) };
       }
@@ -437,6 +454,26 @@ export const CANVAS_TEMPLATE_CATALOG: CanvasTemplateInfo[] = [
     template: "map", name: "Mapa", description: "Un mapa del mundo hecho de puntos; cada lugar se enciende con un pulso al nombrarlo y, si se pide, un arco lo une con el anterior.",
     useFor: "La voz nombra lugares reales (países, ciudades) y dónde pasa importa: orígenes, rutas, alcance.", avoid: "Temas sin geografía o un «global» genérico sin lugares concretos.", fields: ["1 a 5 lugares: etiqueta (máx. 18), latitud y longitud", "unir con arcos (sí/no)", "cue de cada lugar"],
     example: { title: "El viaje de un paquete", voiceover: "Tu mensaje sale de Madrid, pasa por Frankfurt y llega a Singapur en menos de un segundo.", plan: { template: "map", connect: true, points: [{ label: "Madrid", lat: 40.4, lon: -3.7, cue: "Madrid" }, { label: "Frankfurt", lat: 50.1, lon: 8.7, cue: "Frankfurt" }, { label: "Singapur", lat: 1.35, lon: 103.8, cue: "Singapur" }] } },
+  },
+  {
+    template: "definition", name: "Definición", description: "Un término grande que se revela con una línea de acento y, debajo, su definición entra línea a línea.",
+    useFor: "El momento en que la voz define un concepto con una frase corta: «X es…». Ideal al introducir un término técnico.", avoid: "Definiciones largas (máx. 120 letras), varios términos a la vez (list) o conceptos que la voz no define.", fields: ["término (máx. 24 letras)", "definición (máx. 120)", "cue"],
+    example: { title: "Definición", voiceover: "Un DDoS es un ataque que satura un servidor con tráfico falso hasta que deja de responder.", plan: { template: "definition", term: "DDoS", definition: "Ataque que satura un servidor con tráfico falso hasta que deja de responder.", cue: "DDoS" } },
+  },
+  {
+    template: "percent", name: "Porcentaje", description: "Un anillo que se llena hasta su porcentaje con la cifra contando en el centro y la etiqueta debajo.",
+    useFor: "Un porcentaje real que la voz dice: la parte de un total (el 73 % de los ataques…).", avoid: "Cifras que no son porcentajes (stat), dos porcentajes (compare) o porcentajes inventados.", fields: ["valor 0 a 100 y decimales (0 o 1)", "etiqueta (máx. 40)", "cue"],
+    example: { title: "La mayoría", voiceover: "El setenta y tres por ciento de los ataques viene de dispositivos infectados.", plan: { template: "percent", value: 73, decimals: 0, label: "Viene de dispositivos infectados", cue: "setenta" } },
+  },
+  {
+    template: "ranking", name: "Ranking", description: "Barras horizontales con su posición (1, 2, 3…); la primera es la de acento y cada una se llena al nombrarla.",
+    useFor: "3 a 5 elementos con un orden real que la voz nombra: los más atacados, los más usados, el top de algo.", avoid: "Elementos sin orden (list), pasos (steps) o un valor que no sea comparable entre ellos.", fields: ["3 a 5 elementos: etiqueta (máx. 28) y valor opcional (de mayor a menor)", "unidad (opcional)", "cue de cada elemento"],
+    example: { title: "Los más atacados", voiceover: "Los tres puertos más atacados: primero el ochenta, luego el cuatrocientos cuarenta y tres y por último el veintidós.", plan: { template: "ranking", items: [{ label: "Puerto 80", cue: "primero" }, { label: "Puerto 443", cue: "luego" }, { label: "Puerto 22", cue: "último" }] } },
+  },
+  {
+    template: "cycle", name: "Ciclo", description: "Pasos en círculo que se encienden en orden; el último se une con el primero y un punto sigue orbitando.",
+    useFor: "Un proceso que de verdad se repite y la voz nombra: mejora continua, ciclos de ataque y defensa, rutinas.", avoid: "Procesos con principio y fin (steps) o ideas sin repetición.", fields: ["3 a 5 pasos (máx. 18 letras)", "cue de cada paso"],
+    example: { title: "Mejora continua", voiceover: "Es un ciclo: detectas, bloqueas, analizas y mejoras, y vuelta a empezar.", plan: { template: "cycle", items: [{ label: "Detectar", cue: "detectas" }, { label: "Bloquear", cue: "bloqueas" }, { label: "Analizar", cue: "analizas" }, { label: "Mejorar", cue: "mejoras" }] } },
   },
   {
     template: "outro", name: "Cierre", description: "La frase final entra línea a línea y aparece una llamada a la acción en una pastilla.",
