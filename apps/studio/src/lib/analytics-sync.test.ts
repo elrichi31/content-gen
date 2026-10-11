@@ -83,9 +83,24 @@ assert.match(pending.results[2].error ?? "", /Conectar TikTok/, "dice qué hacer
 assert.deepEqual(pending.failed, [], "no cuenta como fallo");
 
 await testDb.query("INSERT INTO oauth_tokens (platform, data_json, updated_at) VALUES ('tiktok', $1, $2)", [JSON.stringify({ accessToken: "act.uno", refreshToken: "rft.uno", openId: "abc-123", scope: "", accessExpiresAt: today.getTime() + 3_600_000, refreshExpiresAt: today.getTime() + 86_400_000 }), today.toISOString()]);
+// Token de antes de pedir `video.list`: la cuenta se guarda igual y el fallo dice que hay que reconectar.
 const connected = await syncAnalytics({ days: 7, today, request });
-assert.equal(connected.results[2].status, "ok", "con la cuenta conectada sincroniza");
+assert.equal(connected.results[2].status, "failed", "sin el permiso de videos avisa en vez de callar");
+assert.deepEqual(connected.results[2].dimensions, ["date"], "pero conserva los contadores de la cuenta");
+assert.match(connected.results[2].error ?? "", /Reconectar TikTok/, "dice qué hacer");
 assert.equal((await listMetricSnapshots({ platform: "tiktok" }))[0].metrics.followerCount, 10, "guarda los contadores del día");
+
+// Con el permiso: una fila por video y las vistas totales sumadas a la fila del día.
+await testDb.query("UPDATE oauth_tokens SET data_json = jsonb_set(data_json::jsonb, '{scope}', '\"user.info.stats,video.list\"')::text WHERE platform = 'tiktok'");
+const tiktokVideos: typeof fetch = async (url, init) => String(url).includes("/video/list/")
+  ? new Response(JSON.stringify({ data: { videos: [{ id: "1", title: "Uno", view_count: 40, comment_count: 3, share_count: 1 }, { id: "2", view_count: 2 }], has_more: false }, error: { code: "ok" } }))
+  : request(url, init);
+const withVideos = await syncAnalytics({ days: 7, today, request: tiktokVideos });
+assert.equal(withVideos.results[2].status, "ok", "con todos los permisos sincroniza");
+assert.deepEqual(withVideos.results[2].dimensions, ["date", "video"]);
+assert.equal((await listMetricSnapshots({ platform: "tiktok", dimension: "video" })).length, 2, "una fila por video");
+const day = (await listMetricSnapshots({ platform: "tiktok" }))[0].metrics;
+assert.deepEqual([day.followerCount, day.videoViews, day.videoComments], [10, 42, 3], "la fila del día suma las vistas sin perder los contadores");
 
 await testDb.drop();
 console.log("AnalyticsSync: ventanas por plataforma, idempotencia y aislamiento de fallos validados.");

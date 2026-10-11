@@ -12,10 +12,10 @@ export default function PrivacyPage() {
         Content Gen is a private tool. This policy covers the team members who sign in to it and any TikTok account that a team member chooses to connect.
       </LegalSection>
       <LegalSection title="Information we collect">
-        For team members: the name, email address and password hash used to sign in. For a connected TikTok account: the account&apos;s open ID, its follower count, following count, total likes and video count, and the OAuth access and refresh tokens that TikTok issues so the counters can be read again later. We do not collect your TikTok password, private messages or private videos.
+        For team members: the name, email address and password hash used to sign in. For a connected TikTok account: the account&apos;s open ID, display name, username, bio, verification status and profile link; its follower count, following count, total likes and video count; for each public video, its ID, title, link, publication date, duration and view, like, comment and share counts; and the OAuth access and refresh tokens that TikTok issues so this data can be read again later. When a team member sends a video to TikTok, that video file is uploaded to TikTok as a draft in the connected account. We do not collect your TikTok password, private messages or private videos.
       </LegalSection>
       <LegalSection title="How we use it">
-        The TikTok counters are shown in the Performance dashboard, and a daily snapshot is kept so you can see how they change over time. The tokens are used only to request those counters from TikTok. TikTok data is not used for advertising, profiling or automated decisions, and is not sent to any AI provider.
+        The TikTok profile, counters and video statistics are shown in the Performance dashboard, and a daily snapshot is kept so you can see how they change over time. The tokens are used only to request that data from TikTok and to upload the videos you choose to send as drafts. TikTok data is not used for advertising, profiling or automated decisions, and is not sent to any AI provider.
       </LegalSection>
       <LegalSection title="Storage and sharing">
         Data is stored in the database of the server that hosts Content Gen, and tokens are kept on the server side only. We do not sell or share it with third parties. The only outside services involved are TikTok, which provides the data, and the hosting provider that runs the server.

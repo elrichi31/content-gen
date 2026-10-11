@@ -3,7 +3,7 @@ import { GA4_LAG_DAYS, runGa4Report, type Ga4Dimension } from "./google-analytic
 import { GoogleAuthError } from "./google-auth.ts";
 import { saveMetricSnapshots, type IncomingSnapshot } from "./metric-snapshots.ts";
 import { querySearchConsole, SEARCH_CONSOLE_LAG_DAYS, type SearchConsoleDimension } from "./search-console.ts";
-import { fetchTikTokStats, TikTokError } from "./tiktok.ts";
+import { fetchTikTokStats, fetchTikTokVideos, sumVideoMetrics, TikTokError } from "./tiktok.ts";
 
 export const DEFAULT_SYNC_DAYS = 28;
 const SEARCH_CONSOLE_SYNC_DIMENSIONS: SearchConsoleDimension[] = ["date", "query", "page", "country", "device"];
@@ -46,16 +46,30 @@ async function syncPlatform(platform: string, days: number, today: Date, fetchRo
   }
 }
 
-/** TikTok no tiene ventana ni desgloses: una lectura de los contadores de hoy. */
+/** TikTok no tiene ventana: una lectura de los contadores de hoy, de la cuenta y de cada video. */
 async function syncTikTok(today: Date, request: typeof fetch): Promise<PlatformSyncResult> {
   const date = formatIsoDate(today);
+  const totals = { inserted: 0, updated: 0 };
+  const done: string[] = [];
+  const save = async (snapshots: IncomingSnapshot[]) => {
+    const saved = await saveMetricSnapshots(snapshots);
+    totals.inserted += saved.inserted;
+    totals.updated += saved.updated;
+  };
   try {
-    const saved = await saveMetricSnapshots(await fetchTikTokStats({ today, request }));
-    return { platform: "tiktok", status: "ok", startDate: date, endDate: date, ...saved, dimensions: ["date"] };
+    // La cuenta se guarda antes de pedir los videos: el contador de hoy no se puede recuperar mañana.
+    const [account] = await fetchTikTokStats({ today, request });
+    await save([account]);
+    done.push("date");
+    const videos = await fetchTikTokVideos({ today, request });
+    // Las vistas totales no vienen en el perfil: se añaden a la fila del día ya guardada.
+    await save([...videos, { ...account, metrics: { ...account.metrics, ...sumVideoMetrics(videos) } }]);
+    done.push("video");
+    return { platform: "tiktok", status: "ok", startDate: date, endDate: date, ...totals, dimensions: done };
   } catch (error) {
     // Credenciales puestas pero cuenta sin conectar todavía: no es un fallo, es un paso pendiente.
     const pending = error instanceof TikTokError && error.status === 409;
-    return { platform: "tiktok", status: pending ? "skipped" : "failed", inserted: 0, updated: 0, dimensions: [], error: error instanceof Error ? error.message : "Error desconocido al sincronizar." };
+    return { platform: "tiktok", status: pending ? "skipped" : "failed", ...totals, dimensions: done, error: error instanceof Error ? error.message : "Error desconocido al sincronizar." };
   }
 }
 

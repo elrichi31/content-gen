@@ -88,7 +88,7 @@ const WEIGHTED: Record<string, string> = {
 };
 
 /** Contadores acumulados de TikTok: sumar los días daría un número sin sentido, vale el último. */
-const GAUGES = new Set(["followerCount", "followingCount", "likesCount", "videoCount"]);
+const GAUGES = new Set(["followerCount", "followingCount", "likesCount", "videoCount", "videoViews", "videoComments", "videoShares"]);
 
 /**
  * Totales de un conjunto de filas para las tarjetas de la UI. Los volúmenes se suman; las tasas

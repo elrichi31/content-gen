@@ -28,13 +28,18 @@ export async function GET(request: Request) {
     const period = syncWindow({ days });
 
     const limit = Number(params.get("limit") ?? DEFAULT_LIMIT);
-    const snapshots = await listMetricSnapshots({ platform, dimension, ...period, limit });
+    let snapshots = await listMetricSnapshots({ platform, dimension, ...period, limit });
+    // Los videos guardan un contador acumulado por día: se enseña la última lectura de cada uno,
+    // no una fila por día, y los más vistos primero.
+    if (dimension === "video") snapshots = snapshots.filter((snapshot) => snapshot.date === snapshots[0].date).sort((a, b) => (b.metrics.viewCount ?? 0) - (a.metrics.viewCount ?? 0));
     // Los totales salen siempre del total diario: son los del periodo, no los del desglose que se esté mirando.
     const daily = await listMetricSnapshots({ platform, dimension: TOTAL_DIMENSION, ...period, limit: DAILY_ROWS });
 
     return NextResponse.json({
       snapshots,
       totals: totalMetrics(daily),
+      // Nombre y usuario de la cuenta conectada, de la lectura más reciente.
+      account: daily.find((snapshot) => snapshot.meta && Object.keys(snapshot.meta).length)?.meta,
       period: { ...period, days },
       // Avisa a la UI de que la tabla del desglose está recortada y no lo enseñe como si fuera todo.
       truncated: snapshots.length >= limit,

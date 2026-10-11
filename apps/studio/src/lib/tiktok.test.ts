@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createTestDatabase } from "../../../../scripts/test-db.mjs";
 
 const testDb = await createTestDatabase(); process.env.DATABASE_URL = testDb.url;
 
-const { completeAuthorization, fetchTikTokStats, startAuthorization, TikTokError } = await import("./tiktok.ts");
+const { chunkPlan, completeAuthorization, fetchDraftStatus, fetchTikTokStats, fetchTikTokVideos, startAuthorization, sumVideoMetrics, TikTokError, uploadVideoDraft } = await import("./tiktok.ts");
 
 delete process.env.TIKTOK_CLIENT_KEY; delete process.env.TIKTOK_CLIENT_SECRET;
 assert.throws(() => startAuthorization(), /TIKTOK_CLIENT_KEY/, "sin credenciales no arranca el flujo");
@@ -16,7 +19,7 @@ const { url, state, verifier } = startAuthorization();
 const params = new URL(url).searchParams;
 assert.equal(new URL(url).origin + new URL(url).pathname, "https://www.tiktok.com/v2/auth/authorize/", "usa el endpoint v2");
 assert.equal(params.get("client_key"), "clave");
-assert.equal(params.get("scope"), "user.info.basic,user.info.stats", "pide el permiso de estadísticas");
+assert.equal(params.get("scope"), "user.info.basic,user.info.profile,user.info.stats,video.list,video.upload", "pide estadísticas, videos y envío a borradores");
 assert.equal(params.get("state"), state, "el state viaja en la URL");
 assert.equal(params.get("code_challenge"), createHash("sha256").update(verifier).digest("hex"), "TikTok exige el challenge en hex");
 assert.match(verifier, /^[A-Za-z0-9_-]{43,128}$/, "el verificador cumple el rango PKCE");
@@ -62,6 +65,63 @@ await assert.rejects(() => fetchTikTokStats({ request: sinPermiso, today }), /pe
 // Un error de TikTok no se confunde con un éxito vacío.
 const caido: typeof fetch = async () => new Response(JSON.stringify({ error: { code: "access_token_invalid", message: "token inválido" } }), { status: 401 });
 await assert.rejects(() => fetchTikTokStats({ request: caido, today }), /token inválido/, "propaga el mensaje de TikTok");
+
+// El token de arriba es de antes de ampliar permisos: lo nuevo pide reconectar en vez de fallar raro.
+await assert.rejects(() => fetchTikTokVideos({ request, today }), (error: unknown) => error instanceof TikTokError && error.status === 403 && /Reconectar TikTok/.test(error.message), "sin video.list explica que hay que reconectar");
+await assert.rejects(() => uploadVideoDraft("no-importa.mp4", { request, now }), /envío de videos/, "sin video.upload no intenta subir");
+
+// Reparto en trozos que exige TikTok.
+const MB = 1024 * 1024;
+assert.deepEqual(chunkPlan(3 * MB), { chunkSize: 3 * MB, totalChunks: 1 }, "menos de 5 MB va entero");
+assert.deepEqual(chunkPlan(64 * MB), { chunkSize: 64 * MB, totalChunks: 1 }, "hasta 64 MB va entero");
+assert.deepEqual(chunkPlan(100 * MB), { chunkSize: 32 * MB, totalChunks: 3 }, "más de 64 MB se trocea y el último absorbe el resto");
+for (const size of [64 * MB + 1, 95 * MB, 96 * MB, 1000 * MB + 7]) {
+  const { chunkSize, totalChunks } = chunkPlan(size);
+  const last = size - (totalChunks - 1) * chunkSize;
+  assert.ok(chunkSize >= 5 * MB && chunkSize <= 64 * MB && last >= chunkSize && last <= 128 * MB, `trozos válidos para ${size} bytes`);
+}
+
+// Con los permisos nuevos: perfil, videos paginados y subida a borradores.
+const completo = "user.info.basic,user.info.profile,user.info.stats,video.list,video.upload";
+const video = (id: string, views: number) => ({ id, title: `Video ${id}`, create_time: 1789000000, share_url: `https://www.tiktok.com/@zen/video/${id}`, duration: 30, view_count: views, like_count: 10, comment_count: 2, share_count: 1 });
+const puts: { range?: string; bytes: number }[] = [];
+const nuevo: typeof fetch = async (input, init) => {
+  const target = String(input);
+  calls.push({ url: target, body: typeof init?.body === "string" ? init.body : undefined });
+  if (target.includes("/oauth/token/")) return new Response(JSON.stringify({ ...tokenBody("act.full", "rft.full"), scope: completo }));
+  if (target.includes("/video/list/")) {
+    const first = !JSON.parse(String(init?.body)).cursor;
+    return new Response(JSON.stringify({ data: first ? { videos: [video("1", 100), video("2", 50)], cursor: 111, has_more: true } : { videos: [video("3", 7), { title: "sin id" }], has_more: false }, error: { code: "ok" } }));
+  }
+  if (target.includes("/inbox/video/init/")) return new Response(JSON.stringify({ data: { publish_id: "v_inbox_file~v2.1", upload_url: "https://open-upload.tiktokapis.com/video/?upload_id=1" }, error: { code: "ok" } }));
+  if (target.includes("open-upload")) { puts.push({ range: (init?.headers as Record<string, string>)["Content-Range"], bytes: (init?.body as Uint8Array).byteLength }); return new Response(null, { status: 201 }); }
+  if (target.includes("/status/fetch/")) return new Response(JSON.stringify({ data: { status: "SEND_TO_USER_INBOX" }, error: { code: "ok" } }));
+  return new Response(JSON.stringify({ data: { user: { open_id: "abc-123", follower_count: 1200, display_name: "Zen", username: "zenlorlabs", bio_description: "", is_verified: true } }, error: { code: "ok" } }));
+};
+await completeAuthorization("codigo-2", verifier, { request: nuevo, now });
+
+const [cuenta] = await fetchTikTokStats({ request: nuevo, today });
+assert.match(calls.at(-1)?.url ?? "", /username/, "con user.info.profile pide los campos de perfil");
+assert.deepEqual(cuenta.meta, { displayName: "Zen", username: "zenlorlabs", verified: "true" }, "guarda el perfil sin campos vacíos");
+
+const videos = await fetchTikTokVideos({ request: nuevo, today });
+assert.deepEqual(videos.map((row) => row.dimensionValue), ["1", "2", "3"], "recorre las páginas y descarta videos sin id");
+assert.equal(JSON.parse(calls.at(-1)?.body ?? "{}").cursor, 111, "la segunda página usa el cursor de la primera");
+assert.deepEqual(videos[0].metrics, { viewCount: 100, likeCount: 10, commentCount: 2, shareCount: 1, duration: 30 }, "mapea los contadores del video");
+assert.deepEqual(videos[0].meta, { title: "Video 1", url: "https://www.tiktok.com/@zen/video/1", publishedAt: "2026-09-10" }, "guarda título, enlace y fecha de publicación");
+assert.deepEqual(sumVideoMetrics(videos), { videoViews: 157, videoComments: 6, videoShares: 3 }, "suma los totales de la cuenta");
+
+const folder = await mkdtemp(join(tmpdir(), "tiktok-"));
+const file = join(folder, "render.mp4");
+await writeFile(file, Buffer.alloc(1234, 7));
+assert.equal(await uploadVideoDraft(file, { request: nuevo, now }), "v_inbox_file~v2.1", "devuelve el identificador del envío");
+assert.deepEqual(JSON.parse(calls.find((call) => call.url.includes("/inbox/video/init/"))?.body ?? "{}"), { source_info: { source: "FILE_UPLOAD", video_size: 1234, chunk_size: 1234, total_chunk_count: 1 } }, "declara el tamaño real del archivo");
+assert.deepEqual(puts, [{ range: "bytes 0-1233/1234", bytes: 1234 }], "sube el archivo entero con su rango");
+assert.deepEqual(await fetchDraftStatus("v_inbox_file~v2.1", { request: nuevo, now }), { status: "SEND_TO_USER_INBOX", failReason: "" });
+
+const lleno: typeof fetch = async (input, init) => String(input).includes("/inbox/video/init/") ? new Response(JSON.stringify({ error: { code: "spam_risk_too_many_pending_share", message: "x" } }), { status: 403 }) : nuevo(input, init);
+await assert.rejects(() => uploadVideoDraft(file, { request: lleno, now }), /5 videos/, "explica el tope de borradores pendientes");
+await rm(folder, { recursive: true });
 
 await testDb.drop();
 console.log("tiktok ok");

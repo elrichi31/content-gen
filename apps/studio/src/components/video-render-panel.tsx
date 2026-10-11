@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Ban, Download, Film, RotateCcw } from "lucide-react";
+import { Ban, Download, Film, RotateCcw, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 type Status = "queued" | "processing" | "completed" | "failed" | "cancelled";
@@ -16,6 +16,8 @@ export function VideoRenderPanel({ contentItemId, unsavedChanges }: { contentIte
   const [job, setJob] = useState<RenderJob | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [sending, setSending] = useState(false);
+  const [tiktokNote, setTiktokNote] = useState("");
   const consoleRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
@@ -56,6 +58,25 @@ export function VideoRenderPanel({ contentItemId, unsavedChanges }: { contentIte
   const render = () => call(() => fetch("/api/render-jobs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contentItemId }) }));
   const act = (action: "cancel" | "retry") => call(() => fetch(`/api/render-jobs/${job!.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action }) }));
 
+  // La subida puede tardar: va con su propio estado para no bloquear el resto del panel.
+  async function sendToTikTok(assetId: string) {
+    setError("");
+    setTiktokNote("");
+    setSending(true);
+    try {
+      const response = await fetch("/api/tiktok/upload", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ assetId }) });
+      const payload = await response.json() as { status?: string; error?: string };
+      if (!response.ok) throw new Error(payload.error ?? "No se pudo enviar el video a TikTok.");
+      setTiktokNote(payload.status === "inbox"
+        ? "Enviado. Abre TikTok, entra a la bandeja de entrada y toca el aviso para publicarlo; la descripción se pega allí."
+        : "Subido. TikTok lo está procesando y avisará en la bandeja de entrada de la app cuando esté listo.");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "No se pudo enviar el video a TikTok.");
+    } finally {
+      setSending(false);
+    }
+  }
+
   const done = job?.status === "completed" && job.outputAssetId;
 
   return (
@@ -77,6 +98,10 @@ export function VideoRenderPanel({ contentItemId, unsavedChanges }: { contentIte
             <Button type="button" asChild>
               <a href={`/api/assets/${job.outputAssetId}`} download={`${contentItemId.slice(0, 8)}.mp4`}><Download className="h-4 w-4" /> Descargar MP4</a>
             </Button>
+            <Button type="button" variant="outline" disabled={sending} onClick={() => void sendToTikTok(job.outputAssetId!)}>
+              <Send className="h-4 w-4" /> {sending ? "Enviando a TikTok…" : "Enviar a borradores de TikTok"}
+            </Button>
+            {tiktokNote ? <p role="status" className="max-w-[260px] text-xs text-muted-foreground">{tiktokNote}</p> : null}
           </div>
         </div>
       ) : null}

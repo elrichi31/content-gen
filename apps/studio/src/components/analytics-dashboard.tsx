@@ -15,6 +15,7 @@ type Payload = {
   truncated?: boolean;
   freshness: Record<string, { lastDate: string; lastSync: string }>;
   configured: Record<Platform, boolean>;
+  account?: Record<string, string>;
   error?: string;
 };
 
@@ -42,12 +43,14 @@ const DIMENSIONS: Record<Platform, { value: string; label: string }[]> = {
     { value: "country", label: "Países" },
     { value: "device", label: "Dispositivos" },
   ],
-  // TikTok solo entrega los contadores de la cuenta, sin desgloses.
-  tiktok: [{ value: "date", label: "Por día" }],
+  // TikTok no desglosa por país ni dispositivo: solo la cuenta y cada video.
+  tiktok: [{ value: "date", label: "Por día" }, { value: "video", label: "Videos" }],
 };
 
 const METRIC_LABEL: Record<string, string> = {
   followerCount: "Seguidores", followingCount: "Siguiendo", likesCount: "Likes", videoCount: "Videos",
+  videoViews: "Vistas totales", videoComments: "Comentarios", videoShares: "Compartidos",
+  viewCount: "Vistas", likeCount: "Likes", commentCount: "Comentarios", shareCount: "Compartidos", duration: "Duración (s)",
   clicks: "Clics", impressions: "Impresiones", ctr: "CTR", position: "Posición media",
   sessions: "Sesiones", totalUsers: "Usuarios", newUsers: "Usuarios nuevos",
   screenPageViews: "Vistas de página", engagementRate: "Interacción", keyEvents: "Eventos clave",
@@ -108,6 +111,7 @@ export function AnalyticsDashboard({ initialPlatform = "search-console", flash }
   const totals = Object.entries(data?.totals ?? {});
   const snapshots = data?.snapshots ?? [];
   const period = data?.period;
+  const account = platform === "tiktok" ? data?.account : undefined;
 
   return (
     <div className="space-y-6">
@@ -168,6 +172,19 @@ export function AnalyticsDashboard({ initialPlatform = "search-console", flash }
         </Card>
       ) : null}
 
+      {account ? (
+        <div className="space-y-1">
+          <p className="text-sm font-medium text-foreground">
+            {account.displayName ?? account.username}
+            {account.username ? <span className="font-normal text-muted-foreground"> @{account.username}</span> : null}
+            {account.verified ? <span className="font-normal text-muted-foreground"> · Verificada</span> : null}
+            {/* Solo https: el enlace viene de TikTok y acaba en un href. */}
+            {account.profileUrl?.startsWith("https://") ? <> · <a className="font-normal text-primary underline-offset-4 hover:underline" href={account.profileUrl} target="_blank" rel="noreferrer">Ver perfil</a></> : null}
+          </p>
+          {account.bio ? <p className="max-w-2xl whitespace-pre-line text-xs text-muted-foreground">{account.bio}</p> : null}
+        </div>
+      ) : null}
+
       {totals.length ? (
         <div className="space-y-2">
           {/* El periodo se dice explícitamente: son los totales del rango, no los del desglose de abajo. */}
@@ -207,7 +224,7 @@ export function AnalyticsDashboard({ initialPlatform = "search-console", flash }
             <table className="w-full text-sm">
               <thead className="border-b border-border/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
                 <tr>
-                  <th className="px-4 py-3 font-medium">Fecha</th>
+                  <th className="px-4 py-3 font-medium">{dimension === "video" ? "Publicado" : "Fecha"}</th>
                   {dimension === "date" ? null : <th className="px-4 py-3 font-medium">{DIMENSIONS[platform].find((option) => option.value === dimension)?.label}</th>}
                   {Object.keys(snapshots[0].metrics).map((name) => (
                     <th key={name} className="px-4 py-3 text-right font-medium">{METRIC_LABEL[name] ?? name}</th>
@@ -217,10 +234,17 @@ export function AnalyticsDashboard({ initialPlatform = "search-console", flash }
               <tbody>
                 {snapshots.map((snapshot) => (
                   <tr key={snapshot.id} className="border-b border-border/30 last:border-0">
-                    <td className="whitespace-nowrap px-4 py-2.5 text-muted-foreground">{snapshot.date}</td>
-                    {dimension === "date" ? null : <td className="max-w-xs truncate px-4 py-2.5 text-foreground" title={snapshot.dimensionValue}>{snapshot.dimensionValue || "—"}</td>}
+                    <td className="whitespace-nowrap px-4 py-2.5 text-muted-foreground">{dimension === "video" ? snapshot.meta?.publishedAt ?? "—" : snapshot.date}</td>
+                    {dimension === "date" ? null : (
+                      <td className="max-w-xs truncate px-4 py-2.5 text-foreground" title={snapshot.meta?.title ?? snapshot.dimensionValue}>
+                        {snapshot.meta?.url?.startsWith("https://")
+                          ? <a className="underline-offset-4 hover:underline" href={snapshot.meta.url} target="_blank" rel="noreferrer">{snapshot.meta.title ?? "Video sin título"}</a>
+                          : snapshot.meta?.title ?? (snapshot.dimensionValue || "—")}
+                      </td>
+                    )}
+                    {/* Un día anterior a una métrica nueva no la tiene: se deja en blanco, no en cero. */}
                     {Object.keys(snapshots[0].metrics).map((name) => (
-                      <td key={name} className="px-4 py-2.5 text-right tabular-nums text-foreground">{formatMetric(name, snapshot.metrics[name] ?? 0)}</td>
+                      <td key={name} className="px-4 py-2.5 text-right tabular-nums text-foreground">{snapshot.metrics[name] === undefined ? "—" : formatMetric(name, snapshot.metrics[name])}</td>
                     ))}
                   </tr>
                 ))}

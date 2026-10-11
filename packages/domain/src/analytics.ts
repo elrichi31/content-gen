@@ -24,6 +24,8 @@ export const metricSnapshotSchema = z.object({
   dimensionValue: z.string().max(2000).default(""),
   date: isoDate,
   metrics: z.record(z.string(), z.number().finite()),
+  /** Texto que acompaña a la fila y no es una métrica: título y enlace de un video, nombre de la cuenta. */
+  meta: z.record(z.string(), z.string().max(2000)).optional(),
   fetchedAt: z.string().datetime(),
 });
 export type MetricSnapshot = z.infer<typeof metricSnapshotSchema>;
