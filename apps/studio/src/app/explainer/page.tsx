@@ -13,6 +13,7 @@ import { StepIndicator, type WizardStep } from "@/components/video/step-indicato
 import { TopicForm, type TopicFormValues } from "@/components/video/topic-form";
 import { VideoList, type StoredVideo } from "@/components/video/video-list";
 import { VoiceoverStep } from "@/components/video/voiceover-step";
+import { VideoCaptionPanel } from "@/components/video-caption-panel";
 import { VideoRenderPanel } from "@/components/video-render-panel";
 import { useRequestedContentId } from "@/lib/use-requested-content-id";
 
@@ -157,7 +158,10 @@ export default function ExplainerPage() {
                 <p className="mt-1 max-w-2xl text-sm text-muted-foreground">Revisa que todo esté listo y crea el MP4. El render sigue en el servidor aunque cambies de pantalla.</p>
               </div>
               <div className="grid gap-6 lg:grid-cols-[minmax(0,320px)_minmax(0,1fr)]">
-                <RenderChecklist document={document} onGo={go} />
+                <div className="space-y-4">
+                  <RenderChecklist document={document} onGo={go} />
+                  <VideoCaptionPanel contentItemId={contentId} revision={revision} document={document} onPersisted={adopt} />
+                </div>
                 <VideoRenderPanel contentItemId={contentId} unsavedChanges={unsaved} />
               </div>
               <div className="flex justify-start border-t border-border pt-4">
