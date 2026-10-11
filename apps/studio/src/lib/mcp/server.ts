@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import * as adBackground from "@/app/api/ads/background/route";
@@ -54,6 +55,8 @@ import { assertAssetSignature, assetExtensions } from "@/lib/asset-file";
 import { campaignCaptions } from "@/lib/campaign-export";
 import { imagesToDocument } from "@/lib/carousel-automation-rules";
 import { drawAiCarousel, prepareAiCarousel } from "@/lib/carousel-pipeline";
+import { LAYOUT_FIELDS, LAYOUT_VARIANTS, pickVariant, repairSlide } from "@/lib/carousel-generation";
+import { bgStyles, fontThemes, type BgStyleId, type FontThemeId } from "@/lib/themes";
 import { contentTitle } from "@/lib/content-title";
 import { downloadPublicFile } from "@/lib/carousel-remix";
 import { normalizeExplainerScript } from "@/lib/explainer";
@@ -61,6 +64,7 @@ import { enqueueGeneration, getGenerationRequest, listGenerationRequests } from 
 import { videoGenerationInputSchema } from "@/lib/video-generation";
 import { runVideoPipeline, type VideoPipelineDependencies } from "./video-pipeline";
 import { CANVAS_TEMPLATE_CATALOG, CANVAS_TEMPLATES } from "@content-gen/domain/canvas";
+import { carouselDocumentSchema } from "@content-gen/domain/carousel";
 import { videoDocumentSchema, WORDS_PER_SECOND } from "@content-gen/domain/video";
 
 /*
@@ -316,8 +320,72 @@ function buildStudio({ origin, scopes, queued }: { origin: string; scopes: reado
 
   /* --------------------------------- Carruseles --------------------------------- */
 
+  /*
+   * Como en video: el agente escribe los slides y elige el diseño; el Studio solo valida y guarda.
+   * No llama a ninguna IA, así que ni gasta ni pasa por la cola.
+   */
+  const slideText = (max: number) => z.string().trim().max(max).optional();
+  const scriptSlide = z.object({
+    // Enums propios: el zod del paquete domain es otra copia y este servidor no acepta sus esquemas como entrada.
+    layout: z.enum(Object.keys(LAYOUT_FIELDS) as [string, ...string[]]),
+    layoutVariant: z.string().max(40).optional().describe("Variante del layout (ver listar_layouts_carrusel); si se omite se reparte una"),
+    title: slideText(200), subtitle: slideText(300), content: slideText(600),
+    listItems: z.array(z.object({ emoji: z.string().max(12).describe("Emoji, número («01») o cifra («73%») que abre la línea"), text: z.string().trim().min(1).max(200) })).max(8).optional(),
+    bigNumber: slideText(20), bigNumberLabel: slideText(200), quote: slideText(400), quoteAuthor: slideText(80), ctaText: slideText(200), ctaSubtext: slideText(300),
+    imageUrl: z.string().max(2000).optional().describe("Foto para split, imageOverlay o variantes con imagen: la URL que devuelve subir_asset o generar_imagen"),
+    titleSize: z.enum(["compact", "regular", "large", "display"]).optional(),
+  });
+  const carouselStyle = z.object({
+    surface: z.enum(["light", "dark", "brand", "neon"]).describe("Fondo base de todos los slides"),
+    decor: z.boolean().describe("Formas de adorno en los márgenes (no aplica en neon)"),
+    font: z.enum(Object.keys(fontThemes) as [FontThemeId, ...FontThemeId[]]),
+    background: z.enum(Object.keys(bgStyles) as [BgStyleId, ...BgStyleId[]]).describe("Patrón sobre el fondo oscuro"),
+    color: z.string().regex(/^#[0-9a-fA-F]{6}$/).describe("#RRGGBB; si se omite, el color de la marca"),
+  }).partial();
+  tool("listar_layouts_carrusel", {
+    description: "Guía para escribir un carrusel tú mismo: los layouts con los campos que lee cada uno y sus variantes, y las opciones de estilo. Úsala antes de crear_carrusel_desde_guion o de retocar slides con editar_contenido.",
+    input: {},
+    readOnly: true,
+  }, async () => ({
+    layouts: Object.entries(LAYOUT_FIELDS).map(([layout, fields]) => ({ layout, fields, variants: LAYOUT_VARIANTS[layout] })),
+    estilo: {
+      surface: { light: "papel claro", dark: "tinta oscura", brand: "alterna oscuro con slides enteros del color de marca", neon: "negro con luces de color, titulares finos y cabecera con marca y número" },
+      font: Object.keys(fontThemes), background: Object.keys(bgStyles),
+    },
+    notas: [
+      "Empieza con cover y cierra con cta; entre medias, varía layouts y variantes.",
+      "Envuelve una palabra entre *asteriscos* para resaltarla.",
+      "Donde los campos dicen imageQuery, aquí va imageUrl (de subir_asset o generar_imagen); sin foto, split e imageOverlay dejan un hueco.",
+      "En una pieza guardada el estilo vive en document.style ({ surface, decor, font, background, customColor }) y cada slide en document.slides: se cambian con editar_contenido.",
+    ],
+  }));
+  tool("crear_carrusel_desde_guion", {
+    description: "Guarda como borrador un carrusel editable con los slides que escribes TÚ (textos, layouts, variantes y estilo): el Studio no reescribe nada ni llama a ninguna IA, así que no gasta ni pasa por la cola. Mira antes listar_layouts_carrusel. Para retocarlo después: obtener_contenido + editar_contenido.",
+    input: {
+      campaignId, topic: z.string().trim().min(3).max(240).describe("Nombre de la pieza en la biblioteca"),
+      slides: z.array(scriptSlide).min(1).max(20),
+      caption: z.object({ text: z.string().trim().max(2200), hashtags: z.array(z.string().trim().min(1).max(80)).max(30).default([]) }).optional(),
+      platform: z.enum(["instagram", "tiktok"]).default("instagram"),
+      style: carouselStyle.optional(),
+    },
+  }, async ({ campaignId: campaign, topic, slides, caption, platform: target, style }) => {
+    const { color, ...look } = style ?? {};
+    const document = carouselDocumentSchema.parse({
+      schemaVersion: 1, topic, platform: target, caption: caption ?? { text: "", hashtags: [] },
+      // repairSlide: un layout sin el campo que dibuja pasa a `content` en vez de salir vacío.
+      slides: slides.map((raw, index) => { const slide = repairSlide(raw); return { ...slide, layoutVariant: slide.layoutVariant ?? pickVariant(String(slide.layout), undefined, index), id: randomUUID(), backgroundColor: "bg-card", textColor: "text-foreground", accentColor: "text-primary" }; }),
+      // Misma forma que guarda el editor; lo que falte lo completa con sus valores por defecto al abrir.
+      ...(style ? { style: { ...look, ...(color ? { customColor: color, themeTouched: true } : {}) } } : {}),
+    });
+    const saved = await saveContent(campaign, "carousel", document);
+    return {
+      contentItemId: saved.id, revision: saved.revision, abrir: `/carousel?id=${saved.id}`,
+      slides: document.slides.map(({ layout, layoutVariant }) => ({ layout, layoutVariant })),
+      missingPhotos: document.slides.filter((slide) => (slide.layout === "split" || slide.layout === "imageOverlay") && !slide.imageUrl).length,
+    };
+  });
   tool("crear_carrusel", {
-    description: "Genera un carrusel editable (layouts con texto) sobre un tema y lo guarda como borrador en la biblioteca. Unos $0.02, más fotos si se piden." + spendNote,
+    description: "Si puedes escribir tú los slides, usa mejor crear_carrusel_desde_guion (no gasta). Genera con la IA del Studio un carrusel editable (layouts con texto) sobre un tema y lo guarda como borrador en la biblioteca. Unos $0.02, más fotos si se piden." + spendNote,
     input: {
       campaignId, topic: z.string().min(3).max(240), slideCount: z.number().int().min(3).max(20).default(6),
       imageSource: z.enum(["none", "unsplash", "openai", "illustration"]).default("none").describe("Fotos para los layouts que las llevan"),

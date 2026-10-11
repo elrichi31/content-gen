@@ -18,6 +18,7 @@
     "test:canvas-render": "node --experimental-strip-types apps/render-worker/src/canvas.test.mjs",
     "test:mcp-oauth": "node --experimental-strip-types apps/studio/src/lib/mcp/oauth.test.ts",
     "test:mcp-radar": "node --experimental-strip-types apps/studio/src/lib/mcp/radar-tools.test.ts",
+    "test:mcp-carousel": "node --experimental-strip-types apps/studio/src/lib/mcp/carousel-tools.test.ts",
     "test:mcp-video": "node --experimental-strip-types apps/studio/src/lib/mcp/video-pipeline.test.ts && node apps/studio/tests/mcp-video.test.mjs",
     "test:storage": "node --experimental-strip-types apps/studio/src/lib/storage-usage.test.ts && node apps/studio/src/lib/storage-file-model.test.ts && node apps/studio/src/lib/storage-delete-request.test.ts && node apps/studio/tests/storage-ui.test.mjs",
     "test:storage-videos": "node --experimental-strip-types apps/studio/src/lib/storage-videos.test.ts",
