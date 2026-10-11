@@ -161,7 +161,7 @@ function PieceDetail({ contentItemId, monthTotal }: { contentItemId: string; mon
             </tr>
           </thead>
           <tbody>
-            {detail.operations.map((group, index) => (
+            {detail.operations.map((group) => (
               <tr key={group.operation} className="border-b border-border/30 last:border-0 align-top">
                 <td className="py-2 pr-3">
                   <span className="flex items-center gap-2">

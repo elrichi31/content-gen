@@ -98,7 +98,10 @@ for (const path of files) {
       if (["Input", "Textarea", "input", "textarea", "select", "SelectTrigger"].includes(tag)) {
         const type = value(attribute(node, "type"));
         const id = value(attribute(node, "id"));
-        const named = node.attributes.properties.some(ts.isJsxSpreadAttribute) || ["aria-label", "aria-labelledby"].some((name) => attribute(node, name)) || (id && labels.has(id));
+        // Un control dentro de su <label> ya queda nombrado por él, sin htmlFor.
+        let wrapped = false;
+        for (let parent = node.parent; parent && !wrapped; parent = parent.parent) wrapped = ts.isJsxElement(parent) && ["Label", "label"].includes(tagName(parent.openingElement));
+        const named = wrapped || node.attributes.properties.some(ts.isJsxSpreadAttribute) || ["aria-label", "aria-labelledby"].some((name) => attribute(node, name)) || (id && labels.has(id));
         if (!["file", "hidden"].includes(type) && !named) issues.push(`${relative(".", path)}:${source.getLineAndCharacterOfPosition(node.pos).line + 1} ${tag} sin label programático`);
       }
       if (tag === "img" && !attribute(node, "alt")) issues.push(`${relative(".", path)}:${source.getLineAndCharacterOfPosition(node.pos).line + 1} img sin alt`);

@@ -17,6 +17,18 @@ export default tseslint.config(
     },
   },
   {
+    // render.mjs corre en Node, pero las funciones de page.evaluate se ejecutan en Chromium.
+    files: ["showreel/**/*.mjs"],
+    languageOptions: {
+      globals: {
+        console: "readonly",
+        process: "readonly",
+        Buffer: "readonly",
+        window: "readonly",
+      },
+    },
+  },
+  {
     files: ["apps/render-worker/src/worker.test.mjs"],
     rules: { "no-control-regex": "off" },
   },
