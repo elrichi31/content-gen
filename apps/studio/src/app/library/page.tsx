@@ -11,6 +11,7 @@ import { CONTENT_TYPE_LABEL, contentTitle } from "@/lib/content-title";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -65,6 +66,10 @@ export default function LibraryPage() {
   const stamp = (value: string) => Date.parse(value) ? stampFormat.format(new Date(value)) : "—";
   const [scheduled, setScheduled] = useState<Map<string, ScheduledPost[]>>(new Map());
   const [scheduling, setScheduling] = useState<SchedulableItem | null>(null);
+  const [deleting, setDeleting] = useState<Item | null>(null);
+  // La pieza se guarda aparte del abierto/cerrado para que el título no se vacíe durante la animación de cierre.
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [removing, setRemoving] = useState(false);
 
   // Próximas fechas de cada pieza: una sola lectura del calendario agrupada por pieza.
   async function refreshScheduled() {
@@ -116,10 +121,16 @@ export default function LibraryPage() {
     await refresh();
   }
   async function remove(item: Item) {
-    if (!window.confirm(`¿Borrar «${itemTitle(item)}» para siempre? No se puede deshacer. Sus fechas del calendario quedan reservadas sin pieza y los costos registrados se conservan.`)) return;
-    const response = await fetch(`/api/content-items/${item.id}`, { method: "DELETE" });
-    if (!response.ok) toast.error((await response.json().catch(() => null) as { error?: string } | null)?.error ?? "No se pudo borrar.");
-    await Promise.all([refresh(), refreshScheduled()]);
+    setRemoving(true);
+    try {
+      const response = await fetch(`/api/content-items/${item.id}`, { method: "DELETE" });
+      // 404: ya la borraron en otra pestaña; se cierra y la lista se pone al día.
+      if (!response.ok && response.status !== 404) { toast.error((await response.json().catch(() => null) as { error?: string } | null)?.error ?? "No se pudo borrar."); return; }
+      setDeleteOpen(false);
+      toast.success("Pieza borrada.");
+      await Promise.all([refresh(), refreshScheduled()]);
+    } catch { toast.error("No se pudo borrar. Revisa la conexión."); }
+    finally { setRemoving(false); }
   }
 
   return (
@@ -215,7 +226,7 @@ export default function LibraryPage() {
                         </Button>
                       </>
                     )}
-                    <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive" onClick={() => void remove(item)}>
+                    <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive" onClick={() => { setDeleting(item); setDeleteOpen(true); }}>
                       <Trash2 className="h-3.5 w-3.5" /> Borrar
                     </Button>
                   </div>
@@ -229,6 +240,28 @@ export default function LibraryPage() {
           Sin resultados.
         </div>
       )}
+
+      <Dialog open={deleteOpen} onOpenChange={(open) => { if (!open && !removing) setDeleteOpen(false); }}>
+        <DialogContent role="alertdialog">
+          <DialogHeader>
+            <DialogTitle>¿Borrar esta pieza para siempre?</DialogTitle>
+            <DialogDescription>
+              Se borrará «{deleting ? itemTitle(deleting) : ""}» junto con sus renders y exportaciones. No se puede deshacer.
+            </DialogDescription>
+          </DialogHeader>
+          <ul className="list-disc space-y-1 pl-5 text-[13px] text-muted-foreground">
+            <li>Sus fechas del calendario quedan reservadas, sin pieza.</li>
+            <li>Los costos de IA registrados se conservan.</li>
+            <li>Los archivos siguen en Almacenamiento hasta que los borres allí.</li>
+          </ul>
+          <DialogFooter>
+            <DialogClose asChild><Button variant="outline" disabled={removing}>Cancelar</Button></DialogClose>
+            <Button variant="destructive" disabled={removing} onClick={() => deleting && void remove(deleting)}>
+              <Trash2 className="h-3.5 w-3.5" /> {removing ? "Borrando…" : "Borrar para siempre"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <ContentScheduleSheet item={scheduling} onClose={() => setScheduling(null)} onChanged={() => void refreshScheduled()} />
     </PageShell>
