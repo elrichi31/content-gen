@@ -57,6 +57,7 @@ import { imagesToDocument } from "@/lib/carousel-automation-rules";
 import { drawAiCarousel, prepareAiCarousel } from "@/lib/carousel-pipeline";
 import { LAYOUT_FIELDS, LAYOUT_VARIANTS, pickVariant, repairSlide } from "@/lib/carousel-generation";
 import { bgStyles, fontThemes, type BgStyleId, type FontThemeId } from "@/lib/themes";
+import { SLIDE_ICONS } from "@/components/slides/icons";
 import { contentTitle } from "@/lib/content-title";
 import { downloadPublicFile } from "@/lib/carousel-remix";
 import { normalizeExplainerScript } from "@/lib/explainer";
@@ -334,6 +335,7 @@ function buildStudio({ origin, scopes, queued }: { origin: string; scopes: reado
     bigNumber: slideText(20), bigNumberLabel: slideText(200), quote: slideText(400), quoteAuthor: slideText(80), ctaText: slideText(200), ctaSubtext: slideText(300),
     imageUrl: z.string().max(2000).optional().describe("Foto para split, imageOverlay o variantes con imagen: la URL que devuelve subir_asset o generar_imagen"),
     titleSize: z.enum(["compact", "regular", "large", "display"]).optional(),
+    icon: z.enum(["", ...Object.keys(SLIDE_ICONS)]).optional().describe("Icono arriba a la derecha del slide; \"\" quita el asterisco que la portada neon trae por defecto"),
   });
   const carouselStyle = z.object({
     surface: z.enum(["light", "dark", "brand", "neon"]).describe("Fondo base de todos los slides"),
@@ -352,6 +354,7 @@ function buildStudio({ origin, scopes, queued }: { origin: string; scopes: reado
       surface: { light: "papel claro", dark: "tinta oscura", brand: "alterna oscuro con slides enteros del color de marca", neon: "negro con luces de color, titulares finos y cabecera con marca y número" },
       font: Object.keys(fontThemes), background: Object.keys(bgStyles),
     },
+    iconos: Object.keys(SLIDE_ICONS),
     notas: [
       "Empieza con cover y cierra con cta; entre medias, varía layouts y variantes.",
       "Envuelve una palabra entre *asteriscos* para resaltarla.",

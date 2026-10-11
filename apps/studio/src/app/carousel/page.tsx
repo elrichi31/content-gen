@@ -20,6 +20,7 @@ import { Notice, noticeError, noticeOk, type NoticeState } from "@/components/ui
 import { cn } from "@/lib/utils";
 import { ThinkingOrb } from "thinking-orbs";
 import { colorThemes } from "@/lib/themes";
+import { SLIDE_ICONS } from "@/components/slides/icons";
 import { useRadarTopic } from "@/lib/use-radar-topic";
 import { useRequestedContentId } from "@/lib/use-requested-content-id";
 import { CAROUSEL_MODES, ModeSwitch } from "@/components/mode-switch";
@@ -615,6 +616,17 @@ export default function CarouselPage() {
                       </div>
                     </div>
                     <LayoutVariantPicker slide={current} activePrimary={primaryColor} selectedBgStyle={background} onChange={(variant) => update("layoutVariant", variant)} />
+                    <details className="rounded-lg border border-border">
+                      <summary className="cursor-pointer px-3 py-2 text-xs text-muted-foreground">Icono: <span className="text-foreground">{current.icon || (current.icon === undefined && surface === "neon" && current.layout === "cover" ? "asterisk (por defecto)" : "ninguno")}</span></summary>
+                      <div role="radiogroup" aria-label="Icono del slide" className="grid grid-cols-8 gap-1 p-2 pt-0">
+                        <button type="button" role="radio" aria-checked={current.icon === ""} aria-label="Sin icono" title="Sin icono" onClick={() => update("icon", "")}
+                          className={cn("flex aspect-square items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground", current.icon === "" && "bg-foreground text-background hover:bg-foreground hover:text-background")}><X className="h-4 w-4" /></button>
+                        {Object.entries(SLIDE_ICONS).map(([name, Icon]) => (
+                          <button key={name} type="button" role="radio" aria-checked={current.icon === name} aria-label={name} title={name} onClick={() => update("icon", name)}
+                            className={cn("flex aspect-square items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground", current.icon === name && "bg-foreground text-background hover:bg-foreground hover:text-background")}><Icon className="h-4 w-4" /></button>
+                        ))}
+                      </div>
+                    </details>
                   </PanelSection>
 
                   <PanelSection title="Estilo del carrusel">

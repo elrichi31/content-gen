@@ -1,7 +1,8 @@
 "use client"
 
 import { Fragment, useLayoutEffect, useRef, type CSSProperties, type ReactNode } from "react"
-import { Asterisk, ImageIcon } from "lucide-react"
+import { ImageIcon } from "lucide-react"
+import { SLIDE_ICONS } from "./icons"
 import { EditableText, shrinkToFit } from "@/components/editable-text"
 import { fitSize } from "@/components/ads/ad-style"
 import { alpha, onColor, readableOn } from "@/lib/color"
@@ -96,6 +97,8 @@ export function Slab({ p, tone, children, style, fit }: { p: LayoutProps; tone: 
   const neon = p.surface === "neon"
   // En neón las luces del fondo ya son el adorno, y el margen de arriba lo ocupa la cabecera.
   const decor = p.decor && plain && !neon
+  // Sin elegir (undefined), la portada neón lleva su asterisco; «sin icono» se guarda como "".
+  const Icon = SLIDE_ICONS[p.slide.icon ?? (neon && p.slide.layout === "cover" ? "asterisk" : "")]
   const colors = effective === "primary"
     ? { solid: alpha(c.fg, 0.22), line: alpha(c.fg, 0.22), soft: alpha(c.fg, 0.08) }
     : { solid: `color-mix(in srgb, ${p.primary} 45%, transparent)`, line: alpha(c.fg, 0.16), soft: `color-mix(in srgb, ${p.primary} ${p.surface === "light" ? 14 : 18}%, transparent)` }
@@ -110,7 +113,11 @@ export function Slab({ p, tone, children, style, fit }: { p: LayoutProps; tone: 
           {p.seed !== undefined ? <span>{String(p.seed + 1).padStart(2, "0")}</span> : null}
         </div>
       ) : null}
-      {neon && p.slide.layout === "cover" ? <Asterisk aria-hidden strokeWidth={1.5} style={{ position: "absolute", top: p.tall ? "17cqw" : "11cqw", right: p.tall ? "12cqw" : "8cqw", width: "10cqw", height: "10cqw" }} /> : null}
+      {/* TikTok tapa el lateral derecho con sus botones: ahí el texto vertical no se vería. */}
+      {neon && plain && !p.tall && p.brand?.name ? (
+        <div style={{ position: "absolute", top: "50%", right: "2.7cqw", transform: "translateY(-50%)", maxHeight: "50%", overflow: "hidden", writingMode: "vertical-rl", whiteSpace: "nowrap", fontSize: "2.6cqw", fontWeight: 500, letterSpacing: "0.16em", textTransform: "uppercase" }}>{p.brand.name}</div>
+      ) : null}
+      {Icon ? <Icon aria-hidden strokeWidth={1.5} style={{ position: "absolute", top: p.tall ? "17cqw" : "11cqw", right: p.tall ? "12cqw" : "8cqw", width: "10cqw", height: "10cqw" }} /> : null}
       {fit ? <FitBox gap={style?.gap}>{children}</FitBox> : children}
     </div>
   )

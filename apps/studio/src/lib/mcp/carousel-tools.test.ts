@@ -33,7 +33,7 @@ try {
  const campaign=await call("crear_campana",{name:"Prueba"});
  assert.equal(campaign.error,false,String(campaign.data));
  const created=await call("crear_carrusel_desde_guion",{campaignId:campaign.data.id,topic:"Reciclar en casa",style:{surface:"neon",color:"#3366ff"},caption:{text:"Guarda esto.",hashtags:["#reciclaje"]},slides:[
-  {layout:"cover",layoutVariant:"hero",title:"Cómo sumar *reciclaje* a tu rutina",subtitle:"Tres pasos."},
+  {layout:"cover",layoutVariant:"hero",icon:"rocket",title:"Cómo sumar *reciclaje* a tu rutina",subtitle:"Tres pasos."},
   {layout:"list",title:"Empieza por aquí",listItems:[{emoji:"01",text:"Separa"},{emoji:"02",text:"Reutiliza"}]},
   {layout:"bigNumber",title:"Sin cifra"},
   {layout:"cta",ctaText:"Guárdalo"},
@@ -45,7 +45,7 @@ try {
  assert.ok(created.data.slides[1].layoutVariant,"sin variante se reparte una");
 
  const stored=(await call("obtener_contenido",{id:created.data.contentItemId})).data;
- assert.equal(stored.type,"carousel");
+ assert.equal(stored.type,"carousel");assert.equal(stored.document.data.slides[0].icon,"rocket");assert.ok(guide.data.iconos.includes("rocket"));
  assert.deepEqual(stored.document.data.style,{surface:"neon",customColor:"#3366ff",themeTouched:true},"el estilo queda como lo guarda el editor");
  assert.equal(new Set(stored.document.data.slides.map((slide:{id:string})=>slide.id)).size,4);
  assert.equal(stored.document.data.caption.hashtags[0],"#reciclaje");

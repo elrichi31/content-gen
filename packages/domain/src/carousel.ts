@@ -4,7 +4,7 @@ const schemaVersion = z.literal(1);
 const layout = z.enum(["cover", "content", "list", "bigNumber", "quote", "split", "imageOverlay", "timeline", "statGrid", "cta"]);
 
 export const carouselSlideSchema = z.object({
-  id: z.string().min(1), layout, title: z.string().optional(), subtitle: z.string().optional(), content: z.string().optional(), emoji: z.string().optional(),
+  id: z.string().min(1), layout, title: z.string().optional(), subtitle: z.string().optional(), content: z.string().optional(), emoji: z.string().optional(), icon: z.string().optional(),
   listItems: z.array(z.object({ emoji: z.string(), text: z.string() })).optional(), bigNumber: z.string().optional(), bigNumberLabel: z.string().optional(), quote: z.string().optional(), quoteAuthor: z.string().optional(), ctaText: z.string().optional(), ctaSubtext: z.string().optional(),
   imageUrl: z.string().optional(), imagePosition: z.enum(["left", "right", "background"]).optional(), imagePrompt: z.string().optional(), imageSource: z.enum(["unsplash", "dalle", "upload", "illustration"]).optional(), layoutVariant: z.string().optional(),
   backgroundColor: z.string().min(1), textColor: z.string().min(1), accentColor: z.string().optional(), bgStyleOverride: z.string().optional(), titleSize: z.enum(["compact", "regular", "large", "display"]).optional(),
