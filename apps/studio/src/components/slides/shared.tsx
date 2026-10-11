@@ -1,13 +1,13 @@
 "use client"
 
 import { Fragment, useLayoutEffect, useRef, type CSSProperties, type ReactNode } from "react"
-import { ImageIcon } from "lucide-react"
+import { Asterisk, ImageIcon } from "lucide-react"
 import { EditableText, shrinkToFit } from "@/components/editable-text"
 import { fitSize } from "@/components/ads/ad-style"
 import { alpha, onColor, readableOn } from "@/lib/color"
 import type { BrandSettings, Slide } from "@/lib/slide-types"
 import type { BgStyleId, FontThemeId } from "@/lib/themes"
-import { buildBgStyle } from "@/lib/themes"
+import { buildBgStyle, buildMeshStyle } from "@/lib/themes"
 import { Decor } from "./decor"
 
 /*
@@ -49,7 +49,7 @@ export const INK = "#0f0f0e"
 export const PAPER = "#f4f2ec"
 
 export type Tone = "ink" | "primary"
-export type Surface = "light" | "dark" | "brand"
+export type Surface = "light" | "dark" | "brand" | "neon"
 
 /** Con fondo claro u oscuro, ningún slide se pinta entero del color de marca: todos siguen ese fondo. */
 const effectiveTone = (p: LayoutProps, tone: Tone): Tone => (p.surface === "brand" ? tone : "ink")
@@ -79,15 +79,23 @@ export function palette(p: LayoutProps, requested: Tone) {
     return { fg: INK, muted: alpha(INK, 0.72), rule: alpha(INK, 0.16), panel: alpha(INK, 0.06), accent: p.primary, text, flip: { bg: p.primary, fg: onPrimary }, vars, style: { backgroundColor: PAPER, backgroundImage: glow } as CSSProperties }
   }
   const text = readableOn(p.primary, INK)
-  return { fg: PAPER, muted: alpha(PAPER, 0.7), rule: alpha(PAPER, 0.22), panel: alpha(PAPER, 0.07), accent: p.primary, text, flip: { bg: p.primary, fg: onPrimary }, vars, style: { ...p.bgBuilder(p.primary, p.bgStyle, 9, 0), backgroundColor: INK } as CSSProperties }
+  // Neón: el fondo son sus luces (no el patrón elegido) y el énfasis es peso, no un bloque de color.
+  const neon = p.surface === "neon"
+  return { fg: PAPER, muted: alpha(PAPER, 0.7), rule: alpha(PAPER, 0.22), panel: alpha(PAPER, 0.07), accent: p.primary, text, flip: { bg: p.primary, fg: onPrimary }, vars: neon ? { "--em-fg": "inherit", "--em-bg": "transparent", "--em-weight": 800 } as CSSProperties : vars, style: (neon ? buildMeshStyle(p.primary) : { ...p.bgBuilder(p.primary, p.bgStyle, 9, 0), backgroundColor: INK }) as CSSProperties }
 }
+
+/** Titular de cartel (condensado, mayúsculas). En neón el titular va fino y en caja baja con cualquier fuente. */
+const isPoster = (p: LayoutProps) => p.fontTheme === "poster" && p.surface !== "neon"
 
 /** Lienzo de un slide: la superficie, con el margen que deja sitio a la marca y a la flecha de deslizar. */
 export function Slab({ p, tone, children, style, fit }: { p: LayoutProps; tone: Tone; children: ReactNode; style?: CSSProperties; fit?: boolean }) {
   const c = palette(p, tone)
   const effective = effectiveTone(p, tone)
   // Sin formas donde hay foto: la foto ya es el adorno, y encima de ella las formas estorban.
-  const decor = p.decor && !p.slide.imageUrl && p.slide.layout !== "imageOverlay" && p.slide.layout !== "split"
+  const plain = !p.slide.imageUrl && p.slide.layout !== "imageOverlay" && p.slide.layout !== "split"
+  const neon = p.surface === "neon"
+  // En neón las luces del fondo ya son el adorno, y el margen de arriba lo ocupa la cabecera.
+  const decor = p.decor && plain && !neon
   const colors = effective === "primary"
     ? { solid: alpha(c.fg, 0.22), line: alpha(c.fg, 0.22), soft: alpha(c.fg, 0.08) }
     : { solid: `color-mix(in srgb, ${p.primary} 45%, transparent)`, line: alpha(c.fg, 0.16), soft: `color-mix(in srgb, ${p.primary} ${p.surface === "light" ? 14 : 18}%, transparent)` }
@@ -95,6 +103,14 @@ export function Slab({ p, tone, children, style, fit }: { p: LayoutProps; tone: 
     // `isolation` hace que las formas (z-index -1) queden sobre el fondo y bajo el texto.
     <div style={{ ...c.style, ...c.vars, color: c.fg, position: "relative", isolation: "isolate", display: "flex", flexDirection: "column", height: "100%", overflow: "hidden", padding: p.tall ? "14cqw 12cqw 34cqw 8cqw" : "8cqw 8cqw 13cqw", ...style }}>
       {decor ? <Decor seed={p.seed ?? 0} colors={colors} /> : null}
+      {neon && plain ? (
+        // Cabecera de revista en el margen superior: la marca y el número de slide. No tapa el contenido.
+        <div style={{ position: "absolute", top: p.tall ? "9cqw" : "4.2cqw", left: "8cqw", right: p.tall ? "12cqw" : "8cqw", display: "flex", justifyContent: "space-between", fontSize: "2.6cqw", fontWeight: 500, letterSpacing: "0.1em", textTransform: "uppercase", ...tabular }}>
+          <span>{p.brand?.name}</span>
+          {p.seed !== undefined ? <span>{String(p.seed + 1).padStart(2, "0")}</span> : null}
+        </div>
+      ) : null}
+      {neon && p.slide.layout === "cover" ? <Asterisk aria-hidden strokeWidth={1.5} style={{ position: "absolute", top: p.tall ? "17cqw" : "11cqw", right: p.tall ? "12cqw" : "8cqw", width: "10cqw", height: "10cqw" }} /> : null}
       {fit ? <FitBox gap={style?.gap}>{children}</FitBox> : children}
     </div>
   )
@@ -139,7 +155,7 @@ const TITLE_SCALE = { compact: 0.8, regular: 1, large: 1.12, display: 1.25 } as 
 
 /** Tamaño del titular en cqw: el más grande que cabe en `w` × `h`, limitado por el `titleSize` que puso la IA. */
 export function fitTitle(p: LayoutProps, text: string | undefined, { w = 84, h, max, min }: { w?: number; h: number; max: number; min?: number }) {
-  const poster = p.fontTheme === "poster"
+  const poster = isPoster(p)
   return fitSize((text ?? "").replace(/\*/g, ""), w, h, { max: max * TITLE_SCALE[p.slide.titleSize ?? "regular"], min: min ?? max * 0.4, charWidth: poster ? 0.5 : 0.62, leading: poster ? 0.92 : 1.06 })
 }
 
@@ -149,9 +165,9 @@ export function fitTitle(p: LayoutProps, text: string | undefined, { w = 84, h, 
  * y el interlineado se abre en los titulares chicos, donde la caja apretada de un grande se ve rota.
  */
 export function titleStyle(p: LayoutProps, size: number): CSSProperties {
-  const poster = p.fontTheme === "poster"
+  const poster = isPoster(p)
   const tracking = size >= 14 ? "-0.02em" : size >= 8 ? "-0.01em" : "0.01em"
-  return { margin: 0, fontSize: `${size}cqw`, fontWeight: poster ? 900 : 800, lineHeight: poster ? (size >= 8 ? 0.92 : 0.98) : 1.08, letterSpacing: poster ? tracking : "-0.02em", textTransform: poster ? "uppercase" : "none", fontStretch: poster ? "62%" : undefined, fontVariationSettings: poster ? "'wdth' 62" : undefined, textWrap: "balance" }
+  return { margin: 0, fontSize: `${size}cqw`, fontWeight: poster ? 900 : p.surface === "neon" ? 300 : 800, lineHeight: poster ? (size >= 8 ? 0.92 : 0.98) : 1.08, letterSpacing: poster ? tracking : "-0.02em", textTransform: poster ? "uppercase" : "none", fontStretch: poster ? "62%" : undefined, fontVariationSettings: poster ? "'wdth' 62" : undefined, textWrap: "balance" }
 }
 
 /** Texto de lectura sobre tinta: interlineado y tracking un poco más abiertos, porque la luz sobre oscuro se ve más apretada. */
@@ -182,7 +198,7 @@ function AccentRoom({ text, caps }: { text: string; caps: boolean }) {
 export function Marked({ text, accents }: { text: string; accents?: "caps" | "mixed" }) {
   const parts = text.split(/\*([^*\n]+)\*/)
   const body = (part: string) => accents ? <AccentRoom text={part} caps={accents === "caps"} /> : part
-  return <>{parts.map((part, i) => i % 2 ? <mark key={i} style={{ background: "var(--em-bg, transparent)", color: "var(--em-fg, inherit)", padding: "0 0.14em", margin: "0 0.08em", borderRadius: "0.1em", boxDecorationBreak: "clone", WebkitBoxDecorationBreak: "clone" }}>{body(part)}</mark> : <Fragment key={i}>{body(part)}</Fragment>)}</>
+  return <>{parts.map((part, i) => i % 2 ? <mark key={i} style={{ background: "var(--em-bg, transparent)", color: "var(--em-fg, inherit)", fontWeight: "var(--em-weight, inherit)", padding: "0 0.14em", margin: "0 0.08em", borderRadius: "0.1em", boxDecorationBreak: "clone", WebkitBoxDecorationBreak: "clone" }}>{body(part)}</mark> : <Fragment key={i}>{body(part)}</Fragment>)}</>
 }
 
 /** Solo los textos de interlineado apretado (titulares) necesitan sitio extra para las tildes. */

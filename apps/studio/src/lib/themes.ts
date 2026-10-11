@@ -107,6 +107,26 @@ export function buildBgStyle(primary: string, style: BgStyleId, startPct: number
 const GRAIN = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 0.07 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")`
 
 /**
+ * Fondo «Neón»: negro con luces difusas del color de marca y dos vecinos de su rueda de color.
+ * Las luces van abajo y a la derecha y no pasan de L 0.52, para que el texto claro se lea encima.
+ * El grano va primero: la exportación lo quita buscando esa primera capa.
+ */
+export function buildMeshStyle(primary: string): Record<string, string> {
+  const glow = (turn: number, l: number, c: number, a: number) => `oklch(from ${primary} ${l} ${c} calc(h + ${turn}) / ${a})`
+  return {
+    backgroundColor: '#050506',
+    backgroundImage: [
+      GRAIN,
+      `radial-gradient(75% 42% at 88% 90%, ${glow(0, 0.52, 0.17, 0.95)} 0%, transparent 72%)`,
+      `radial-gradient(60% 30% at 42% 104%, ${glow(-35, 0.52, 0.13, 0.85)} 0%, transparent 72%)`,
+      `radial-gradient(70% 38% at -5% 96%, ${glow(-70, 0.4, 0.11, 0.8)} 0%, transparent 72%)`,
+      `radial-gradient(42% 70% at 104% 38%, ${glow(60, 0.32, 0.16, 0.9)} 0%, transparent 72%)`,
+    ].join(', '),
+    backgroundSize: '160px 160px, 100% 100%, 100% 100%, 100% 100%, 100% 100%',
+  }
+}
+
+/**
  * Export-safe version of buildBgStyle.
  * html2canvas cannot parse `color-mix()` or `oklch()`, so this version
  * uses plain `rgba()` values instead. Requires a resolved hex primary color.

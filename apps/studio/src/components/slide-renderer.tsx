@@ -30,7 +30,7 @@ export { timelineVariants }     from "./slides/timeline"
 export { statGridVariants }     from "./slides/stat-grid"
 
 /** Aspecto común a todo el carrusel. Lo pone el editor alrededor de la vista previa. */
-export type SlideLook = { surface: "light" | "dark" | "brand"; decor: boolean }
+export type SlideLook = { surface: "light" | "dark" | "brand" | "neon"; decor: boolean }
 export const SlideLookContext = createContext<SlideLook>({ surface: "dark", decor: false })
 
 function renderLayout(slide: Slide, primary: string, bgStyle: BgStyleId, bgBuilder: typeof buildBgStyle, fontTheme: FontThemeId, extra: Pick<LayoutProps, "brand" | "tall" | "alt" | "surface" | "decor" | "seed">, editable?: boolean, onUpdateField?: (field: keyof Slide, value: string) => void, onUpdateListItem?: (index: number, text: string) => void) {

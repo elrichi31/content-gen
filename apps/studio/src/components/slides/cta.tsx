@@ -16,7 +16,7 @@ function Handle({ p, bg, fg }: { p: LayoutProps; bg: string; fg: string }) {
   if (!name) return null
   const logo = p.brand?.logoUrl
   return (
-    <div style={{ alignSelf: "stretch", display: "flex", alignItems: "center", gap: "3.5cqw", background: bg, color: fg, borderRadius: "1.2cqw", padding: "3.2cqw 4.5cqw" }}>
+    <div style={{ alignSelf: "stretch", display: "flex", alignItems: "center", gap: "3.5cqw", background: bg, color: fg, borderRadius: "1.2cqw", padding: "3.2cqw 4.5cqw", ...(p.surface === "neon" ? { background: "transparent", color: "inherit", border: "0.4cqw solid currentColor", borderRadius: "999px" } : null) }}>
       {logo ? <img src={logo} alt="" style={{ width: "9cqw", height: "9cqw", objectFit: "contain", flexShrink: 0 }} /> : null}
       <span style={{ ...titleStyle(p, 5.8), flex: 1, minWidth: 0, textAlign: "left", textWrap: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{name}</span>
       <Arrow size="6cqw" />

@@ -101,7 +101,7 @@ const snapshotOf = (slides: Slide[], platform: CarouselPlatform, caption: Carous
   JSON.stringify({ slides, platform, caption, style, topic });
 
 /** El aspecto del carrusel se guarda con el documento, para que al volver a abrirlo se vea igual. */
-type CarouselStyle = { theme: CarouselTheme; themeTouched: boolean; customColor?: string; font: CarouselFont; background: CarouselBackground; surface: "light" | "dark" | "brand"; decor: boolean };
+type CarouselStyle = { theme: CarouselTheme; themeTouched: boolean; customColor?: string; font: CarouselFont; background: CarouselBackground; surface: "light" | "dark" | "brand" | "neon"; decor: boolean };
 const DEFAULT_STYLE: CarouselStyle = { theme: "green", themeTouched: false, font: "poster", background: "aura", surface: "light", decor: true };
 
 /** Nombre con el que se reconoce un documento guardado. El identificador no es un nombre. */
@@ -151,7 +151,7 @@ export default function CarouselPage() {
   const [background, setBackground] = useState<CarouselBackground>("aura");
   const [customColor, setCustomColor] = useState<string>();
   // Claro y con formas por defecto: el estilo editorial de las plantillas de referencia.
-  const [surface, setSurface] = useState<"light" | "dark" | "brand">("light");
+  const [surface, setSurface] = useState<"light" | "dark" | "brand" | "neon">("light");
   const [decor, setDecor] = useState(true);
   const [themeTouched, setThemeTouched] = useState(false);
   const [caption, setCaption] = useState(carouselFixture.caption);
@@ -618,11 +618,11 @@ export default function CarouselPage() {
                   </PanelSection>
 
                   <PanelSection title="Estilo del carrusel">
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-[3fr_2fr] gap-2">
                       <div className="space-y-1.5">
                         <Label className="text-xs text-muted-foreground">Fondo base</Label>
-                        <div role="radiogroup" aria-label="Fondo base" className="grid grid-cols-3 rounded-lg border border-border p-0.5">
-                          {([["light", "Claro", "Todos los slides claros"], ["dark", "Oscuro", "Todos los slides oscuros"], ["brand", "Color", "Alterna oscuro con slides del color de marca"]] as const).map(([value, label, hint]) => (
+                        <div role="radiogroup" aria-label="Fondo base" className="grid grid-cols-4 rounded-lg border border-border p-0.5">
+                          {([["light", "Claro", "Todos los slides claros"], ["dark", "Oscuro", "Todos los slides oscuros"], ["brand", "Color", "Alterna oscuro con slides del color de marca"], ["neon", "Neón", "Negro con luces de color, titulares finos y cabecera de revista"]] as const).map(([value, label, hint]) => (
                             <button key={value} type="button" role="radio" title={hint} aria-checked={surface === value} onClick={() => setSurface(value)}
                               className={cn("rounded-md px-1 py-1 text-xs font-medium transition-colors", surface === value ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground")}>{label}</button>
                           ))}

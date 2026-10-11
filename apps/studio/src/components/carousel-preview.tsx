@@ -56,7 +56,7 @@ export function CarouselFrame({
   font: CarouselFont;
   background: CarouselBackground;
   accentColor?: string;
-  surface?: "light" | "dark" | "brand";
+  surface?: "light" | "dark" | "brand" | "neon";
   decor?: boolean;
   brand?: BrandSettings | null;
   isLoading?: boolean;
@@ -97,7 +97,7 @@ export function CarouselFrame({
  */
 export function CarouselExportSheet({ document, platform, theme, font, background, accentColor, surface = "dark", decor = false, brand }: {
   document: CarouselDocument; platform: CarouselPlatform; theme: CarouselTheme; font: CarouselFont; background: CarouselBackground;
-  accentColor?: string; surface?: "light" | "dark" | "brand"; decor?: boolean; brand?: BrandSettings | null;
+  accentColor?: string; surface?: "light" | "dark" | "brand" | "neon"; decor?: boolean; brand?: BrandSettings | null;
 }) {
   const primary = accentColor ?? colorThemes[theme].primary;
   return (
