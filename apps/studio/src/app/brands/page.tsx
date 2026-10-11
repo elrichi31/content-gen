@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { Check, Loader2, Palette, Plus, Search, Upload } from "lucide-react";
 import { PageShell, PageHeading } from "@/components/page-shell";
 import { Button } from "@/components/ui/button";
+import { confirmDialog } from "@/components/ui/confirm";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -63,8 +64,9 @@ export default function BrandsPage() {
     return () => window.removeEventListener("beforeunload", warn);
   }, [dirty]);
 
-  function choose(brand: Brand | null, force = false) {
-    if (actionLock.current || (!force && dirty && !window.confirm("Tienes cambios sin guardar. ¿Quieres descartarlos?"))) return;
+  // Con `force` no hay espera: sigue corriendo de un tirón, como antes de ser async.
+  async function choose(brand: Brand | null, force = false) {
+    if (actionLock.current || (!force && dirty && !await confirmDialog({ title: "¿Descartar los cambios sin guardar?", description: "Tienes cambios sin guardar. Si continúas, se pierden.", action: "Descartar", destructive: true }))) return;
     setSelected(brand); setName(brand?.name ?? ""); setPrimaryColor(brand?.primaryColor ?? DEFAULT_COLOR);
     setBusiness({ ...EMPTY_BUSINESS, ...brand?.business }); setLogoAssetId(brand?.logoAssetId ?? null);
     setError(""); setNotice(""); setConfirmArchive(false); setSection("identity");
@@ -107,14 +109,14 @@ export default function BrandsPage() {
     try {
       await responseData(await fetch(`/api/brand-kits/${selected.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ archivedAt: new Date().toISOString() }) }));
       setBrands(current => current.filter(brand => brand.id !== selected.id));
-      actionLock.current = false; choose(null, true); setNotice("Marca archivada.");
+      actionLock.current = false; void choose(null, true); setNotice("Marca archivada.");
     } catch (cause) { setError(cause instanceof Error ? cause.message : "No se pudo archivar la marca."); }
     finally { actionLock.current = false; setBusy(null); }
   }
 
   return (
     <PageShell>
-      <PageHeading title="Marcas" description="Identidad y contexto que comparten tus campañas y contenidos." actions={<Button onClick={() => choose(null)} disabled={!!busy}><Plus className="size-4" />Nueva marca</Button>} />
+      <PageHeading title="Marcas" description="Identidad y contexto que comparten tus campañas y contenidos." actions={<Button onClick={() => void choose(null)} disabled={!!busy}><Plus className="size-4" />Nueva marca</Button>} />
       <div className="grid min-w-0 gap-5 lg:grid-cols-[16rem_minmax(0,1fr)]">
         <aside className="min-w-0 space-y-3" aria-label="Tus marcas">
           <div className="relative"><Search className="pointer-events-none absolute left-3 top-3 size-4 text-muted-foreground" /><Input aria-label="Buscar marcas" placeholder="Buscar marcas" value={query} onChange={event => setQuery(event.target.value)} className="pl-9" /></div>
@@ -122,7 +124,7 @@ export default function BrandsPage() {
           {loading ? <div role="status" className="space-y-2"><span className="sr-only">Cargando marcas</span>{[0, 1, 2].map(index => <div key={index} className="h-16 animate-pulse rounded-lg bg-muted motion-reduce:animate-none" />)}</div> : null}
           {listError ? <div role="alert" className="space-y-2 rounded-lg border p-3 text-sm"><p className="text-destructive">{listError}</p><Button variant="outline" size="sm" onClick={() => void refresh()} disabled={loading}>Reintentar</Button></div> : null}
           <nav aria-label="Seleccionar marca" className="flex max-h-64 flex-col gap-1 overflow-y-auto lg:max-h-[65vh]">
-            {visible.map(brand => <button key={brand.id} disabled={!!busy} onClick={() => choose(brand)} aria-current={selected?.id === brand.id ? "true" : undefined} className={cn("flex min-h-16 items-center gap-3 rounded-lg border px-3 py-3 text-left transition-colors focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-50", selected?.id === brand.id ? "border-border bg-muted" : "border-transparent hover:bg-muted/60")}>
+            {visible.map(brand => <button key={brand.id} disabled={!!busy} onClick={() => void choose(brand)} aria-current={selected?.id === brand.id ? "true" : undefined} className={cn("flex min-h-16 items-center gap-3 rounded-lg border px-3 py-3 text-left transition-colors focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-50", selected?.id === brand.id ? "border-border bg-muted" : "border-transparent hover:bg-muted/60")}>
               <span className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-lg border bg-card" aria-hidden="true">{brand.logoAssetId ? <img src={`/api/assets/${brand.logoAssetId}`} alt="" className="size-full object-contain p-1" /> : <span className="size-4 rounded-full border" style={{ background: brand.primaryColor }} />}</span>
               <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{brand.name}</span><span className="block truncate text-xs text-muted-foreground">{brand.business?.sector || "Sin sector definido"}</span></span>
             </button>)}

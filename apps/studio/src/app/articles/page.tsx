@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { PageHeading, PageShell } from "@/components/page-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { confirmDialog } from "@/components/ui/confirm";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -74,8 +75,10 @@ export default function ArticlesPage() {
     const requested = items.find(item => item.id === requestedId);
     if (!requested) return;
     openedRequest.current = requestedId;
-    if (dirty && !window.confirm("Tienes cambios sin guardar. ¿Quieres abrir el artículo solicitado?")) return;
-    setCurrent(requested); setDraft(requested.document?.data ?? null); setCampaignId(requested.campaignId); setNotice(""); setError(""); setSection("content"); void loadPreview(requested.id);
+    void (async () => {
+      if (dirty && !await confirmDialog({ title: "¿Abrir el artículo solicitado?", description: "Tienes cambios sin guardar. Si lo abres, se pierden.", action: "Abrir artículo", destructive: true })) return;
+      setCurrent(requested); setDraft(requested.document?.data ?? null); setCampaignId(requested.campaignId); setNotice(""); setError(""); setSection("content"); void loadPreview(requested.id);
+    })();
   }, [requestedId, items, dirty, loadPreview]);
   useEffect(() => {
     if (!dirty) return;
@@ -83,19 +86,19 @@ export default function ArticlesPage() {
     window.addEventListener("beforeunload", warn); return () => window.removeEventListener("beforeunload", warn);
   }, [dirty]);
 
-  function mayDiscard() { return !lock.current && (!dirty || window.confirm("Tienes cambios sin guardar. ¿Quieres descartarlos?")); }
-  function select(item: Item) {
-    if (!mayDiscard()) return;
+  async function mayDiscard() { return !lock.current && (!dirty || await confirmDialog({ title: "¿Descartar los cambios sin guardar?", description: "Tienes cambios sin guardar. Si continúas, se pierden.", action: "Descartar", destructive: true })); }
+  async function select(item: Item) {
+    if (!await mayDiscard()) return;
     setCurrent(item); setDraft(item.document?.data ?? null); setCampaignId(item.campaignId);
     setNotice(""); setError(""); setSection("content"); void loadPreview(item.id);
   }
-  function startNew() {
-    if (!mayDiscard()) return;
+  async function startNew() {
+    if (!await mayDiscard()) return;
     previewSequence.current++; setPreviewLoading(false); setCurrent(null);
     setDraft(draftArticle({ title: "Artículo sin título", date: todayLocal() })); setPreview(null); setNotice(""); setError(""); setSection("content");
   }
   async function generate(input: { prompt: string; webSearch: boolean; words: number }) {
-    if (!mayDiscard()) return;
+    if (!await mayDiscard()) return;
     lock.current = true; setBusy("generate"); setError("");
     setNotice(input.webSearch ? "Buscando fuentes y redactando… puede tardar unos minutos." : "Redactando el borrador…");
     try {
@@ -136,7 +139,7 @@ export default function ArticlesPage() {
   }
   async function exportToSite(overwrite: boolean) {
     if (!current || dirty || lock.current || !preview?.ready) return;
-    if (overwrite && !window.confirm("Ya existe un artículo con este slug. ¿Quieres reemplazar los archivos del sitio?")) return;
+    if (overwrite && !await confirmDialog({ title: "¿Reemplazar el artículo del sitio?", description: "Ya existe un artículo con este slug. Se reemplazarán sus archivos en el sitio.", action: "Reemplazar", destructive: true })) return;
     lock.current = true; setBusy("export"); setError(""); setNotice("");
     try {
       const payload = await fetch(`/api/content-items/${current.id}/blog-export`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ overwrite }) }).then(readResponse) as { path?: string; replaced?: boolean };
@@ -147,14 +150,14 @@ export default function ArticlesPage() {
   const collision = Boolean(draft && preview?.site?.slugs.includes(draft.slug) && preview?.exists);
 
   return <PageShell>
-    <PageHeading title="Artículos" description="Redacta, revisa y prepara contenido para tu blog. Exportar no publica el artículo." actions={<Button onClick={startNew} disabled={!!busy}><Plus className="size-4" />Nuevo artículo</Button>} />
+    <PageHeading title="Artículos" description="Redacta, revisa y prepara contenido para tu blog. Exportar no publica el artículo." actions={<Button onClick={() => void startNew()} disabled={!!busy}><Plus className="size-4" />Nuevo artículo</Button>} />
     <div className="grid min-w-0 gap-5 lg:grid-cols-[16rem_minmax(0,1fr)]">
       <aside className="min-w-0 space-y-3" aria-label="Tus artículos">
         <div className="relative"><Search className="pointer-events-none absolute left-3 top-3 size-4 text-muted-foreground" /><Input aria-label="Buscar artículos" placeholder="Buscar artículos" className="pl-9" value={query} onChange={event => setQuery(event.target.value)} /></div>
         <div className="flex justify-between px-1 text-xs text-muted-foreground"><span>Tus artículos</span><span>{items.length}</span></div>
         {loading ? <div role="status" className="space-y-2"><span className="sr-only">Cargando artículos</span>{[0, 1, 2].map(index => <div key={index} className="h-16 animate-pulse rounded-lg bg-muted motion-reduce:animate-none" />)}</div> : null}
         {listError ? <div role="alert" className="space-y-2 rounded-lg border p-3 text-sm"><p className="text-destructive">{listError}</p><Button size="sm" variant="outline" disabled={loading} onClick={() => void loadItems()}>Reintentar</Button></div> : null}
-        <nav aria-label="Seleccionar artículo" className="flex max-h-64 flex-col gap-1 overflow-y-auto lg:max-h-[65vh]">{visible.map(item => <button key={item.id} type="button" disabled={!!busy} onClick={() => select(item)} aria-current={current?.id === item.id ? "true" : undefined} className={cn("flex min-h-16 items-start gap-3 rounded-lg border px-3 py-3 text-left transition-colors focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-50", current?.id === item.id ? "border-border bg-muted" : "border-transparent hover:bg-muted/60")}><FileText className="mt-0.5 size-4 shrink-0 text-muted-foreground" /><span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{item.document?.data?.title ?? "Sin título"}</span><span className="block truncate text-xs text-muted-foreground">{item.document?.data?.date} · {item.campaignName ?? campaigns.find(campaign => campaign.id === item.campaignId)?.name}</span></span></button>)}</nav>
+        <nav aria-label="Seleccionar artículo" className="flex max-h-64 flex-col gap-1 overflow-y-auto lg:max-h-[65vh]">{visible.map(item => <button key={item.id} type="button" disabled={!!busy} onClick={() => void select(item)} aria-current={current?.id === item.id ? "true" : undefined} className={cn("flex min-h-16 items-start gap-3 rounded-lg border px-3 py-3 text-left transition-colors focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-50", current?.id === item.id ? "border-border bg-muted" : "border-transparent hover:bg-muted/60")}><FileText className="mt-0.5 size-4 shrink-0 text-muted-foreground" /><span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{item.document?.data?.title ?? "Sin título"}</span><span className="block truncate text-xs text-muted-foreground">{item.document?.data?.date} · {item.campaignName ?? campaigns.find(campaign => campaign.id === item.campaignId)?.name}</span></span></button>)}</nav>
         {!loading && !listError && !visible.length ? <p className="px-1 text-sm text-muted-foreground">{query ? "No hay artículos con esa búsqueda." : "Crea un artículo o genera un primer borrador con IA."}</p> : null}
       </aside>
       <div className="min-w-0 space-y-4">
@@ -193,7 +196,7 @@ export default function ArticlesPage() {
             {preview && !preview.ready && preview.problems?.length ? <details className="text-sm"><summary className="cursor-pointer text-muted-foreground">Requisitos de exportación ({preview.problems.length})</summary><ul className="mt-2 list-inside list-disc space-y-1 text-muted-foreground">{preview.problems.map(problem => <li key={problem}>{problem}</li>)}</ul></details> : null}
             {preview?.url ? <a href={preview.url} target="_blank" rel="noreferrer" className="inline-flex max-w-full items-start gap-1 text-xs text-muted-foreground hover:text-foreground"><ExternalLink className="mt-0.5 size-3.5 shrink-0" /><span className="break-all">{preview.url}</span></a> : null}
           </div>
-        </section> : <div className="space-y-3 rounded-xl border px-6 py-10 text-center"><FileText className="mx-auto size-7 text-muted-foreground" /><h2 className="text-base font-semibold">Tu próximo artículo empieza aquí</h2><p className="text-sm text-muted-foreground">Elige uno de la lista, crea uno en blanco o redacta un borrador con IA.</p><Button variant="outline" onClick={startNew} disabled={!!busy}>Escribir desde cero</Button></div>}
+        </section> : <div className="space-y-3 rounded-xl border px-6 py-10 text-center"><FileText className="mx-auto size-7 text-muted-foreground" /><h2 className="text-base font-semibold">Tu próximo artículo empieza aquí</h2><p className="text-sm text-muted-foreground">Elige uno de la lista, crea uno en blanco o redacta un borrador con IA.</p><Button variant="outline" onClick={() => void startNew()} disabled={!!busy}>Escribir desde cero</Button></div>}
       </div>
     </div>
   </PageShell>;

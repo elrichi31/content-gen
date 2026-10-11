@@ -14,6 +14,7 @@ import { RadarAutomationForm } from "@/components/automations/radar-automation-f
 import type { BrandOption } from "@/components/brand-select";
 import { PageHeading, PageShell } from "@/components/page-shell";
 import { Button } from "@/components/ui/button";
+import { confirmDialog } from "@/components/ui/confirm";
 import { Input } from "@/components/ui/input";
 import { Notice, noticeError, noticeOk, type NoticeState } from "@/components/ui/notice";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
@@ -102,13 +103,13 @@ export default function AutomationsPage() {
     setSelectedKey(`${editor.type}:${saved.id}`); setEditor(null); setNotice(noticeOk("Automatización guardada.")); await refresh();
   }
   const run = (item: Item) => attempt(async () => {
-    if (!window.confirm(`Ejecutar «${item.name}» consume créditos de IA si hay trabajo pendiente. Es una ejecución manual: no la bloquea el presupuesto. ¿Continuar?`)) return;
+    if (!await confirmDialog({ title: `¿Ejecutar «${item.name}»?`, description: "Consume créditos de IA si hay trabajo pendiente. Es una ejecución manual: no la bloquea el presupuesto.", action: "Ejecutar" })) return;
     setBusy({ id: item.id, since: Date.now() }); setExecutionId(null);
     try { const result = await api(`${base(item)}/${item.id}/run`, "POST"); setNotice(noticeOk(result.message ?? "Ejecución completada.")); }
     finally { setBusy(null); await refresh(); }
   });
   const toggle = (item: Item) => attempt(async () => { await api(`${base(item)}/${item.id}`, "PATCH", { active: !item.active }); await refresh(); });
-  const remove = (item: Item) => attempt(async () => { if (!window.confirm(`¿Borrar «${item.name}»? El contenido y los costos registrados se conservarán.`)) return; await api(`${base(item)}/${item.id}`, "DELETE"); await refresh(); });
+  const remove = (item: Item) => attempt(async () => { if (!await confirmDialog({ title: `¿Borrar «${item.name}»?`, description: "El contenido y los costos registrados se conservarán.", action: "Borrar", destructive: true })) return; await api(`${base(item)}/${item.id}`, "DELETE"); await refresh(); });
 
   return <PageShell className="flex h-full max-w-none flex-col overflow-hidden">
     <PageHeading title="Automatizaciones" description="Búsquedas del radar y carruseles en borrador. Revisa cada ejecución; nada se publica solo." actions={<><Button variant="outline" onClick={() => setEditor({ type: "budget" })}><Wallet className="size-4" />Presupuesto</Button><Button variant="outline" onClick={() => setEditor({ type: "radar", row: null })} disabled={Boolean(optionsError)}><Radar className="size-4" />Automatizar radar</Button><Button onClick={() => setEditor({ type: "carousel", row: null })} disabled={Boolean(optionsError)}><Plus className="size-4" />Nuevo carrusel</Button></>} />

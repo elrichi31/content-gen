@@ -4,6 +4,7 @@ import type { RadarWatchlistEntry } from "@content-gen/domain/radar";
 import { Plus, Trash2 } from "lucide-react";
 import { FormEvent, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { confirmDialog } from "@/components/ui/confirm";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Notice, noticeError, type NoticeState } from "@/components/ui/notice";
@@ -64,8 +65,8 @@ export function RadarWatchlist({ open, onOpenChange, entries, brands, onChanged 
   }
 
   const toggle = (entry: RadarWatchlistEntry) => call(() => fetch(`/api/radar/watchlist/${entry.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ active: !entry.active }) }), "No se pudo cambiar el vertical.");
-  const remove = (entry: RadarWatchlistEntry) => {
-    if (!window.confirm(`¿Quitar «${entry.vertical}» del radar? Sus temas ya encontrados se conservan.`)) return;
+  const remove = async (entry: RadarWatchlistEntry) => {
+    if (!await confirmDialog({ title: `¿Quitar «${entry.vertical}» del radar?`, description: "Sus temas ya encontrados se conservan.", action: "Quitar", destructive: true })) return;
     void call(() => fetch(`/api/radar/watchlist/${entry.id}`, { method: "DELETE" }), "No se pudo quitar el vertical.");
   };
   const brandName = (id: string | null) => id ? brands.find((brand) => brand.id === id)?.name ?? "marca archivada" : null;
@@ -93,7 +94,7 @@ export function RadarWatchlist({ open, onOpenChange, entries, brands, onChanged 
                 </p>
                 <p className="mt-0.5 text-xs text-muted-foreground">{entry.offering}</p>
               </div>
-              <Button size="icon-sm" variant="ghost" onClick={() => remove(entry)} aria-label={`Quitar ${entry.vertical}`}><Trash2 className="size-4" /></Button>
+              <Button size="icon-sm" variant="ghost" onClick={() => void remove(entry)} aria-label={`Quitar ${entry.vertical}`}><Trash2 className="size-4" /></Button>
             </li>
           ))}
           {!entries.length ? <li className="px-5 py-6 text-[13px] text-muted-foreground">Todavía no vigilas nada. Añade el primer vertical para poder buscar temas.</li> : null}

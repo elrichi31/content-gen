@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import Script from "next/script";
 import { Archivo, Geist, Geist_Mono, Inter, Playfair_Display, Space_Grotesk, Sora } from "next/font/google";
 import { ThemeProvider } from "@/components/theme-provider";
+import { ConfirmHost } from "@/components/ui/confirm";
 import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
 
@@ -34,6 +35,7 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
         <ThemeProvider>
           {children}
           <Toaster position="bottom-right" />
+          <ConfirmHost />
         </ThemeProvider>
       </body>
     </html>

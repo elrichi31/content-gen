@@ -5,6 +5,7 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { Check, FolderKanban, Loader2, Plus, Search } from "lucide-react";
 import { PageHeading, PageShell } from "@/components/page-shell";
 import { Button } from "@/components/ui/button";
+import { confirmDialog } from "@/components/ui/confirm";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -73,8 +74,9 @@ export default function CampaignsPage() {
     window.addEventListener("beforeunload", warn); return () => window.removeEventListener("beforeunload", warn);
   }, [dirty]);
 
-  function choose(campaign: Campaign | null, force = false) {
-    if (!force && (lock.current || (dirty && !window.confirm("Tienes cambios sin guardar. ¿Quieres descartarlos?")))) return;
+  // Con `force` no hay espera: sigue corriendo de un tirón, como antes de ser async.
+  async function choose(campaign: Campaign | null, force = false) {
+    if (!force && (lock.current || (dirty && !await confirmDialog({ title: "¿Descartar los cambios sin guardar?", description: "Tienes cambios sin guardar. Si continúas, se pierden.", action: "Descartar", destructive: true })))) return;
     setSelected(campaign); setName(campaign?.name ?? ""); setBrief(normalizeBrief(campaign));
     setBrandKitId(campaign?.brandKitId ?? NONE); setError(""); setNotice(""); setSection("brief"); setConfirmArchive(false);
   }
@@ -91,22 +93,22 @@ export default function CampaignsPage() {
     await runAction("Guardando…", async () => {
       const campaign = await fetch(selected ? `/api/campaigns/${selected.id}` : "/api/campaigns", { method: selected ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: name.trim(), brief, brandKitId: brandKitId === NONE ? null : brandKitId }) }).then(readResponse) as Campaign;
       if (!campaign?.id) throw new Error("No se pudo confirmar el guardado. Revisa la lista antes de reintentar.");
-      setCampaigns(current => [campaign, ...current.filter(item => item.id !== campaign.id)]); choose(campaign, true); setNotice("Campaña guardada.");
+      setCampaigns(current => [campaign, ...current.filter(item => item.id !== campaign.id)]); void choose(campaign, true); setNotice("Campaña guardada.");
     });
   }
   async function archive() {
     if (!selected) return;
     await runAction("Archivando…", async () => {
       await fetch(`/api/campaigns/${selected.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ archivedAt: new Date().toISOString() }) }).then(readResponse);
-      setCampaigns(current => current.filter(item => item.id !== selected.id)); choose(null, true); setNotice("Campaña archivada.");
+      setCampaigns(current => current.filter(item => item.id !== selected.id)); void choose(null, true); setNotice("Campaña archivada.");
     });
   }
   async function duplicate() {
-    if (!selected || (dirty && !window.confirm("Se duplicará la versión guardada y se descartarán tus cambios pendientes. ¿Continuar?"))) return;
+    if (!selected || (dirty && !await confirmDialog({ title: "¿Duplicar la versión guardada?", description: "Se duplicará la versión guardada y se descartarán tus cambios pendientes.", action: "Duplicar", destructive: true }))) return;
     await runAction("Duplicando…", async () => {
       const campaign = await fetch(`/api/campaigns/${selected.id}/duplicate`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ keepBrand: true }) }).then(readResponse) as Campaign;
       if (!campaign?.id) throw new Error("No se pudo confirmar la copia.");
-      setCampaigns(current => [campaign, ...current]); choose(campaign, true); setNotice("Campaña duplicada.");
+      setCampaigns(current => [campaign, ...current]); void choose(campaign, true); setNotice("Campaña duplicada.");
     });
   }
   async function exportPackage() {
@@ -120,14 +122,14 @@ export default function CampaignsPage() {
   }
 
   return <PageShell>
-    <PageHeading title="Campañas" description="Un brief y una marca para coordinar tus piezas de contenido." actions={<Button onClick={() => choose(null)} disabled={!!busy}><Plus className="size-4" />Nueva campaña</Button>} />
+    <PageHeading title="Campañas" description="Un brief y una marca para coordinar tus piezas de contenido." actions={<Button onClick={() => void choose(null)} disabled={!!busy}><Plus className="size-4" />Nueva campaña</Button>} />
     <div className="grid min-w-0 gap-5 lg:grid-cols-[16rem_minmax(0,1fr)]">
       <aside className="min-w-0 space-y-3" aria-label="Tus campañas">
         <div className="relative"><Search className="pointer-events-none absolute left-3 top-3 size-4 text-muted-foreground" /><Input aria-label="Buscar campañas" placeholder="Buscar campañas" className="pl-9" value={query} onChange={event => setQuery(event.target.value)} /></div>
         <div className="flex justify-between px-1 text-xs text-muted-foreground"><span>Tus campañas</span><span>{campaigns.length}</span></div>
         {loading ? <div role="status" className="space-y-2"><span className="sr-only">Cargando campañas</span>{[0, 1, 2].map(index => <div key={index} className="h-16 animate-pulse rounded-lg bg-muted motion-reduce:animate-none" />)}</div> : null}
         {listError ? <div role="alert" className="space-y-2 rounded-lg border p-3 text-sm"><p className="text-destructive">{listError}</p><Button size="sm" variant="outline" disabled={loading} onClick={() => void refresh()}>Reintentar</Button></div> : null}
-        <nav aria-label="Seleccionar campaña" className="flex max-h-64 flex-col gap-1 overflow-y-auto lg:max-h-[65vh]">{visible.map(campaign => <button key={campaign.id} disabled={!!busy} onClick={() => choose(campaign)} aria-current={selected?.id === campaign.id ? "true" : undefined} className={cn("flex min-h-16 items-center gap-3 rounded-lg border px-3 py-3 text-left transition-colors focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-50", selected?.id === campaign.id ? "border-border bg-muted" : "border-transparent hover:bg-muted/60")}><FolderKanban className="size-5 shrink-0 text-muted-foreground" /><span className="min-w-0"><span className="block truncate text-sm font-medium">{campaign.name}</span><span className="block truncate text-xs text-muted-foreground">{brands.find(brand => brand.id === campaign.brandKitId)?.name ?? "Sin marca"}</span></span></button>)}</nav>
+        <nav aria-label="Seleccionar campaña" className="flex max-h-64 flex-col gap-1 overflow-y-auto lg:max-h-[65vh]">{visible.map(campaign => <button key={campaign.id} disabled={!!busy} onClick={() => void choose(campaign)} aria-current={selected?.id === campaign.id ? "true" : undefined} className={cn("flex min-h-16 items-center gap-3 rounded-lg border px-3 py-3 text-left transition-colors focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-50", selected?.id === campaign.id ? "border-border bg-muted" : "border-transparent hover:bg-muted/60")}><FolderKanban className="size-5 shrink-0 text-muted-foreground" /><span className="min-w-0"><span className="block truncate text-sm font-medium">{campaign.name}</span><span className="block truncate text-xs text-muted-foreground">{brands.find(brand => brand.id === campaign.brandKitId)?.name ?? "Sin marca"}</span></span></button>)}</nav>
         {!loading && !listError && !visible.length ? <p className="px-1 text-sm text-muted-foreground">{query ? "No hay campañas con esa búsqueda." : "Crea una campaña para organizar tus artículos, carruseles, anuncios y videos."}</p> : null}
       </aside>
       <form onSubmit={save} className="min-w-0 overflow-hidden rounded-xl border bg-card">
