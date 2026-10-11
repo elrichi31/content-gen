@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import type { ScheduledPost } from "@content-gen/domain/schedule";
-import { Copy, Archive, CalendarPlus, PencilLine, RotateCcw, GalleryHorizontal, Megaphone, Clapperboard, FileText, ArrowDownWideNarrow, ArrowUpNarrowWide, type LucideIcon } from "lucide-react";
+import { Copy, Archive, CalendarPlus, PencilLine, RotateCcw, Trash2, GalleryHorizontal, Megaphone, Clapperboard, FileText, ArrowDownWideNarrow, ArrowUpNarrowWide, type LucideIcon } from "lucide-react";
 import { ContentScheduleSheet, ScheduledBadge, type SchedulableItem } from "@/components/content-schedule-sheet";
 import { nowInZone, useStudioTimezone } from "@/components/schedule-shared";
 import { PageShell, PageHeading } from "@/components/page-shell";
@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { toast } from "@/components/ui/sonner";
 
 type Option = { id: string; name: string };
 type Item = { id: string; revision: number; type: string; createdAt: string; updatedAt: string; campaignId: string; campaignName: string; brandKitId: string | null; archivedAt: string | null; exportCount: number; document?: { data?: { title?: unknown; headline?: unknown } } };
@@ -28,7 +29,6 @@ const typeChips: ChipOption[] = [{ value: "all", label: "Todos" }, ...Object.ent
 const statusChips: ChipOption[] = [{ value: "active", label: "Activos" }, { value: "archived", label: "Archivados" }, { value: "all", label: "Todos" }];
 const agendaChips: ChipOption[] = [{ value: "all", label: "Todos" }, { value: "scheduled", label: "Programados" }, { value: "unscheduled", label: "Sin programar" }];
 const sortChips: ChipOption[] = [{ value: "newest", label: "Más recientes" }, { value: "oldest", label: "Más antiguos" }, { value: "edited", label: "Última edición" }];
-const createdFormat = new Intl.DateTimeFormat("es", { day: "numeric", month: "short", year: "numeric" });
 
 function ChipGroup({ label, options, value, onChange }: { label: string; options: ChipOption[]; value: string; onChange: (value: string) => void }) {
   return (
@@ -61,6 +61,8 @@ export default function LibraryPage() {
   const [agenda, setAgenda] = useState("all");
   const [sort, setSort] = useState("newest");
   const zone = useStudioTimezone();
+  const stampFormat = useMemo(() => new Intl.DateTimeFormat("es", { dateStyle: "medium", timeStyle: "short", timeZone: zone }), [zone]);
+  const stamp = (value: string) => Date.parse(value) ? stampFormat.format(new Date(value)) : "—";
   const [scheduled, setScheduled] = useState<Map<string, ScheduledPost[]>>(new Map());
   const [scheduling, setScheduling] = useState<SchedulableItem | null>(null);
 
@@ -113,10 +115,16 @@ export default function LibraryPage() {
     await fetch(`/api/content-items/${item.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ revision: item.revision, archivedAt: null }) });
     await refresh();
   }
+  async function remove(item: Item) {
+    if (!window.confirm(`¿Borrar «${itemTitle(item)}» para siempre? No se puede deshacer. Sus fechas del calendario quedan reservadas sin pieza y los costos registrados se conservan.`)) return;
+    const response = await fetch(`/api/content-items/${item.id}`, { method: "DELETE" });
+    if (!response.ok) toast.error((await response.json().catch(() => null) as { error?: string } | null)?.error ?? "No se pudo borrar.");
+    await Promise.all([refresh(), refreshScheduled()]);
+  }
 
   return (
     <PageShell>
-      <PageHeading title="Todo el contenido" description="Filtra con los chips, ordena por fecha de creación y duplica, archiva o restaura sin perder el documento." />
+      <PageHeading title="Todo el contenido" description="Filtra con los chips, ordena por fecha de creación y duplica, archiva o restaura sin perder el documento. Borrar es definitivo." />
 
       <div className="mb-6 space-y-4 rounded-xl border border-border/60 bg-card/50 p-4">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -181,7 +189,8 @@ export default function LibraryPage() {
                       {itemTitle(item)}
                     </Link>
                     <p className="text-sm text-muted-foreground">{item.campaignName}</p>
-                    {Date.parse(item.createdAt) ? <p className="text-xs text-muted-foreground/80">Creado el {createdFormat.format(new Date(item.createdAt))}</p> : null}
+                    <p className="text-xs text-muted-foreground/80">Generado: {stamp(item.createdAt)}</p>
+                    <p className="text-xs text-muted-foreground/80">Modificado: {stamp(item.updatedAt)}</p>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {item.archivedAt ? (
@@ -206,6 +215,9 @@ export default function LibraryPage() {
                         </Button>
                       </>
                     )}
+                    <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive" onClick={() => void remove(item)}>
+                      <Trash2 className="h-3.5 w-3.5" /> Borrar
+                    </Button>
                   </div>
                 </CardContent>
               </Card>

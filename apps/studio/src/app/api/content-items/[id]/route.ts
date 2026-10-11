@@ -4,7 +4,15 @@ import { articleDraftSchema } from "@content-gen/domain/article";
 import { videoDocumentSchema } from "@content-gen/domain/video";
 import { NextResponse } from "next/server";
 import { validateAdImageAsset, validateVideoAssets } from "../../../../lib/content-assets";
+import { ContentDeleteError, deleteContentItem } from "../../../../lib/content-delete";
 import { withDatabase } from "../../../../lib/db";
+
+export async function DELETE(_: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  try { await deleteContentItem(id); }
+  catch (error) { if (error instanceof ContentDeleteError) return NextResponse.json({ error: error.message }, { status: error.status }); throw error; }
+  return new NextResponse(null, { status: 204 });
+}
 
 export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;

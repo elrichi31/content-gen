@@ -36,6 +36,7 @@
     "test:canvas-plan": "node --experimental-strip-types apps/studio/src/lib/canvas-plan.test.ts",
     "test:canvas-voice-clock": "node --experimental-strip-types apps/studio/src/lib/canvas-voice-clock.test.ts",
     "test:content-assets": "node --experimental-strip-types apps/studio/src/lib/content-assets.test.ts",
+    "test:content-delete": "node --experimental-strip-types apps/studio/src/lib/content-delete.test.ts",
     "test:asset-storage": "node --experimental-strip-types apps/studio/src/lib/asset-storage.test.ts",
     "test:legacy-import": "node --experimental-strip-types scripts/legacy-import.test.mjs",
     "test:http-boundaries": "node --experimental-strip-types --env-file-if-exists=.env.local --env-file-if-exists=.env scripts/http-boundaries-integration.mjs",
