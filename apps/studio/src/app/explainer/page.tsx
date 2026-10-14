@@ -42,6 +42,7 @@ export default function ExplainerPage() {
   const [revision, setRevision] = useState(0);
   const [savedSnapshot, setSavedSnapshot] = useState("");
   const [saving, setSaving] = useState(false);
+  const [editingVisual, setEditingVisual] = useState(false);
   const [notice, setNotice] = useState<NoticeState>(null);
 
   const refresh = useCallback(async () => {
@@ -108,14 +109,14 @@ export default function ExplainerPage() {
       <PageHeading
         title="Video educativo"
         description="Explica cómo funciona algo con narración y animaciones del motor Canvas a 60 fps, con fotos de fondo opcionales."
-        actions={<><Button type="button" variant={view === "wizard" ? "default" : "outline"} onClick={startNew}><Plus className="h-4 w-4" /> Nuevo</Button><Button type="button" variant={view === "list" ? "default" : "outline"} onClick={() => { setView("list"); setNotice(null); }}><GraduationCap className="h-4 w-4" /> Mis videos educativos</Button></>}
+        actions={<><Button type="button" disabled={editingVisual} variant={view === "wizard" ? "default" : "outline"} onClick={startNew}><Plus className="h-4 w-4" /> Nuevo</Button><Button type="button" disabled={editingVisual} variant={view === "list" ? "default" : "outline"} onClick={() => { setView("list"); setNotice(null); }}><GraduationCap className="h-4 w-4" /> Mis videos educativos</Button></>}
       />
 
       {notice ? <Notice className="mb-4" notice={notice} onDismiss={() => setNotice(null)} /> : null}
 
       {view === "wizard" ? (
         <>
-          <StepIndicator current={step} reached={reached} onSelect={go} steps={STEPS} />
+          <StepIndicator current={step} reached={reached} onSelect={go} steps={STEPS} disabled={editingVisual} />
 
           {step === 1 ? (
             <TopicForm
@@ -143,10 +144,10 @@ export default function ExplainerPage() {
 
           {step === 4 && document && contentId ? (
             <div className="space-y-6">
-              <ExplainerAnimationStep contentItemId={contentId} revision={revision} document={document} onPersisted={adopt} />
+              <ExplainerAnimationStep contentItemId={contentId} revision={revision} document={document} campaignId={campaignId} onPersisted={adopt} onBusyChange={setEditingVisual} />
               <div className="flex justify-between gap-3 border-t border-border pt-4">
-                <Button type="button" variant="outline" onClick={() => go(3)}>← Volver a la voz</Button>
-                <Button type="button" onClick={() => go(5)}>Continuar al render →</Button>
+                <Button type="button" variant="outline" disabled={editingVisual} onClick={() => go(3)}>← Volver a la voz</Button>
+                <Button type="button" disabled={editingVisual} onClick={() => go(5)}>Continuar al render →</Button>
               </div>
             </div>
           ) : null}

@@ -7,7 +7,7 @@ export const WIZARD_STEPS = ["Tema", "Guión", "Imágenes", "Voz", "Guardar"] as
 export type WizardStep = 1 | 2 | 3 | 4 | 5;
 
 /** `steps` permite reutilizarlo en otros flujos (anuncios); por defecto son los de video. */
-export function StepIndicator({ current, onSelect, reached, steps = WIZARD_STEPS }: { current: WizardStep; onSelect: (step: WizardStep) => void; reached: WizardStep; steps?: readonly string[] }) {
+export function StepIndicator({ current, onSelect, reached, steps = WIZARD_STEPS, disabled = false }: { current: WizardStep; onSelect: (step: WizardStep) => void; reached: WizardStep; steps?: readonly string[]; disabled?: boolean }) {
   return (
     <ol className="mb-6 flex items-center gap-1 overflow-x-auto rounded-xl border border-border bg-card px-3 py-2.5 shadow-xs sm:gap-2">
       {steps.map((label, index) => {
@@ -18,7 +18,7 @@ export function StepIndicator({ current, onSelect, reached, steps = WIZARD_STEPS
           <li key={label} className={`flex items-center gap-1 sm:gap-2 ${step < steps.length ? "flex-1" : ""}`}>
             <button
               type="button"
-              disabled={step > reached}
+              disabled={disabled || step > reached}
               onClick={() => onSelect(step)}
               aria-current={active ? "step" : undefined}
               aria-label={`${step}. ${label}`}

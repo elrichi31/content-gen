@@ -13,8 +13,8 @@ export type ImageSource = "unsplash" | "openai";
 type Mode = ImageSource | "upload" | "library";
 
 const MODES: { id: Mode; label: string; icon: typeof Search; hint: string }[] = [
-  { id: "unsplash", label: "Buscar foto", icon: Search, hint: "Busca una foto real en Unsplash con las palabras clave de la descripción. Es gratis." },
-  { id: "openai", label: "Generar con IA", icon: Sparkles, hint: "OpenAI crea una foto vertical y cinematográfica a partir de la descripción. Tiene costo." },
+  { id: "unsplash", label: "Unsplash", icon: Search, hint: "Busca una foto real en Unsplash con las palabras clave de la descripción. Es gratis." },
+  { id: "openai", label: "OpenAI", icon: Sparkles, hint: "OpenAI crea una foto vertical y cinematográfica a partir de la descripción. Tiene costo." },
   { id: "upload", label: "Subir", icon: Upload, hint: "Sube una imagen tuya (PNG, JPG o WebP). Se recorta a vertical 9:16." },
   { id: "library", label: "De la campaña", icon: FolderOpen, hint: "Reutiliza una imagen que ya está en la campaña." },
 ];
@@ -41,12 +41,13 @@ type Asset = { id: string; filename: string };
  * Todo lo que se puede hacer con la imagen de una escena, en un solo sitio. Cada acción se
  * guarda en el momento (no hace falta «Guardar cambios») y la imagen anterior queda en el historial.
  */
-export function SceneImagePicker({ contentItemId, revision, scene, campaignId, onPersisted, disabled = false }: {
+export function SceneImagePicker({ contentItemId, revision, scene, campaignId, onPersisted, onBusyChange, disabled = false }: {
   contentItemId: string;
   revision: number;
   scene: Scene;
   campaignId?: string;
   onPersisted: (content: Persisted, sceneId: string) => void;
+  onBusyChange?: (busy: boolean) => void;
   disabled?: boolean;
 }) {
   const [mode, setMode] = useState<Mode>("unsplash");
@@ -63,10 +64,11 @@ export function SceneImagePicker({ contentItemId, revision, scene, campaignId, o
   }, [mode, library, campaignId]);
 
   async function run(job: string, task: () => Promise<Persisted>) {
-    setError(""); setBusy(job);
+    if (disabled || busy) return;
+    setError(""); setBusy(job); onBusyChange?.(true);
     try { onPersisted(await task(), scene.id); }
     catch (reason) { setError(reason instanceof Error ? reason.message : "No se pudo cambiar la imagen."); }
-    finally { setBusy(""); }
+    finally { setBusy(""); onBusyChange?.(false); }
   }
 
   const use = (assetId: string | null, job = assetId ?? "remove") => run(job, () => requestSceneImage(contentItemId, scene.id, { assetId }, revision));
@@ -86,7 +88,7 @@ export function SceneImagePicker({ contentItemId, revision, scene, campaignId, o
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-1.5 rounded-xl bg-muted/50 p-1 sm:grid-cols-4" role="tablist" aria-label="Origen de la imagen">
         {MODES.map(({ id, label, icon: Icon }) => (
-          <button key={id} type="button" role="tab" aria-selected={mode === id} onClick={() => { setMode(id); setError(""); }}
+          <button key={id} type="button" role="tab" aria-selected={mode === id} disabled={locked} onClick={() => { setMode(id); setError(""); }}
             className={`flex items-center justify-center gap-1.5 rounded-lg px-2 py-2 text-xs font-semibold transition ${mode === id ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
             <Icon className="h-3.5 w-3.5" /> {label}
           </button>
@@ -96,7 +98,7 @@ export function SceneImagePicker({ contentItemId, revision, scene, campaignId, o
 
       {mode === "unsplash" || mode === "openai" ? (
         <div className="space-y-2">
-          <Textarea aria-label="Descripción de la imagen" rows={3} value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="Qué se ve: sujeto, lugar, momento…" />
+          <Textarea aria-label="Descripción de la imagen" rows={3} maxLength={1500} disabled={locked} value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="Qué se ve: sujeto, lugar, momento…" />
           <Button type="button" className="w-full" disabled={locked || prompt.trim().length < 3} onClick={() => void generate()}>
             {busy === "generate"
               ? mode === "openai" ? <AiProgress label="Generando imagen" estimateMs={20_000} state="shaping" /> : "Buscando foto…"
@@ -134,7 +136,7 @@ export function SceneImagePicker({ contentItemId, revision, scene, campaignId, o
         </Button>
       ) : null}
 
-      {error ? <p className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</p> : null}
+      {error ? <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</p> : null}
     </div>
   );
 }

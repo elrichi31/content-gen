@@ -28,6 +28,7 @@
     "test:automation-ui": "node apps/studio/tests/automation-ui.test.mjs",
     "test:generation-queue": "node --experimental-strip-types apps/studio/src/lib/generation-queue.test.ts",
     "test:explainer": "node --experimental-strip-types apps/studio/src/lib/explainer.test.ts",
+    "test:explainer-images": "node apps/studio/tests/explainer-images.test.mjs",
     "worker:once": "node --env-file-if-exists=.env.local --env-file-if-exists=.env apps/render-worker/src/worker.mjs --once",
     "test:domain": "node --experimental-strip-types packages/domain/src/schemas.test.ts",
     "test:carousel": "node --experimental-strip-types packages/domain/src/carousel.test.ts",

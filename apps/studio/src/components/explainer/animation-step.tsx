@@ -10,6 +10,7 @@ import { AiProgress } from "@/components/ai-progress";
 import { useCanvasVoices } from "@/components/explainer/use-canvas-voices";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { SceneImagePicker } from "@/components/video/scene-image-picker";
 
 type Persisted = { revision: number; document: { data: unknown } };
 
@@ -22,7 +23,7 @@ const text = (value: unknown) => (typeof value === "string" ? value : "");
  * que el render, en un iframe aislado al que se le manda el tiempo por postMessage; corre en vivo a
  * media resolución y sin motion blur, y las voces suenan en la página desde el `voiceAt` de su escena.
  */
-export function ExplainerAnimationStep({ contentItemId, revision, document, onPersisted }: { contentItemId: string; revision: number; document: VideoDocument; onPersisted: (content: Persisted) => void }) {
+export function ExplainerAnimationStep({ contentItemId, revision, document, campaignId, onPersisted, onBusyChange }: { contentItemId: string; revision: number; document: VideoDocument; campaignId?: string; onPersisted: (content: Persisted) => void; onBusyChange?: (busy: boolean) => void }) {
   const spec = useMemo(() => buildCanvasSpec(document), [document]);
   const html = useMemo(() => buildCanvasHtml(spec, { live: true, scale: 0.5 }), [spec]);
   const frame = useRef<HTMLIFrameElement>(null);
@@ -30,6 +31,10 @@ export function ExplainerAnimationStep({ contentItemId, revision, document, onPe
   const [playing, setPlaying] = useState(false);
   const [time, setTime] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [imageBusy, setImageBusy] = useState(false);
+  const [imageSceneId, setImageSceneId] = useState<string | null>(document.scenes[0]?.id ?? null);
+  const locked = busy || imageBusy;
+  useEffect(() => { onBusyChange?.(locked); }, [locked, onBusyChange]);
   const [feedback, setFeedback] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -167,7 +172,7 @@ export function ExplainerAnimationStep({ contentItemId, revision, document, onPe
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">La IA elige una animación para cada escena y hace que sus momentos clave caigan justo cuando la voz dice la palabra. Lo que ves aquí es exactamente lo que saldrá en el render.</p>
         </div>
         {planned ? (
-          <Button type="button" variant="outline" disabled={busy} onClick={() => void generate(false)}>
+          <Button type="button" variant="outline" disabled={locked} onClick={() => void generate(false)}>
             <RotateCcw className="h-4 w-4" /> Regenerar todo
           </Button>
         ) : null}
@@ -177,8 +182,8 @@ export function ExplainerAnimationStep({ contentItemId, revision, document, onPe
       {notice ? <p className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">{notice}</p> : null}
 
       <div className="grid gap-6 lg:grid-cols-[auto_minmax(0,1fr)]">
-        <div className="space-y-3 lg:sticky lg:top-4 lg:self-start">
-          <div className="relative h-[576px] w-[324px] overflow-hidden rounded-xl border border-border bg-black">
+        <div className="w-full min-w-0 max-w-[324px] space-y-3 lg:sticky lg:top-4 lg:w-[324px] lg:self-start">
+          <div className="relative aspect-[9/16] w-full overflow-hidden rounded-xl border border-border bg-black">
             <iframe ref={frame} title="Preview de las animaciones" sandbox="allow-scripts" srcDoc={html} className="h-full w-full" />
             {busy || !planned ? (
               <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black/70 p-6 text-center backdrop-blur-sm">
@@ -189,14 +194,14 @@ export function ExplainerAnimationStep({ contentItemId, revision, document, onPe
                       <p className="text-base font-semibold text-white">Aún no hay animaciones</p>
                       <p className="text-xs text-white/70">Sin ellas, cada escena sale solo con su título. Genera todas de una vez; tarda menos de un minuto.</p>
                     </div>
-                    <Button type="button" onClick={() => void generate(false)}><Sparkles className="h-4 w-4" /> Generar animaciones</Button>
+                    <Button type="button" disabled={locked} onClick={() => void generate(false)}><Sparkles className="h-4 w-4" /> Generar animaciones</Button>
                   </>
                 )}
               </div>
             ) : null}
           </div>
 
-          <div className="w-[324px] space-y-2">
+          <div className="w-full space-y-2">
             {/* Barra por escenas: cada tramo mide lo que dura su escena; el range invisible encima da arrastre y teclado. */}
             <div className="relative h-2">
               <div className="flex h-full gap-0.5 overflow-hidden rounded-full">
@@ -209,10 +214,10 @@ export function ExplainerAnimationStep({ contentItemId, revision, document, onPe
                   );
                 })}
               </div>
-              <input type="range" min={0} max={spec.duration} step={1 / 30} value={time} disabled={busy} onChange={(event) => seek(Number(event.target.value))} aria-label="Posición de la preview" className="absolute inset-x-0 -inset-y-2 h-6 w-full cursor-pointer opacity-0" />
+              <input type="range" min={0} max={spec.duration} step={1 / 30} value={time} disabled={locked} onChange={(event) => seek(Number(event.target.value))} aria-label="Posición de la preview" className="absolute inset-x-0 -inset-y-2 h-6 w-full cursor-pointer opacity-0" />
             </div>
             <div className="flex items-center gap-3">
-              <Button type="button" size="sm" disabled={!ready || busy} onClick={toggle} aria-label={playing ? "Pausar" : "Reproducir"}>
+              <Button type="button" size="sm" disabled={!ready || locked} onClick={toggle} aria-label={playing ? "Pausar" : "Reproducir"}>
                 {playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />} {playing ? "Pausar" : "Reproducir"}
               </Button>
               <span className="font-mono text-xs tabular-nums text-muted-foreground">{clock(time)} / {clock(spec.duration)}</span>
@@ -234,7 +239,7 @@ export function ExplainerAnimationStep({ contentItemId, revision, document, onPe
               const active = index === current;
               return (
                 <li key={scene.id} className={`rounded-lg border transition-colors ${active ? "border-primary/60 bg-primary/10" : "border-border hover:bg-muted/40"}`}>
-                  <button type="button" onClick={() => playScene(scene.start)} disabled={!ready || busy} className="group flex w-full gap-3 p-3 pb-2 text-left disabled:cursor-default">
+                  <button type="button" onClick={() => playScene(scene.start)} disabled={!ready || locked} className="group flex w-full gap-3 p-3 pb-2 text-left disabled:cursor-default">
                     <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full font-mono text-xs ${active ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
                       {active && playing ? <Play className="h-3 w-3" /> : index + 1}
                     </span>
@@ -246,11 +251,11 @@ export function ExplainerAnimationStep({ contentItemId, revision, document, onPe
                       <span className="line-clamp-2 block text-xs text-muted-foreground">{text(source.content.voiceover)}</span>
                     </span>
                   </button>
-                  <div className="flex items-center gap-2 px-3 pb-3 pl-[3.25rem]">
+                  <div className="flex flex-wrap items-center gap-2 px-3 pb-3 pl-[3.25rem]">
                     <span className="text-[11px] text-muted-foreground">Animación</span>
                     {changing === scene.id ? <AiProgress label="Cambiando" estimateMs={30_000} state="composing" /> : (
                       // Elegir otra plantilla pide a la IA solo los datos de esta escena, con cues de su narración.
-                      <select aria-label={`Animación de la escena ${index + 1}`} value={animated ? scene.plan.template : ""} disabled={busy}
+                      <select aria-label={`Animación de la escena ${index + 1}`} value={animated ? scene.plan.template : ""} disabled={locked}
                         onChange={(event) => void generate(false, { sceneId: scene.id, template: event.target.value as CanvasTemplate })}
                         className={`h-7 rounded-md border border-border bg-background px-2 text-xs ${animated ? "text-primary" : "text-muted-foreground"}`}>
                         {animated ? null : <option value="" disabled>Sin animar</option>}
@@ -259,7 +264,24 @@ export function ExplainerAnimationStep({ contentItemId, revision, document, onPe
                     )}
                     {/* La IA puede encadenar 2 o 3 animaciones en una escena larga; el selector cambia la primera. */}
                     {scene.beats.length > 1 ? <span className="text-[11px] text-muted-foreground">→ {scene.beats.slice(1).map((beat) => CANVAS_TEMPLATE_CATALOG.find((item) => item.template === beat.plan.template)?.name ?? beat.plan.template).join(" → ")}</span> : null}
+                    <Button type="button" variant="outline" size="sm" disabled={locked} aria-label={`Cambiar imagen de la escena ${index + 1}`} aria-expanded={imageSceneId === scene.id} aria-controls={`scene-image-${scene.id}`}
+                      onClick={() => { setPlaying(false); seek(scene.start); setImageSceneId((selected) => selected === scene.id ? null : scene.id); }}>
+                      <ImageIcon className="h-3.5 w-3.5" /> {source.imageAssetId ? "Cambiar imagen" : "Añadir imagen"}
+                    </Button>
                   </div>
+                  {imageSceneId === scene.id ? (
+                    <div id={`scene-image-${scene.id}`} className="space-y-3 border-t border-border/60 p-3">
+                      <div className="flex items-center gap-3">
+                        {source.imageAssetId ? <img src={`/api/assets/${source.imageAssetId}`} alt={`Imagen de la escena ${index + 1}`} className="h-16 w-9 shrink-0 rounded-md object-cover" /> : <ImageIcon className="h-6 w-6 shrink-0 text-muted-foreground" />}
+                        <div>
+                          <p className="text-sm font-semibold text-foreground">Imagen de la escena {index + 1}</p>
+                          <p className="text-xs text-muted-foreground">Se guarda al cambiarla, sin regenerar la voz ni la animación.</p>
+                        </div>
+                      </div>
+                      <SceneImagePicker key={scene.id} contentItemId={contentItemId} revision={revision} scene={source} campaignId={campaignId} disabled={busy} onBusyChange={setImageBusy}
+                        onPersisted={(content) => { onPersisted(content); setPlaying(false); seek(scene.start); }} />
+                    </div>
+                  ) : null}
                 </li>
               );
             })}
@@ -269,10 +291,10 @@ export function ExplainerAnimationStep({ contentItemId, revision, document, onPe
             <ImageIcon className="h-4 w-4 shrink-0 text-primary" />
             <div className="min-w-0 flex-1">
               <p className="text-sm font-semibold text-foreground">Fotos de fondo <span className="font-normal text-muted-foreground">· {withPhoto} de {document.scenes.length}</span></p>
-              <p className="text-xs text-muted-foreground">{photoProgress ?? "Busca en Unsplash una foto para cada escena; va de fondo con un zoom lento bajo la animación. Ponlas antes de animar: la IA elige animaciones que dejan ver la foto."}</p>
+              <p className="text-xs text-muted-foreground">{photoProgress ?? "Completa las escenas sin imagen con Unsplash. Para cambiar una concreta, usa Cambiar imagen en su escena."}</p>
             </div>
-            {withPhoto < document.scenes.length ? <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void scenePhotos()}><ImageIcon className="h-4 w-4" /> {withPhoto ? "Completar fotos" : "Buscar fotos"}</Button> : null}
-            {withPhoto ? <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => void scenePhotos(true)}>Quitar fotos</Button> : null}
+            {withPhoto < document.scenes.length ? <Button type="button" size="sm" variant="outline" disabled={locked} onClick={() => void scenePhotos()}><ImageIcon className="h-4 w-4" /> {withPhoto ? "Completar fotos" : "Buscar fotos"}</Button> : null}
+            {withPhoto ? <Button type="button" size="sm" variant="ghost" disabled={locked} onClick={() => void scenePhotos(true)}>Quitar fotos</Button> : null}
           </div>
 
           {planned ? (
@@ -280,7 +302,7 @@ export function ExplainerAnimationStep({ contentItemId, revision, document, onPe
               <label htmlFor="animation-feedback" className="flex items-center gap-2 text-sm font-semibold text-foreground"><Wand2 className="h-4 w-4 text-primary" /> Pedir cambios</label>
               <Textarea id="animation-feedback" value={feedback} onChange={(event) => setFeedback(event.target.value)} placeholder="Ej.: la escena 3 como comparación, más mensajes acumulándose en la 2…" className="min-h-[64px] text-sm" />
               <div className="flex justify-end">
-                <Button type="button" size="sm" disabled={busy || !feedback.trim()} onClick={() => void generate(true)}><Wand2 className="h-4 w-4" /> Aplicar cambios</Button>
+                <Button type="button" size="sm" disabled={locked || !feedback.trim()} onClick={() => void generate(true)}><Wand2 className="h-4 w-4" /> Aplicar cambios</Button>
               </div>
             </div>
           ) : null}
