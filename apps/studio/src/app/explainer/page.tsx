@@ -157,13 +157,10 @@ export default function ExplainerPage() {
                 <h2 className="text-2xl font-bold tracking-tight text-foreground">Render</h2>
                 <p className="mt-1 max-w-2xl text-sm text-muted-foreground">Revisa que todo esté listo y crea el MP4. El render sigue en el servidor aunque cambies de pantalla.</p>
               </div>
-              <div className="grid gap-6 lg:grid-cols-[minmax(0,320px)_minmax(0,1fr)]">
-                <div className="space-y-4">
-                  <RenderChecklist document={document} onGo={go} />
-                  <VideoCaptionPanel contentItemId={contentId} revision={revision} document={document} onPersisted={adopt} />
-                </div>
-                <VideoRenderPanel contentItemId={contentId} unsavedChanges={unsaved} />
-              </div>
+              <RenderChecklist document={document} onGo={go} />
+              <VideoRenderPanel contentItemId={contentId} unsavedChanges={unsaved}>
+                <VideoCaptionPanel contentItemId={contentId} revision={revision} document={document} onPersisted={adopt} className="rounded-none border-0 bg-transparent p-0" />
+              </VideoRenderPanel>
               <div className="flex justify-start border-t border-border pt-4">
                 <Button type="button" variant="outline" onClick={() => go(4)}>← Volver a las animaciones</Button>
               </div>
@@ -188,12 +185,12 @@ function RenderChecklist({ document, onGo }: { document: VideoDocument; onGo: (s
     { ok: animated === total, text: animated === total ? "Todas las escenas animadas" : `${total - animated} escena(s) sin animación: saldrán solo con su título`, fix: "Ir a las animaciones", step: 4 },
   ];
   return (
-    <div className="space-y-4 rounded-xl border border-border bg-card/60 p-4">
-      <div>
-        <p className="truncate text-sm font-semibold text-foreground">{document.title}</p>
+    <div className="flex flex-col gap-3 border-y border-border py-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+      <div className="min-w-0">
+        <p className="break-words text-sm font-semibold text-foreground">{document.title}</p>
         <p className="mt-0.5 font-mono text-xs text-muted-foreground">{Math.floor(seconds / 60)}:{String(Math.floor(seconds % 60)).padStart(2, "0")} · {total} escenas · 1080×1920</p>
       </div>
-      <ul className="space-y-2">
+      <ul className="flex flex-wrap gap-x-5 gap-y-2">
         {items.map((item) => (
           <li key={item.fix} className="flex items-start gap-2 text-sm">
             {item.ok ? <Check className="mt-0.5 h-4 w-4 shrink-0 text-primary" /> : <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />}

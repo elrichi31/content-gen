@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Ban, Download, Film, RotateCcw, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -12,7 +12,7 @@ const tone: Record<Status, string> = { queued: "text-muted-foreground", processi
 const active = (job: RenderJob | null) => job !== null && (job.status === "queued" || job.status === "processing");
 
 /** Render a MP4 con el motor Canvas (animaciones sincronizadas con la voz, 60 fps). */
-export function VideoRenderPanel({ contentItemId, unsavedChanges }: { contentItemId: string; unsavedChanges: boolean }) {
+export function VideoRenderPanel({ contentItemId, unsavedChanges, children }: { contentItemId: string; unsavedChanges: boolean; children?: ReactNode }) {
   const [job, setJob] = useState<RenderJob | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -80,72 +80,73 @@ export function VideoRenderPanel({ contentItemId, unsavedChanges }: { contentIte
   const done = job?.status === "completed" && job.outputAssetId;
 
   return (
-    <div className="space-y-4 rounded-xl border border-border bg-card/60 p-4">
+    <section aria-label="Render MP4" className="min-w-0 space-y-4 rounded-xl border border-border bg-card/60 p-4 sm:p-5">
       <div className="flex items-center gap-2">
         <Film className="h-4 w-4 text-primary" />
-        <p className="text-sm font-semibold text-foreground">Render MP4</p>
+        <h3 className="text-sm font-semibold text-foreground">Render MP4</h3>
         {job ? <span className={`ml-auto rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${job.status === "failed" ? "bg-destructive/15 text-destructive" : active(job) || done ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"}`}>{label[job.status]}</span> : null}
       </div>
 
-      {contentItemId ? null : <p className="text-xs text-muted-foreground">Guarda el video en una campaña antes de renderizarlo.</p>}
-      {contentItemId && unsavedChanges ? <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">Hay cambios sin guardar: el render usa la última versión guardada.</p> : null}
-
-      {done ? (
-        <div className="flex flex-col items-center gap-3 sm:flex-row sm:items-end">
-          <video key={job.outputAssetId} src={`/api/assets/${job.outputAssetId}`} controls playsInline preload="metadata" className="aspect-[9/16] w-full max-w-[220px] rounded-lg border border-border bg-black" />
-          <div className="flex w-full flex-col gap-2 sm:w-auto">
-            <p className="text-sm font-semibold text-foreground">Tu video está listo</p>
+      <div className={done ? "grid items-start gap-5 lg:grid-cols-[minmax(0,17rem)_minmax(0,1fr)]" : "space-y-4"}>
+        {done ? <video key={job.outputAssetId} src={`/api/assets/${job.outputAssetId}`} controls playsInline preload="metadata" aria-label="Video renderizado" className="mx-auto aspect-[9/16] w-full max-w-[17rem] rounded-lg border border-border bg-black" /> : null}
+        <div className="min-w-0 space-y-4">
+          {contentItemId ? null : <p className="text-xs text-muted-foreground">Guarda el video en una campaña antes de renderizarlo.</p>}
+          {contentItemId && unsavedChanges ? <p role="status" className="text-xs text-muted-foreground">Hay cambios sin guardar: el render usa la última versión guardada.</p> : null}
+          {done ? <div className="space-y-2">
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
             <Button type="button" asChild>
               <a href={`/api/assets/${job.outputAssetId}`} download={`${contentItemId.slice(0, 8)}.mp4`}><Download className="h-4 w-4" /> Descargar MP4</a>
             </Button>
-            <Button type="button" variant="outline" disabled={sending} onClick={() => void sendToTikTok(job.outputAssetId!)}>
+            <Button type="button" variant="outline" className="h-auto min-h-9 whitespace-normal" disabled={sending} onClick={() => void sendToTikTok(job.outputAssetId!)}>
               <Send className="h-4 w-4" /> {sending ? "Enviando a TikTok…" : "Enviar a borradores de TikTok"}
             </Button>
-            {tiktokNote ? <p role="status" className="max-w-[260px] text-xs text-muted-foreground">{tiktokNote}</p> : null}
-          </div>
-        </div>
-      ) : null}
-
-      {job && !done ? (
-        <div className="space-y-2">
-          <div className="flex items-center justify-between text-xs">
-            <span className={tone[job.status]}>{job.status === "queued" ? "En cola: arranca solo." : job.status === "processing" ? "Renderizando…" : job.status === "failed" ? "El render falló." : "Render cancelado."}</span>
-            <span className="font-mono tabular-nums text-muted-foreground">{job.progress}%</span>
-          </div>
-          <div className="h-2 overflow-hidden rounded-full bg-border/60">
-            <div className={`h-full transition-all ${job.status === "failed" ? "bg-destructive" : "bg-primary"}`} style={{ width: `${job.progress}%` }} />
-          </div>
-          {job.error ? <p className="max-h-24 overflow-y-auto whitespace-pre-wrap break-words rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">{job.error}</p> : null}
-        </div>
-      ) : null}
-
-      {job?.log && job.log.length > 0 ? (
-        <details open={active(job)} className="group">
-          <summary className="cursor-pointer select-none text-xs text-muted-foreground hover:text-foreground">Registro del render</summary>
-          <div ref={consoleRef} className="mt-2 max-h-32 overflow-y-auto rounded-md border border-border bg-surface-secondary p-2 font-mono text-[11px] leading-relaxed text-muted-foreground">
-            {job.log.map((line, index) => (
-              <p key={index} className="whitespace-pre-wrap break-words"><span className="select-none text-muted-foreground/50">$ </span>{line}</p>
-            ))}
-          </div>
-        </details>
-      ) : null}
-
-      {active(job) ? (
-        <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void act("cancel")}><Ban className="h-4 w-4" /> Cancelar render</Button>
-      ) : (
-        <div className="space-y-3">
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" variant={done ? "outline" : "default"} disabled={!contentItemId || busy} onClick={() => void render()}>
-              <Film className="h-4 w-4" /> {done ? "Volver a renderizar" : "Renderizar"}
+            <Button type="button" variant="ghost" disabled={busy} onClick={() => void render()}>
+              <Film className="h-4 w-4" /> {busy ? "Encolando…" : "Volver a renderizar"}
             </Button>
-            {job && (job.status === "failed" || job.status === "cancelled") ? (
-              <Button type="button" variant="outline" disabled={busy} onClick={() => void act("retry")}><RotateCcw className="h-4 w-4" /> Reintentar el anterior</Button>
-            ) : null}
-          </div>
-        </div>
-      )}
+            </div>
+            {tiktokNote ? <p role="status" className="max-w-prose text-xs text-muted-foreground">{tiktokNote}</p> : null}
+          </div> : null}
 
-      {error ? <p className="text-xs text-destructive">{error}</p> : null}
-    </div>
+          {job && !done ? (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className={tone[job.status]}>{job.status === "queued" ? "En cola: arranca solo." : job.status === "processing" ? "Renderizando…" : job.status === "failed" ? "El render falló." : "Render cancelado."}</span>
+                <span className="font-mono tabular-nums text-muted-foreground">{job.progress}%</span>
+              </div>
+              <div role="progressbar" aria-label="Progreso del render" aria-valuemin={0} aria-valuemax={100} aria-valuenow={job.progress} className="h-2 overflow-hidden rounded-full bg-border/60">
+                <div className={`h-full transition-all ${job.status === "failed" ? "bg-destructive" : "bg-primary"}`} style={{ width: `${job.progress}%` }} />
+              </div>
+              {job.error ? <p role="alert" className="max-h-24 overflow-y-auto whitespace-pre-wrap break-words text-xs text-destructive">{job.error}</p> : null}
+            </div>
+          ) : null}
+
+          {active(job) ? (
+            <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void act("cancel")}><Ban className="h-4 w-4" /> Cancelar render</Button>
+          ) : !done ? (
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" disabled={!contentItemId || busy} onClick={() => void render()}>
+                <Film className="h-4 w-4" /> {busy ? "Encolando…" : "Renderizar"}
+              </Button>
+              {job && (job.status === "failed" || job.status === "cancelled") ? (
+                <Button type="button" variant="outline" disabled={busy} onClick={() => void act("retry")}><RotateCcw className="h-4 w-4" /> Reintentar el anterior</Button>
+              ) : null}
+            </div>
+          ) : null}
+
+          {error ? <p role="alert" className="text-xs text-destructive">{error}</p> : null}
+          {children ? <div className="border-t border-border/60 pt-4">{children}</div> : null}
+          {job?.log && job.log.length > 0 ? (
+            <details open={active(job)} className="group">
+              <summary className="cursor-pointer select-none text-xs text-muted-foreground hover:text-foreground">Registro del render</summary>
+              <div ref={consoleRef} className="mt-2 max-h-32 overflow-y-auto rounded-md border border-border bg-surface-secondary p-2 font-mono text-[11px] leading-relaxed text-muted-foreground">
+                {job.log.map((line, index) => (
+                  <p key={index} className="whitespace-pre-wrap break-words"><span className="select-none text-muted-foreground/50">$ </span>{line}</p>
+                ))}
+              </div>
+            </details>
+          ) : null}
+        </div>
+      </div>
+    </section>
   );
 }

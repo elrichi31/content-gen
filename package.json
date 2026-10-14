@@ -32,6 +32,7 @@
     "test:domain": "node --experimental-strip-types packages/domain/src/schemas.test.ts",
     "test:carousel": "node --experimental-strip-types packages/domain/src/carousel.test.ts",
     "test:ad": "node --experimental-strip-types packages/domain/src/ad.test.ts",
+    "test:render-ux": "node apps/studio/tests/render-ux.test.mjs",
     "test:video": "node --experimental-strip-types packages/domain/src/video.test.ts",
     "test:canvas": "node --experimental-strip-types packages/domain/src/canvas.test.ts",
     "test:canvas-plan": "node --experimental-strip-types apps/studio/src/lib/canvas-plan.test.ts",

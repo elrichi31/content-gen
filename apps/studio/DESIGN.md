@@ -144,6 +144,10 @@ and workspace panels; 6px for badges and menu items; full round only for avatars
 - **Toasts**: Sonner, bottom-right, popover surface with border. Success auto-closes in 6s;
   errors stay until closed. Screens keep using `<Notice>`, which now fires the toast.
 
+## Video render review
+
+Keep the readiness summary compact above one render surface. On desktop, place the portrait MP4 beside top-aligned actions and an embedded caption editor; on mobile, stack them without stretching panels or duplicating hashtag chips. Download is primary, TikTok secondary, re-render tertiary; logs remain a disclosure. Keep all wizard steps visible on small screens with accessible names. Validate empty, queued, processing, completed, failed and cancelled states using local fixtures rather than paid renders or real publishing.
+
 ## Do's and Don'ts
 
 ### Do

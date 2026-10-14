@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { AiProgress } from "@/components/ai-progress";
+import { cn } from "@/lib/utils";
 
 type Caption = { text: string; hashtags: string[] };
 type Stored = { revision: number; document: { data: unknown } };
@@ -22,11 +23,13 @@ export function VideoCaptionPanel({
   revision,
   document,
   onPersisted,
+  className,
 }: {
   contentItemId: string;
   revision: number;
   document: VideoDocument;
   onPersisted: (content: Stored) => void;
+  className?: string;
 }) {
   const stored = captionOf(document);
   const [text, setText] = useState(stored.text);
@@ -60,30 +63,26 @@ export function VideoCaptionPanel({
   if (!contentItemId) return <p className="text-xs text-muted-foreground">Guarda el video en una campaña para generar su caption.</p>;
 
   return (
-    <div className="space-y-3 rounded-lg border border-border/60 bg-background/40 p-3">
-      <div className="flex items-center gap-2">
-        <Hash className="h-4 w-4 text-primary" />
-        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Caption TikTok</p>
-      </div>
-
-      <Button type="button" variant="outline" size="sm" className="w-full" disabled={busy !== ""} onClick={() => void call("generate", { action: "generate" })}>
-        {busy === "generate" ? <AiProgress label="Generando" estimateMs={10_000} state="composing" /> : <><Wand2 className="h-4 w-4" /> Generar con IA</>}
-      </Button>
-
-      <div className="space-y-1.5">
-        <Label htmlFor="video-caption-text" className="text-[10px] uppercase tracking-wider text-muted-foreground">Texto</Label>
-        <Textarea id="video-caption-text" rows={5} value={text} onChange={(event) => setText(event.target.value)} placeholder="Gancho, contexto y llamada a la acción." />
-      </div>
-      <div className="space-y-1.5">
-        <Label htmlFor="video-caption-hashtags" className="text-[10px] uppercase tracking-wider text-muted-foreground">Hashtags</Label>
-        <Input id="video-caption-hashtags" className="h-8" value={hashtags} onChange={(event) => setHashtags(event.target.value)} placeholder="#video #contentgen" />
-      </div>
-
-      {stored.hashtags.length ? (
-        <div className="flex flex-wrap gap-1.5">
-          {stored.hashtags.map((tag) => <span key={tag} className="rounded-full border border-border/60 px-2 py-0.5 font-mono text-[10px] text-muted-foreground">{tag}</span>)}
+    <div className={cn("min-w-0 space-y-3 rounded-lg border border-border/60 bg-background/40 p-3", className)}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Hash className="h-4 w-4 text-primary" />
+          <h3 className="text-sm font-semibold text-foreground">Caption TikTok</h3>
         </div>
-      ) : null}
+        <Button type="button" variant="outline" size="sm" disabled={busy !== ""} onClick={() => void call("generate", { action: "generate" })}>
+          {busy === "generate" ? <AiProgress label="Generando" estimateMs={10_000} state="composing" /> : <><Wand2 className="h-4 w-4" /> Generar con IA</>}
+        </Button>
+      </div>
+
+      <div className="space-y-1.5">
+        <Label htmlFor="video-caption-text" className="text-xs text-muted-foreground">Texto</Label>
+        <Textarea id="video-caption-text" rows={8} disabled={busy !== ""} value={text} onChange={(event) => setText(event.target.value)} placeholder="Gancho, contexto y llamada a la acción." />
+      </div>
+      <div className="space-y-1.5">
+        <Label htmlFor="video-caption-hashtags" className="text-xs text-muted-foreground">Hashtags</Label>
+        <Input id="video-caption-hashtags" disabled={busy !== ""} value={hashtags} onChange={(event) => setHashtags(event.target.value)} placeholder="#video #contentgen" />
+      </div>
+
 
       <div className="flex flex-wrap gap-2">
         <Button type="button" variant="outline" size="sm" disabled={busy !== "" || !text.trim()} onClick={() => void save()}>
@@ -96,7 +95,7 @@ export function VideoCaptionPanel({
         ) : null}
       </div>
 
-      {error ? <p className="text-xs text-destructive">{error}</p> : null}
+      {error ? <p role="alert" className="text-xs text-destructive">{error}</p> : null}
     </div>
   );
 }
