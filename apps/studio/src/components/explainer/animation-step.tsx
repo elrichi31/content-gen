@@ -7,6 +7,7 @@ import Link from "next/link";
 import { buildCanvasSpec, CANVAS_TEMPLATE_CATALOG, type CanvasTemplate } from "@content-gen/domain/canvas";
 import type { VideoDocument } from "@content-gen/domain/video";
 import { AiProgress } from "@/components/ai-progress";
+import { explainerPalette } from "@/lib/explainer-palette";
 import { useCanvasVoices } from "@/components/explainer/use-canvas-voices";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -16,6 +17,7 @@ type Persisted = { revision: number; document: { data: unknown } };
 
 const clock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
 const text = (value: unknown) => (typeof value === "string" ? value : "");
+const COLORS = [["Cian", "#22d3ee"], ["Verde", "#34d399"], ["Amarillo", "#facc15"], ["Naranja", "#fb923c"], ["Rosa", "#f472b6"], ["Violeta", "#a78bfa"]] as const;
 
 /**
  * Paso de animaciones del video educativo, sobre el motor Canvas: la IA elige una plantilla animada
@@ -24,7 +26,10 @@ const text = (value: unknown) => (typeof value === "string" ? value : "");
  * media resolución y sin motion blur, y las voces suenan en la página desde el `voiceAt` de su escena.
  */
 export function ExplainerAnimationStep({ contentItemId, revision, document, campaignId, onPersisted, onBusyChange }: { contentItemId: string; revision: number; document: VideoDocument; campaignId?: string; onPersisted: (content: Persisted) => void; onBusyChange?: (busy: boolean) => void }) {
-  const spec = useMemo(() => buildCanvasSpec(document), [document]);
+  // El color elegido se ve al instante en la preview y se guarda en todas las escenas poco después.
+  const [color, setColor] = useState<string | null>(null);
+  const shown = useMemo(() => (color ? { ...document, scenes: document.scenes.map((scene) => ({ ...scene, accent: explainerPalette(color) })) } : document), [document, color]);
+  const spec = useMemo(() => buildCanvasSpec(shown), [shown]);
   const html = useMemo(() => buildCanvasHtml(spec, { live: true, scale: 0.5 }), [spec]);
   const frame = useRef<HTMLIFrameElement>(null);
   const [ready, setReady] = useState(false);
@@ -32,8 +37,9 @@ export function ExplainerAnimationStep({ contentItemId, revision, document, camp
   const [time, setTime] = useState(0);
   const [busy, setBusy] = useState(false);
   const [imageBusy, setImageBusy] = useState(false);
+  const [colorBusy, setColorBusy] = useState(false);
   const [imageSceneId, setImageSceneId] = useState<string | null>(document.scenes[0]?.id ?? null);
-  const locked = busy || imageBusy;
+  const locked = busy || imageBusy || colorBusy;
   useEffect(() => { onBusyChange?.(locked); }, [locked, onBusyChange]);
   const [feedback, setFeedback] = useState("");
   const [error, setError] = useState("");
@@ -45,6 +51,30 @@ export function ExplainerAnimationStep({ contentItemId, revision, document, camp
   const send = useCallback((t: number) => frame.current?.contentWindow?.postMessage({ type: "canvas-engine:time", t }, "*"), []);
 
   const { step, stop } = useCanvasVoices(spec, document);
+
+  // El guardado lee lo último por ref: la preview re-renderiza en cada frame y no debe reiniciar la espera.
+  const latest = useRef({ revision, shown, onPersisted });
+  latest.current = { revision, shown, onPersisted };
+  useEffect(() => {
+    if (!color) return;
+    const timer = setTimeout(async () => {
+      setColorBusy(true); setError("");
+      try {
+        const { revision: current, shown: data } = latest.current;
+        const response = await fetch(`/api/content-items/${contentItemId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ revision: current, document: { schemaVersion: 1, data } }) });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(typeof payload.error === "string" ? payload.error : "No se pudo guardar el color.");
+        latest.current.onPersisted(payload as Persisted);
+        setColor(null);
+      } catch (reason) {
+        setError(reason instanceof Error ? reason.message : "No se pudo guardar el color.");
+        setColor(null);
+      } finally {
+        setColorBusy(false);
+      }
+    }, 600);
+    return () => clearTimeout(timer);
+  }, [color, contentItemId]);
 
   // Fotos de las escenas: el iframe aislado no puede pedirlas con la sesión, así que se descargan aquí
   // (una vez por asset) y se le pasan ya decodificadas como ImageBitmap.
@@ -222,6 +252,15 @@ export function ExplainerAnimationStep({ contentItemId, revision, document, camp
               </Button>
               <span className="font-mono text-xs tabular-nums text-muted-foreground">{clock(time)} / {clock(spec.duration)}</span>
               <span className="ml-auto text-[11px] text-muted-foreground">{withVoice ? "Con voz" : "Sin voz"}</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Color de las animaciones">
+              <span className="text-[11px] text-muted-foreground">Color</span>
+              {COLORS.map(([name, value]) => (
+                <button key={value} type="button" disabled={locked} onClick={() => setColor(value)} aria-label={name} aria-pressed={spec.palette[0] === value} title={name}
+                  className={`h-6 w-6 rounded-full border-2 disabled:opacity-50 ${spec.palette[0] === value ? "border-foreground" : "border-transparent"}`} style={{ backgroundColor: value }} />
+              ))}
+              <input type="color" value={spec.palette[0]} disabled={locked} onChange={(event) => setColor(event.target.value)} aria-label="Otro color" title="Otro color" className="h-6 w-8 cursor-pointer rounded border border-border bg-transparent p-0 disabled:opacity-50" />
+              {colorBusy ? <span className="text-[11px] text-muted-foreground">Guardando…</span> : null}
             </div>
           </div>
         </div>

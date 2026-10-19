@@ -4,6 +4,7 @@ import { storedBeats } from "@content-gen/domain/canvas";
 import { CANVAS_TEMPLATE_GUIDE, entryBeats } from "./canvas-plan.ts";
 import { generateOpenAiJson, OpenAiError } from "./openai.ts";
 import { buildContextBlock, buildDateHeader } from "./video-script-prompt.ts";
+import { explainerPalette } from "./explainer-palette.ts";
 import { researchField, researchVideoTopic, VideoGenerationError, videoGenerationInputSchema, withResearchContext, type VideoGenerationInput } from "./video-generation.ts";
 
 /**
@@ -11,20 +12,7 @@ import { researchField, researchVideoTopic, VideoGenerationError, videoGeneratio
  * las animaciones del motor Canvas que lo ilustran; las fotos de fondo son opcionales.
  */
 export const EXPLAINER_TEMPLATE_ID = "explainer";
-
-const DEFAULT_ACCENT = "#22d3ee";
-
-/** Mezcla un #RRGGBB con blanco: el segundo color de la paleta es un tono claro del mismo acento. */
-const tint = (hex: string, amount: number) => `#${[1, 3, 5].map((index) => {
-  const channel = Number.parseInt(hex.slice(index, index + 2), 16);
-  return Math.round(channel + (255 - channel) * amount).toString(16).padStart(2, "0");
-}).join("")}`;
-
-/** Una sola paleta para todo el video: el color de la marca (o cian) y un tono claro del mismo. */
-export function explainerPalette(primaryColor?: string): [string, string] {
-  const accent = primaryColor && /^#[0-9a-fA-F]{6}$/.test(primaryColor) ? primaryColor.toLowerCase() : DEFAULT_ACCENT;
-  return [accent, tint(accent, 0.55)];
-}
+export { explainerPalette };
 
 /** Una escena cada ~12 s, entre 3 y 6: escenas largas con 2 o 3 momentos se siguen mejor que muchas cortas. */
 export const explainerSceneCount = (seconds: number) => Math.min(6, Math.max(3, Math.round(seconds / 12)));

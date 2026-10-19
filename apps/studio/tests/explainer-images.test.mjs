@@ -38,6 +38,8 @@ assert.ok(markup.includes('aria-label="Origen de la imagen"'), "el educativo ofr
 assert.ok(markup.includes('aria-label="Cambiar imagen de la escena 2"'), "cada escena ofrece un cambio de imagen independiente");
 assert.ok(markup.includes("Unsplash") && markup.includes("OpenAI"), "los proveedores están identificados en el editor compartido");
 assert.ok(markup.includes('aria-label="Descripción de la imagen"'));
+assert.ok(markup.includes('aria-label="Color de las animaciones"') && markup.includes('aria-label="Otro color"'), "el paso de animaciones deja elegir el color");
+assert.ok(markup.includes('aria-label="Cian" aria-pressed="true"'), "sin acento guardado se marca el cian por defecto");
 
 const originalFetch = globalThis.fetch;
 try {
