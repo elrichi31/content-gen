@@ -97,6 +97,12 @@ if (process.env.CANVAS_CHROME_PATH) {
   const [r, g, b] = spawnSync("ffmpeg", ["-loglevel", "error", "-i", withPhoto, "-vf", "crop=1:1:1000:1500,format=rgb24", "-f", "rawvideo", "-"]).stdout;
   assert.ok(b > 40 && b > r + 15 && b > g, `la foto se ve de fondo (rgb ${r},${g},${b})`);
 
+  // Color de marca oscuro (azul marino): el borde del «después» sale aclarado, legible sobre el fondo oscuro.
+  const dark = { ...spec, duration: 4, palette: ["#1b2a4e", "#8a93a8"], scenes: [{ ...spec.scenes[0], duration: 4, title: "", plan: { template: "split", before: { label: "Antes", items: ["Uno"] }, after: { label: "Después", items: ["Dos"] }, at: 0.5 } }] };
+  const [split] = await renderCanvasStills(dark, [180], join(dir, "dark"), { subframes: 1 });
+  const [sr, sg, sb] = spawnSync("ffmpeg", ["-loglevel", "error", "-i", split, "-vf", "crop=1:1:554:1050,format=rgb24", "-f", "rawvideo", "-"]).stdout;
+  assert.ok(0.299 * sr + 0.587 * sg + 0.114 * sb > 120 && sb > sr + 60, `el acento oscuro se aclara sin perder el tono (rgb ${sr},${sg},${sb})`);
+
   // Preview del Studio: la página en modo vivo dentro de un iframe aislado (sandbox="allow-scripts")
   // avisa cuando está lista y pinta el instante que le manda el padre.
   const { default: puppeteer } = await import("puppeteer-core");

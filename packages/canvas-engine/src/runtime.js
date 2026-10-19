@@ -17,7 +17,8 @@ export function canvasRuntime(spec, options) {
   const SUB = Math.max(1, Math.round(options.subframes || 1));
   const SCALE = options.scale || 1;
   const SHUTTER = 0.5 / FPS; // obturador de 180°: la estela dura medio frame
-  const [ACC, ACC2] = spec.palette;
+  // El fondo siempre es oscuro: un color de marca oscuro (azul marino) se aclara para que textos y checks se lean.
+  const [ACC, ACC2] = spec.palette.map(readable);
   const C = { ink: "#07080d", ink2: "#10121a", white: "#ffffff", dim: "#3a3f4b" };
   const FD = '"Inter Display", Inter, "Segoe UI", Arial, sans-serif';
   const X0 = 90, X1 = W - 90, CX = W / 2;
@@ -51,6 +52,19 @@ export function canvasRuntime(spec, options) {
   const hash = (a, b = 0) => rng(Math.imul(a + 1, 73856093) ^ Math.imul(b + 1, 19349663))();
   const rgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
   const alpha = (hex, a) => `rgba(${rgb(hex).join(",")},${a})`;
+  function readable(hex) {
+    const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+    const luma = (v) => 0.299 * v[0] + 0.587 * v[1] + 0.114 * v[2];
+    if (luma(c) >= 0.55) return hex;
+    // Mismo tono, más claro y algo más saturado (aclarar hacia blanco lo dejaba gris).
+    const max = Math.max(...c), min = Math.min(...c), d = max - min;
+    const h = d === 0 ? 0 : max === c[0] ? ((c[1] - c[2]) / d + 6) % 6 : max === c[1] ? (c[2] - c[0]) / d + 2 : (c[0] - c[1]) / d + 4;
+    const sat = d === 0 ? 0 : Math.max(0.75, d / (1 - Math.abs(max + min - 1)));
+    const hsl = (l) => [0, 8, 4].map((n) => { const k = (n + h * 2) % 12; return l - sat * Math.min(l, 1 - l) * Math.max(-1, Math.min(k - 3, 9 - k, 1)); });
+    let l = (max + min) / 2, out = hsl(l);
+    while (luma(out) < 0.55 && l < 0.95) out = hsl((l += 0.02));
+    return "#" + out.map((v) => Math.round(v * 255).toString(16).padStart(2, "0")).join("");
+  }
   const mix = (a, b, u) => { const A = rgb(a), B = rgb(b); return `rgb(${A.map((v, i) => Math.round(lerp(v, B[i], clamp(u)))).join(",")})`; };
 
   /** Número con separador de miles y coma decimal, como se lee en español. */
