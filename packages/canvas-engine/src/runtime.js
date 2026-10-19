@@ -163,13 +163,6 @@ export function canvasRuntime(spec, options) {
   /* ------------------------------------------------------------- cabecera de escena */
   function header(ctx, scene, index, t) {
     const appear = scene.start + (index === 0 ? 0.1 : 0.12);
-    const counter = String(index + 1).padStart(2, "0") + " / " + String(spec.scenes.length).padStart(2, "0");
-    ctx.save();
-    ctx.globalAlpha = E.outCubic(P(t, appear, appear + 0.4));
-    ctx.letterSpacing = "6px";
-    text(ctx, counter, X0, 236, 700, 30, ACC);
-    ctx.letterSpacing = "0px";
-    ctx.restore();
     if (!scene.title) return;
     const { size, lines } = fit(ctx, scene.title, 900, X1 - X0, 3, 88, 54);
     lines.forEach((line, i) => maskedLine(ctx, line, X0, 330 + i * size * 1.04, 900, size, C.white, "left", P(t, appear + 0.06 * i, appear + 0.06 * i + 0.7)));
