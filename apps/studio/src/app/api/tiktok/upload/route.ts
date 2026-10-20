@@ -29,8 +29,23 @@ export async function POST(request: Request) {
       if (status === "FAILED") return NextResponse.json({ error: `TikTok recibió el video pero no pudo procesarlo: ${failReason || "sin motivo"}.` }, { status: 502 });
       if (status === "SEND_TO_USER_INBOX" || status === "PUBLISH_COMPLETE") return NextResponse.json({ status: "inbox" });
     }
-  } catch {
+  } catch (error) {
     // El video ya está subido: un fallo al consultar el estado no debe contarse como envío fallido.
+    console.error("[tiktok] no se pudo consultar el estado del envío", publishId, error);
   }
-  return NextResponse.json({ status: "processing" });
+  // Sin el identificador el cliente no puede seguir el envío y un rechazo posterior pasaría en silencio.
+  return NextResponse.json({ status: "processing", publishId });
+}
+
+/** Estado de un envío que seguía procesándose al responder el POST. */
+export async function GET(request: Request) {
+  const publishId = new URL(request.url).searchParams.get("publishId");
+  if (!publishId) return NextResponse.json({ error: "Falta el envío a consultar." }, { status: 400 });
+  try {
+    const { status, failReason } = await fetchDraftStatus(publishId);
+    if (status === "FAILED") return NextResponse.json({ status: "failed", error: `TikTok recibió el video pero no pudo procesarlo: ${failReason || "sin motivo"}.` });
+    return NextResponse.json({ status: status === "SEND_TO_USER_INBOX" || status === "PUBLISH_COMPLETE" ? "inbox" : "processing" });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof TikTokError ? error.message : "No se pudo consultar el envío a TikTok." }, { status: error instanceof TikTokError ? error.status : 500 });
+  }
 }

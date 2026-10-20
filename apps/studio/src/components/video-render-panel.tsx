@@ -65,11 +65,20 @@ export function VideoRenderPanel({ contentItemId, unsavedChanges, children }: { 
     setSending(true);
     try {
       const response = await fetch("/api/tiktok/upload", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ assetId }) });
-      const payload = await response.json() as { status?: string; error?: string };
+      let payload = await response.json() as { status?: string; error?: string; publishId?: string };
       if (!response.ok) throw new Error(payload.error ?? "No se pudo enviar el video a TikTok.");
+      // TikTok puede tardar minutos en procesar y rechazarlo después: se sigue el envío hasta saber cómo acabó.
+      for (let attempt = 0; payload.status === "processing" && payload.publishId && attempt < 36; attempt += 1) {
+        setTiktokNote("Subido. TikTok lo está procesando…");
+        await new Promise((resolve) => setTimeout(resolve, 5000));
+        const check = await fetch(`/api/tiktok/upload?publishId=${encodeURIComponent(payload.publishId)}`);
+        const next = await check.json() as { status?: string; error?: string };
+        if (!check.ok || next.status === "failed") throw new Error(next.error ?? "No se pudo consultar el envío a TikTok.");
+        payload = { ...payload, status: next.status };
+      }
       setTiktokNote(payload.status === "inbox"
-        ? "Enviado. Abre TikTok, entra a la bandeja de entrada y toca el aviso para publicarlo; la descripción se pega allí."
-        : "Subido. TikTok lo está procesando y avisará en la bandeja de entrada de la app cuando esté listo.");
+        ? "Enviado. No aparece en Borradores: abre TikTok, entra a la Bandeja de entrada, busca el aviso de la app entre las notificaciones y tócalo para editarlo y publicarlo (o guardarlo como borrador)."
+        : "TikTok sigue procesando el video tras 3 minutos. Si en un rato no ves el aviso en la bandeja de entrada de TikTok, vuelve a enviarlo.");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "No se pudo enviar el video a TikTok.");
     } finally {
