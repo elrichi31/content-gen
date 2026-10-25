@@ -17,6 +17,7 @@ export function VideoRenderPanel({ contentItemId, unsavedChanges, children }: { 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [sending, setSending] = useState(false);
+  const [squaring, setSquaring] = useState(false);
   const [tiktokNote, setTiktokNote] = useState("");
   const consoleRef = useRef<HTMLDivElement>(null);
 
@@ -96,6 +97,25 @@ export function VideoRenderPanel({ contentItemId, unsavedChanges, children }: { 
     }
   }
 
+  // Se baja por fetch y no con un enlace: la conversión tarda unos segundos y, si falla, un enlace no avisa.
+  async function downloadSquare(assetId: string) {
+    setError("");
+    setSquaring(true);
+    try {
+      const response = await fetch(`/api/assets/${assetId}/square`);
+      if (!response.ok) throw new Error(((await response.json().catch(() => null)) as { error?: string } | null)?.error ?? "No se pudo convertir el video a formato cuadrado.");
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(await response.blob());
+      link.download = `${contentItemId.slice(0, 8)}-cuadrado.mp4`;
+      link.click();
+      URL.revokeObjectURL(link.href);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "No se pudo convertir el video a formato cuadrado.");
+    } finally {
+      setSquaring(false);
+    }
+  }
+
   const done = job?.status === "completed" && job.outputAssetId;
 
   return (
@@ -116,8 +136,8 @@ export function VideoRenderPanel({ contentItemId, unsavedChanges, children }: { 
             <Button type="button" asChild>
               <a href={`/api/assets/${job.outputAssetId}`} download={`${contentItemId.slice(0, 8)}.mp4`}><Download className="h-4 w-4" /> Descargar MP4</a>
             </Button>
-            <Button type="button" variant="outline" asChild>
-              <a href={`/api/assets/${job.outputAssetId}/square`} download={`${contentItemId.slice(0, 8)}-cuadrado.mp4`}><Download className="h-4 w-4" /> Descargar cuadrado 1:1 (Meta)</a>
+            <Button type="button" variant="outline" disabled={squaring} onClick={() => void downloadSquare(job.outputAssetId!)}>
+              <Download className="h-4 w-4" /> {squaring ? "Convirtiendo…" : "Descargar cuadrado 1:1 (Meta)"}
             </Button>
             <Button type="button" variant="outline" className="h-auto min-h-9 whitespace-normal" disabled={sending} onClick={() => void sendToTikTok(job.outputAssetId!)}>
               <Send className="h-4 w-4" /> {sending ? "Enviando a TikTok…" : "Enviar a borradores de TikTok"}

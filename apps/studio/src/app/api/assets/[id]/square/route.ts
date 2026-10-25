@@ -23,7 +23,8 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     const output = join(dir, "square.mp4");
     await promisify(execFile)("ffmpeg", ["-y", "-loglevel", "error", "-i", resolveAssetPath(mediaRoot, asset.storageKey), "-filter_complex", SQUARE_FILTER, "-map", "[v]", "-map", "0:a?", "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-c:a", "copy", "-movflags", "+faststart", output], { timeout: 180_000 });
     return new Response(await readFile(output), { headers: { "Content-Type": "video/mp4", "Content-Disposition": `attachment; filename="${id.slice(0, 8)}-cuadrado.mp4"` } });
-  } catch {
+  } catch (error) {
+    console.error("square:", error instanceof Error ? error.message : error);
     return NextResponse.json({ error: "No se pudo convertir el video a formato cuadrado." }, { status: 500 });
   } finally {
     await rm(dir, { recursive: true, force: true });
