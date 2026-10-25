@@ -12,7 +12,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { AiProgress } from "@/components/ai-progress";
 
 // Presets y sugerencias del asistente original.
-const DURATION_PRESETS = [30, 45, 60, 90];
+// 15 s: duración recomendada para ads de Meta (Reels/Stories).
+const DURATION_PRESETS = [15, 30, 45, 60, 90];
 const SUGGESTIONS = [
   "Ransomware", "Ingeniería social", "Inteligencia artificial en 2026",
   "Quantum computing", "Deepfakes", "Criptomonedas y fraudes",

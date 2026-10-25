@@ -64,6 +64,15 @@ export function VideoRenderPanel({ contentItemId, unsavedChanges, children }: { 
     setTiktokNote("");
     setSending(true);
     try {
+      // La API de borradores de TikTok no recibe descripción: se copia antes de subir (con el clic aún vigente) para pegarla al publicar.
+      let copied = false;
+      try {
+        const captionResponse = await fetch(`/api/videos/${contentItemId}/caption`);
+        const caption = captionResponse.ok ? (await captionResponse.text()).trim() : "";
+        if (caption) { await navigator.clipboard.writeText(caption); copied = true; }
+      } catch {
+        // Sin caption o sin permiso de portapapeles: el envío del video sigue igual.
+      }
       const response = await fetch("/api/tiktok/upload", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ assetId }) });
       let payload = await response.json() as { status?: string; error?: string; publishId?: string };
       if (!response.ok) throw new Error(payload.error ?? "No se pudo enviar el video a TikTok.");
@@ -76,9 +85,10 @@ export function VideoRenderPanel({ contentItemId, unsavedChanges, children }: { 
         if (!check.ok || next.status === "failed") throw new Error(next.error ?? "No se pudo consultar el envío a TikTok.");
         payload = { ...payload, status: next.status };
       }
-      setTiktokNote(payload.status === "inbox"
+      const paste = copied ? " El caption ya está copiado: pégalo en la descripción." : " Este video no tiene caption guardado.";
+      setTiktokNote((payload.status === "inbox"
         ? "Enviado. No aparece en Borradores: abre TikTok, entra a la Bandeja de entrada, busca el aviso de la app entre las notificaciones y tócalo para editarlo y publicarlo (o guardarlo como borrador)."
-        : "TikTok sigue procesando el video tras 3 minutos. Si en un rato no ves el aviso en la bandeja de entrada de TikTok, vuelve a enviarlo.");
+        : "TikTok sigue procesando el video tras 3 minutos. Si en un rato no ves el aviso en la bandeja de entrada de TikTok, vuelve a enviarlo.") + paste);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "No se pudo enviar el video a TikTok.");
     } finally {
