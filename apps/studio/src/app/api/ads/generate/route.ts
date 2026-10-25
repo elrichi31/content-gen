@@ -19,7 +19,8 @@ export async function POST(request: Request) {
   const { brand, error: brandError } = await brandOrError(body?.brandKitId, stored?.brand_json);
   if (brandError) return NextResponse.json({ error: brandError }, { status: 400 });
   const defaults = brandDefaults(brand);
-  const input = adGenerationInputSchema.safeParse(previous?.success ? { topic: `${previous.data.headline}. ${previous.data.body}`, audience: body?.audience ?? defaults.audience, tone: body?.tone ?? defaults.tone, format: previous.data.format, layout: previous.data.layout, campaignId: body?.campaignId } : { ...defaults, ...body, ...brief });
+  const input = adGenerationInputSchema.safeParse(previous?.success ? { topic: `${previous.data.headline}. ${previous.data.body}`, audience: body?.audience ?? defaults.audience, tone: body?.tone ?? defaults.tone, format: previous.data.format, layout: previous.data.layout, campaignId: body?.campaignId } // El brief de la campaña solo rellena lo que la solicitud no trae: antes lo pisaba y el anuncio salía del tema de la campaña.
+    : { ...defaults, ...brief, ...Object.fromEntries(Object.entries(body ?? {}).filter(([, value]) => value !== undefined && value !== "")) });
   if (!input.success || previous && !previous.success) return NextResponse.json({ error: "La solicitud de anuncio no es válida." }, { status: 400 });
   try {
     const document = await trackGeneration({ operation: previous ? "ad-regenerate" : "ad-generate", model: openAiModel("text") }, async () => {

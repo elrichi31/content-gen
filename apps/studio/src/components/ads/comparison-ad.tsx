@@ -13,17 +13,17 @@ export function ComparisonAd({ ad, w, h }: { ad: AdState; w: number; h: number }
   const onAccent = onColor(accent)
   const headSize = fitSize(ad.compHeadline, w - pad * 2, h * (wide ? 0.3 : tall ? 0.17 : 0.2), { max: u * (wide ? 11 : 13), min: u * 5 })
   const panelH = cols ? h * 0.5 : h * 0.3
-  const rowSize = (count: number) => Math.min(u * (tall ? 4.6 : wide ? 3.8 : 3.9), Math.max(u * 2.8, (panelH - u * 16) / (Math.max(1, count) * 1.9)))
+  const rowSize = (count: number) => Math.min(u * (tall ? 4.6 : wide ? 3.8 : 3.9), Math.max(u * 2.8, (panelH - u * 16) / (Math.max(1, count) * 2.9)))
   const chip = u * 10
 
   const rows = (items: string[], icon: "cross" | "check") => {
     const size = rowSize(items.length)
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: size * 0.55 }}>
-        {items.slice(0, 5).map((item) => (
+        {items.slice(0, 4).map((item) => (
           <div key={item} style={{ ...copy(size, icon === "check" ? 800 : 500), display: "flex", alignItems: "center", gap: size * 0.6, color: icon === "check" ? onAccent : alpha(ink, 0.72) }}>
             {icon === "check" ? <Check size={size * 1.15} /> : <Cross size={size * 1.15} color={alpha(ink, 0.5)} />}
-            <span>{item}</span>
+            <span style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{item}</span>
           </div>
         ))}
       </div>
@@ -40,11 +40,11 @@ export function ComparisonAd({ ad, w, h }: { ad: AdState; w: number; h: number }
         <p style={{ ...display(headSize), color: ink, textWrap: "balance" }}>{ad.compHeadline}</p>
       </div>
       <div style={{ flex: 1, position: "relative", display: "flex", flexDirection: cols ? "row" : "column" }}>
-        <div style={{ flex: 1, background: alpha(ink, 0.08), display: "flex", flexDirection: "column", gap: u * 3, padding: `${u * 6}px ${pad}px` }}>
+        <div style={{ flex: 1, background: alpha(ink, 0.08), display: "flex", flexDirection: "column", gap: u * 3, padding: `${u * 6}px ${cols ? pad + chip / 2 : pad}px ${u * 6}px ${pad}px` }}>
           {label(ad.leftLabel, alpha(ink, 0.65))}
           {rows(ad.leftItems, "cross")}
         </div>
-        <div style={{ flex: 1.35, background: accent, color: onAccent, display: "flex", flexDirection: "column", justifyContent: "space-between", gap: u * 3, padding: `${cols ? u * 6 : u * 9}px ${pad}px ${cols ? pad : bottom}px` }}>
+        <div style={{ flex: 1.35, background: accent, color: onAccent, display: "flex", flexDirection: "column", justifyContent: "space-between", gap: u * 3, padding: `${cols ? u * 6 : u * 9}px ${pad}px ${cols ? pad : bottom}px ${cols ? pad + chip / 2 : pad}px` }}>
           <div style={{ display: "flex", flexDirection: "column", gap: u * 3 }}>
             {label(ad.rightLabel, onAccent)}
             {rows(ad.rightItems, "check")}

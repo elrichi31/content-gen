@@ -11,10 +11,11 @@ export function PainSolutionAd({ ad, w, h }: { ad: AdState; w: number; h: number
   const ink = ad.textColor
   const accent = ad.accentColor
   const onAccent = onColor(accent)
-  const textW = cols ? w / 2 - pad * 2 : w - pad * 2
+  const chip = u * 11
+  // En columnas la flecha cae en la costura: se le deja sitio en el lado de cada panel que la toca.
+  const textW = cols ? w / 2 - pad * 2 - chip / 2 : w - pad * 2
   const painSize = fitSize(ad.painHeadline, textW, h * (cols ? 0.34 : 0.15), { max: u * (cols ? 9 : 11), min: u * 4.5 })
   const solutionSize = fitSize(ad.solutionHeadline, textW, h * (cols ? 0.4 : 0.19), { max: u * (cols ? 12 : 14), min: u * 5.5 })
-  const chip = u * 11
 
   const tile = (background: string, color: string, icon: "cross" | "check") => (
     <div style={{ width: u * 9, height: u * 9, background, color, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: u * 0.8 }}>
@@ -27,14 +28,14 @@ export function PainSolutionAd({ ad, w, h }: { ad: AdState; w: number; h: number
   const cta = ad.cta ? <Cta label={ad.cta} background={ink} color={ad.bgColor} u={u} /> : null
 
   const pain = (
-    <div style={{ flex: 1, background: alpha(ink, 0.07), display: "flex", flexDirection: "column", justifyContent: cols ? "center" : "flex-start", gap: u * 3, padding: cols ? pad : `${top}px ${pad}px ${u * 8}px` }}>
+    <div style={{ flex: 1, background: alpha(ink, 0.07), display: "flex", flexDirection: "column", justifyContent: cols ? "center" : "flex-start", gap: u * 3, padding: cols ? `${pad}px ${pad + chip / 2}px ${pad}px ${pad}px` : `${top}px ${pad}px ${u * 8}px` }}>
       {tile(alpha(ink, 0.16), ink, "cross")}
       <p style={{ ...display(painSize), color: alpha(ink, 0.92), textWrap: "balance" }}>{ad.painHeadline}</p>
       {desc(ad.painDesc, alpha(ink, 0.7))}
     </div>
   )
   const solution = (
-    <div style={{ flex: 1, background: accent, color: onAccent, display: "flex", flexDirection: "column", justifyContent: cols ? "center" : "space-between", gap: u * 3, padding: cols ? pad : `${u * 9}px ${pad}px ${bottom}px` }}>
+    <div style={{ flex: 1, background: accent, color: onAccent, display: "flex", flexDirection: "column", justifyContent: cols ? "center" : "space-between", gap: u * 3, padding: cols ? `${pad}px ${pad}px ${pad}px ${pad + chip / 2}px` : `${u * 9}px ${pad}px ${bottom}px` }}>
       <div style={{ display: "flex", flexDirection: "column", gap: u * 3 }}>
         {tile(onAccent, accent, "check")}
         <p style={{ ...display(solutionSize), textWrap: "balance" }}>{ad.solutionHeadline}</p>
