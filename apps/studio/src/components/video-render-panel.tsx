@@ -116,6 +116,9 @@ export function VideoRenderPanel({ contentItemId, unsavedChanges, children }: { 
             <Button type="button" asChild>
               <a href={`/api/assets/${job.outputAssetId}`} download={`${contentItemId.slice(0, 8)}.mp4`}><Download className="h-4 w-4" /> Descargar MP4</a>
             </Button>
+            <Button type="button" variant="outline" asChild>
+              <a href={`/api/assets/${job.outputAssetId}/square`} download={`${contentItemId.slice(0, 8)}-cuadrado.mp4`}><Download className="h-4 w-4" /> Descargar cuadrado 1:1 (Meta)</a>
+            </Button>
             <Button type="button" variant="outline" className="h-auto min-h-9 whitespace-normal" disabled={sending} onClick={() => void sendToTikTok(job.outputAssetId!)}>
               <Send className="h-4 w-4" /> {sending ? "Enviando a TikTok…" : "Enviar a borradores de TikTok"}
             </Button>
